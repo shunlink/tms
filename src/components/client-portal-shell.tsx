@@ -147,7 +147,7 @@ export default function ClientPortalShell({
           <div className="relative rounded-xl overflow-hidden p-3.5 text-center bg-gradient-to-t from-neutral-950 to-neutral-900/80 border border-neutral-800 shadow-inner">
             <div
               className="absolute inset-0 bg-cover bg-center opacity-30"
-              style={{ backgroundImage: `url(/images/auth/transporter-bg.jpg)` }}
+              style={{ backgroundImage: `url(/auth/shunlink-hero-bg.jpg)` }}
             />
             <div className="relative z-10">
               <p className="font-script text-lg text-white leading-tight">

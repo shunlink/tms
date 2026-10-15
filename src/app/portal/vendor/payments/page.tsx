@@ -4,6 +4,7 @@ import { Wallet, Receipt, CreditCard, ArrowRight, ExternalLink } from "lucide-re
 import StatusBadge from "@/components/status-badge";
 import { getSessionUser } from "@/lib/auth";
 import { getVendorPayments } from "@/lib/queries";
+import { prisma } from "@/lib/prisma";
 import { formatINR, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -12,14 +13,19 @@ export default async function VendorPaymentsPage() {
   const user = await getSessionUser();
   if (!user?.vendorId) redirect("/login?portal=transporter");
 
-  const payments = await getVendorPayments(user.vendorId);
-  const paidTotal = payments.filter((p) => p.status === "PAID").reduce((s, p) => s + p.paidAmount, 0);
-  const advanceTotal = payments
+  const [payments, tripAgg] = await Promise.all([
+    getVendorPayments(user.vendorId),
+    prisma.trip.aggregate({
+      where: { vendorId: user.vendorId, status: { notIn: ["CANCELLED", "cancelled"] } },
+      _sum: { vendorRate: true },
+    }),
+  ]);
+
+  const totalReceivable = Number(tripAgg._sum.vendorRate ?? 0);
+  const totalAdvanceReceived = payments
     .filter((p) => p.paymentType === "ADVANCE" && p.status === "PAID")
     .reduce((s, p) => s + p.paidAmount, 0);
-  const balanceTotal = payments
-    .filter((p) => p.paymentType === "BALANCE" && p.status === "PAID")
-    .reduce((s, p) => s + p.paidAmount, 0);
+  const balanceAmount = Math.max(0, totalReceivable - totalAdvanceReceived);
 
   return (
     <div className="space-y-6">
@@ -46,9 +52,9 @@ export default async function VendorPaymentsPage() {
             <Wallet className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Received</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Receivable</p>
             <p className="text-xl sm:text-2xl font-extrabold text-gray-950 tabular-nums mt-0.5">
-              {formatINR(paidTotal)}
+              {formatINR(totalReceivable)}
             </p>
           </div>
         </div>
@@ -58,9 +64,9 @@ export default async function VendorPaymentsPage() {
             <CreditCard className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Advances Paid</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Advance Received</p>
             <p className="text-xl sm:text-2xl font-extrabold text-gray-950 tabular-nums mt-0.5">
-              {formatINR(advanceTotal)}
+              {formatINR(totalAdvanceReceived)}
             </p>
           </div>
         </div>
@@ -70,9 +76,9 @@ export default async function VendorPaymentsPage() {
             <Receipt className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Balance Settled</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Balance Amount</p>
             <p className="text-xl sm:text-2xl font-extrabold text-gray-950 tabular-nums mt-0.5">
-              {formatINR(balanceTotal)}
+              {formatINR(balanceAmount)}
             </p>
           </div>
         </div>

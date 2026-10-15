@@ -95,39 +95,48 @@ export default async function ClientOverviewPage() {
   return (
     <div className="space-y-6">
       {/* =========================================================================
-          HERO BANNER
+          HERO BANNER (Panoramic truck background + Greeting + Action Buttons)
           ========================================================================= */}
-      <div className="relative rounded-2xl overflow-hidden bg-slate-900 border border-gray-200/80 shadow-2xs">
-        {/* Background Image */}
+      <div className="relative rounded-2xl overflow-hidden border border-gray-200/80 shadow-xs bg-gradient-to-r from-[#CAD4E0] via-[#DCE4EE] to-[#E8EDF3] p-6 sm:p-8 lg:p-9 min-h-[170px] flex items-center justify-between">
+        {/* Right truck panorama illustration with subtle soft fade */}
         <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(/images/auth/client-bg.jpg)` }}
+          className="hidden md:block absolute right-0 top-0 bottom-0 w-3/5 bg-cover bg-right bg-no-repeat pointer-events-none"
+          style={{
+            backgroundImage: "url(/images/vendor-hero-panorama.jpg)",
+            maskImage: "linear-gradient(to right, transparent 0%, black 25%)",
+            WebkitMaskImage: "linear-gradient(to right, transparent 0%, black 25%)",
+          }}
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-white via-white/95 to-white/40 lg:to-transparent" />
 
-        <div className="relative z-10 p-6 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="max-w-md">
-            <p className="text-xs sm:text-sm font-semibold text-gray-600 mb-1">Good Morning,</p>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-950 tracking-tight leading-tight mb-2">
-              {d.clientName} 👋
+        {/* Left greeting and action buttons */}
+        <div className="relative z-10 max-w-xl space-y-4">
+          <div>
+            <p className="text-sm font-medium text-gray-700">Good Morning,</p>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-950 tracking-tight flex items-center gap-2">
+              <span>{d.clientName}</span>
+              <span role="img" aria-label="wave">👋</span>
             </h1>
-            <p className="text-xs sm:text-sm text-gray-600 mb-5 font-normal">
+            <p className="text-xs sm:text-sm text-gray-600 mt-1 font-normal">
               Your transportation, all in one place.
             </p>
-            <Link
-              href="/portal/client/requirements/new"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-xs sm:text-sm shadow-xs transition-colors"
-            >
-              <span>+ Create Requirement</span>
-              <ArrowRight className="h-4 w-4" />
-            </Link>
           </div>
 
-          {/* Right Floating Badge on Truck Photo */}
-          <div className="hidden lg:block bg-slate-950/70 backdrop-blur-md border border-white/20 rounded-2xl p-4 text-white max-w-xs shadow-lg">
-            <p className="text-sm font-bold leading-snug">Reliable logistics.</p>
-            <p className="text-sm font-bold text-amber-300 leading-snug">Stronger businesses.</p>
-            <p className="text-[11px] text-white/70 mt-2 font-medium">Move Faster. Move Smarter.</p>
+          <div className="flex flex-wrap items-center gap-3 pt-1">
+            <Link
+              href="/portal/client/requirements/new"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#F5D33C] hover:bg-[#ebd034] text-gray-950 font-bold text-xs sm:text-sm shadow-xs transition-all active:scale-[0.98]"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Create Requirement</span>
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+
+            <Link
+              href="/portal/client/trips"
+              className="inline-flex items-center justify-center px-5 py-2.5 rounded-full bg-white hover:bg-gray-50 text-gray-900 border border-gray-200/90 font-semibold text-xs sm:text-sm shadow-2xs transition-all active:scale-[0.98]"
+            >
+              My Shipments
+            </Link>
           </div>
         </div>
       </div>

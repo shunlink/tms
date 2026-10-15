@@ -33,10 +33,10 @@ export default function WelcomePage({
         {/* Background Image with Dark Vignette Gradient */}
         <div
           className="absolute inset-0 bg-cover bg-center transition-all duration-700 scale-105"
-          style={{ backgroundImage: `url(/images/auth/transporter-bg.jpg)` }}
+          style={{ backgroundImage: `url(/auth/shunlink-hero-bg.jpg)` }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/70 to-slate-950/40" />
-        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/50 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-slate-950/20" />
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-950/35 to-transparent" />
 
         {/* Top: Logo & Category Header */}
         <div className="relative z-10">
