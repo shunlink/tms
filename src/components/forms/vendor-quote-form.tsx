@@ -69,7 +69,7 @@ export default function VendorQuoteForm({
           type="number"
           required
           min={1}
-          className="w-full border rounded-md px-3 py-2 text-sm"
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#F5D33C]/30 focus:border-[#F5D33C] transition-all"
           value={quotedRate}
           onChange={(e) => setQuotedRate(e.target.value)}
         />
@@ -80,13 +80,13 @@ export default function VendorQuoteForm({
         </label>
         <input
           type="text"
-          className="w-full border rounded-md px-3 py-2 text-sm"
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#F5D33C]/30 focus:border-[#F5D33C] transition-all"
           value={remarks}
           onChange={(e) => setRemarks(e.target.value)}
         />
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <Button type="submit" size="sm" disabled={busy} className="bg-[#F5D33C] hover:bg-[#ebd034] text-gray-950 font-bold shadow-xs">
+      <Button type="submit" size="sm" disabled={busy} className="bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold shadow-xs">
         {busy ? "Submitting..." : "Submit Quote"}
       </Button>
     </form>

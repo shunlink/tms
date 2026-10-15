@@ -112,13 +112,13 @@ export default function AppShell({
     <div className="flex h-screen overflow-hidden bg-background">
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 w-64 bg-sidebar text-sidebar-foreground flex flex-col h-screen transition-transform lg:static lg:translate-x-0 print:hidden",
+          "fixed inset-y-0 left-0 z-50 w-64 bg-black text-white flex flex-col h-screen transition-transform lg:static lg:translate-x-0 print:hidden border-r border-neutral-900",
           open ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <div className="flex items-center justify-between p-5 border-b border-white/10">
+        <div className="flex items-center justify-between p-5 border-b border-neutral-800">
           <BrandLogo variant="dark" showSubtitle subtitle="Transport Management" href="/" size="lg" />
-          <button className="lg:hidden text-white/70 hover:text-white" onClick={() => setOpen(false)}>
+          <button className="lg:hidden text-neutral-400 hover:text-white" onClick={() => setOpen(false)}>
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -126,10 +126,10 @@ export default function AppShell({
         <nav className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden scrollbar-none p-3 space-y-5">
           {visibleGroups.map((g) => (
             <div key={g.title}>
-              <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-white/50">
+              <p className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400">
                 {g.title}
               </p>
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {g.items.map((item) => {
                   const Icon = ICONS[item.href] ?? LayoutDashboard;
                   const active = isActive(item.href);
@@ -139,15 +139,24 @@ export default function AppShell({
                       href={item.href}
                       onClick={() => setOpen(false)}
                       className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors border-l-[3px]",
+                        "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all",
                         active
-                          ? "border-accent bg-white/10 text-white"
-                          : "border-transparent text-white/70 hover:bg-white/5 hover:text-white"
+                          ? "bg-[#F5D33C] text-gray-950 font-bold shadow-sm"
+                          : "text-neutral-300 hover:bg-neutral-900 hover:text-white font-medium"
                       )}
                     >
-                      <Icon className="h-5 w-5 shrink-0" />
+                      <Icon
+                        className={cn(
+                          "h-5 w-5 shrink-0 transition-colors",
+                          active ? "text-gray-950" : "text-neutral-400 group-hover:text-white"
+                        )}
+                      />
                       <span className="truncate flex-1">{item.label}</span>
-                      <NavBadge count={badgeFor(item.pendingCountKey)} variant="sidebar" />
+                      <NavBadge
+                        count={badgeFor(item.pendingCountKey)}
+                        variant="sidebar"
+                        className={active ? "bg-gray-950 text-white" : undefined}
+                      />
                     </Link>
                   );
                 })}
@@ -156,14 +165,14 @@ export default function AppShell({
           ))}
         </nav>
 
-        <div className="border-t border-white/10 p-4 space-y-2">
+        <div className="border-t border-neutral-800 p-4 space-y-2">
           <div className="flex items-center gap-3 px-1">
-            <div className="h-9 w-9 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-sm font-bold">
+            <div className="h-9 w-9 rounded-full bg-[#F5D33C] text-gray-950 flex items-center justify-center text-sm font-bold">
               {(user.name ?? "U").charAt(0)}
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium text-white truncate">{user.name ?? "User"}</p>
-              <p className="text-xs text-white/60 truncate">
+              <p className="text-xs text-neutral-400 truncate">
                 {user.teamName ? `${user.teamName} · ` : ""}
                 {user.email ?? user.role ?? ""}
               </p>
@@ -172,7 +181,7 @@ export default function AppShell({
           <button
             type="button"
             onClick={() => signOut({ callbackUrl: "/login" })}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white"
+            className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-300 hover:bg-neutral-900 hover:text-white transition-colors"
           >
             <LogOut className="h-4 w-4" /> Sign out
           </button>
@@ -223,7 +232,7 @@ export default function AppShell({
                 onClick={() => setMenuOpen((v) => !v)}
                 className="inline-flex h-11 items-center gap-2 rounded-lg border border-input bg-background px-3 hover:bg-muted"
               >
-                <span className="h-7 w-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                <span className="h-7 w-7 rounded-full bg-[#F5D33C] text-gray-950 flex items-center justify-center text-xs font-bold">
                   {(user.name ?? "U").charAt(0)}
                 </span>
               </button>

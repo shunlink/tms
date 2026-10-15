@@ -16,7 +16,7 @@ import {
 import PodPendingAlert from "@/components/pod-pending-alert";
 import PortalBiddingPromoBanner from "@/components/portal/portal-bidding-promo-banner";
 import { getSessionUser } from "@/lib/auth";
-import { getVendorPortalOverview } from "@/lib/queries";
+import { getVendorPortalOverview, getVendorPayments } from "@/lib/queries";
 import { prisma } from "@/lib/prisma";
 import { formatINR, formatDate } from "@/lib/utils";
 
@@ -26,7 +26,7 @@ export default async function VendorOverviewPage() {
   const user = await getSessionUser();
   if (!user?.vendorId) redirect("/login?portal=transporter");
 
-  const [d, tripsWithDates, vendorPayments] = await Promise.all([
+  const [d, tripsWithDates, vendorPayments, allPayments, tripAgg] = await Promise.all([
     getVendorPortalOverview(user.vendorId),
     prisma.trip.findMany({
       where: { vendorId: user.vendorId },
@@ -61,7 +61,18 @@ export default async function VendorOverviewPage() {
         trip: { select: { lrNumber: true } },
       },
     }),
+    getVendorPayments(user.vendorId),
+    prisma.trip.aggregate({
+      where: { vendorId: user.vendorId, status: { notIn: ["CANCELLED", "cancelled"] } },
+      _sum: { vendorRate: true },
+    }),
   ]);
+
+  const totalReceivable = Number(tripAgg._sum.vendorRate ?? 0);
+  const totalAdvanceReceived = allPayments
+    .filter((p) => p.paymentType === "ADVANCE" && p.status === "PAID")
+    .reduce((s, p) => s + (p.paidAmount || 0), 0);
+  const pendingPayment = Math.max(0, totalReceivable - totalAdvanceReceived);
 
   // Construct real chronological activity items from database
   const activityItems: Array<{
@@ -152,7 +163,7 @@ export default async function VendorOverviewPage() {
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <Link
               href="/portal/vendor/indents"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#F5D33C] hover:bg-[#ebd034] text-gray-950 font-bold text-xs sm:text-sm shadow-xs transition-all active:scale-[0.98]"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-xs sm:text-sm shadow-xs transition-all active:scale-[0.98]"
             >
               <FileSpreadsheet className="h-4 w-4" />
               <span>View Open Indents</span>
@@ -247,7 +258,7 @@ export default async function VendorOverviewPage() {
             </div>
             <div>
               <p className="text-2xl sm:text-3xl font-extrabold text-gray-950 tabular-nums leading-none">
-                {formatINR(d.pendingPay)}
+                {formatINR(pendingPayment)}
               </p>
               <p className="text-xs font-semibold text-gray-500 mt-1">Pending Payment</p>
             </div>
@@ -289,7 +300,7 @@ export default async function VendorOverviewPage() {
                 <div className="mt-4">
                   <Link
                     href="/portal/vendor/indents"
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#F5D33C] hover:bg-[#ebd034] text-gray-950 text-xs font-bold shadow-xs transition-colors"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 text-xs font-bold shadow-xs transition-colors"
                   >
                     Browse Open Indents
                   </Link>
@@ -478,39 +489,6 @@ export default async function VendorOverviewPage() {
                 </div>
                 <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-gray-700 group-hover:translate-x-0.5 transition-all" />
               </Link>
-            </div>
-          </div>
-
-          {/* Card: Payment Summary */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-5 sm:p-6 shadow-2xs">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-              <div className="flex items-center gap-2">
-                <Wallet className="h-5 w-5 text-amber-500" />
-                <h2 className="text-base sm:text-lg font-bold text-gray-950">Payment Summary</h2>
-              </div>
-              <Link
-                href="/portal/vendor/payments"
-                className="text-xs sm:text-sm font-semibold text-blue-600 hover:text-blue-700"
-              >
-                View all →
-              </Link>
-            </div>
-
-            <div className="pt-3">
-              <p className="text-xs font-medium text-gray-500">Pending Payment</p>
-              <p className="text-2xl sm:text-3xl font-extrabold text-gray-950 tabular-nums mt-0.5 mb-4">
-                {formatINR(d.pendingPay)}
-              </p>
-
-              <div className="bg-[#F8FAFC] border border-gray-100 rounded-xl p-6 text-center">
-                <div className="mx-auto w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-2">
-                  <FileText className="h-5 w-5" />
-                </div>
-                <p className="text-xs sm:text-sm font-bold text-gray-900">All caught up!</p>
-                <p className="text-xs text-gray-500 mt-1">
-                  You have no pending payments at the moment.
-                </p>
-              </div>
             </div>
           </div>
         </div>

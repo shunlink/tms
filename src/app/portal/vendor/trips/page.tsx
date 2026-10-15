@@ -51,7 +51,7 @@ export default async function VendorTripsPage() {
             <div className="mt-5">
               <Link
                 href="/portal/vendor/indents"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#F5D33C] hover:bg-[#ebd034] text-gray-950 text-xs font-bold shadow-xs transition-colors"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 text-xs font-bold shadow-xs transition-colors"
               >
                 <FileSpreadsheet className="h-4 w-4" />
                 <span>Browse Open Indents</span>

@@ -147,7 +147,7 @@ export default function ClientPortalShell({
           <div className="relative rounded-xl overflow-hidden p-3.5 text-center bg-gradient-to-t from-neutral-950 to-neutral-900/80 border border-neutral-800 shadow-inner">
             <div
               className="absolute inset-0 bg-cover bg-center opacity-30"
-              style={{ backgroundImage: `url(/images/auth/transporter-bg.jpg)` }}
+              style={{ backgroundImage: `url(/auth/shunlink-hero-bg.jpg)` }}
             />
             <div className="relative z-10">
               <p className="font-script text-lg text-white leading-tight">
@@ -271,7 +271,7 @@ export default function ClientPortalShell({
                 onClick={() => setUserDropdownOpen(!userDropdownOpen)}
                 className="flex items-center gap-2.5 p-1 sm:pr-2.5 rounded-full hover:bg-gray-100 transition-colors"
               >
-                <div className="h-8 w-8 rounded-full bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center">
+                <div className="h-8 w-8 rounded-full bg-[#F5D33C] text-gray-950 font-bold text-xs flex items-center justify-center shadow-xs">
                   {initials}
                 </div>
                 <span className="hidden sm:inline-block text-xs font-semibold text-gray-800 max-w-[10rem] truncate">

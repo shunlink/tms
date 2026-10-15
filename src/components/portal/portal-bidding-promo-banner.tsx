@@ -19,12 +19,12 @@ export default function PortalBiddingPromoBanner({
   const styles =
     accent === "client"
       ? "border-teal-200 bg-gradient-to-r from-teal-50 via-emerald-50 to-teal-50 text-teal-950"
-      : "border-amber-200 bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 text-amber-950";
+      : "border-[#F5D33C]/40 bg-gradient-to-r from-amber-50/70 via-yellow-50/50 to-amber-50/70 text-gray-950";
 
   const buttonStyles =
     accent === "client"
       ? "bg-teal-700 text-white hover:bg-teal-800 shadow-sm"
-      : "bg-amber-700 text-white hover:bg-amber-800 shadow-sm";
+      : "bg-[#F5D33C] text-gray-950 hover:bg-[#EAC72E] font-bold shadow-xs";
 
   return (
     <div
@@ -39,7 +39,7 @@ export default function PortalBiddingPromoBanner({
         <div
           className={cn(
             "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg",
-            accent === "client" ? "bg-teal-100 text-teal-800" : "bg-amber-100 text-amber-900"
+            accent === "client" ? "bg-teal-100 text-teal-800" : "bg-[#F5D33C]/20 text-gray-950"
           )}
         >
           <Gavel className="h-5 w-5" aria-hidden />

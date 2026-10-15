@@ -1,4 +1,4 @@
-﻿import { withAuth } from "next-auth/middleware";
+import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 
 const INTERNAL_ROLES = ["SUPER_ADMIN", "ADMIN", "SALES", "OPERATIONS", "FINANCE", "VENDOR_TEAM"];
@@ -124,6 +124,6 @@ export default withAuth(
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/health|api/webhooks|api/webhook|api/integration/bidding|api/drivers/otp|login(?:/|$)|signup|welcome|_next/static|_next/image|favicon.ico|brand/|auth/).*)",
+    "/((?!api/auth|api/health|api/webhooks|api/webhook|api/integration/bidding|api/drivers/otp|login(?:/|$)|signup|welcome|_next/static|_next/image|favicon.ico|brand/|auth/|images/).*)",
   ],
 };

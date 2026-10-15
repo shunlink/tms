@@ -22,16 +22,22 @@ export default function AuthShell({
 
   return (
     <div className="min-h-screen grid lg:grid-cols-[1.1fr_1fr] bg-sidebar">
-      <div
-        className={`hidden lg:flex flex-col justify-between p-12 text-white bg-gradient-to-br ${brand.accent}`}
-      >
-        <div>
+      <div className="relative hidden lg:flex flex-col justify-between p-12 text-white overflow-hidden bg-slate-950">
+        {/* Background Image with Dark Vignette Gradient */}
+        <div
+          className="absolute inset-0 bg-cover bg-center transition-all duration-700 scale-105"
+          style={{ backgroundImage: `url(/auth/shunlink-hero-bg.jpg)` }}
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-slate-950/20" />
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-950/35 to-transparent" />
+
+        <div className="relative z-10">
           <BrandLogo variant="dark" showSubtitle subtitle="by shunlink.in" href="/login" size="lg" className="mb-12" />
           <h2 className="font-heading text-4xl font-bold leading-tight mb-4 max-w-lg">{brand.headline}</h2>
           <p className="text-white/80 text-lg max-w-md leading-relaxed">{brand.description}</p>
         </div>
 
-        <div className="space-y-5 my-10">
+        <div className="relative z-10 space-y-5 my-10">
           <p className="text-xs uppercase tracking-widest text-white/60 font-semibold">
             Getting started
           </p>
@@ -48,7 +54,7 @@ export default function AuthShell({
           ))}
         </div>
 
-        <p className="text-sm text-white/50">
+        <p className="relative z-10 text-sm text-white/50">
           Accounts are verified before full portal access is granted.
         </p>
       </div>

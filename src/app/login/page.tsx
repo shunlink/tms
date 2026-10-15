@@ -61,7 +61,7 @@ const PORTAL_CONFIGS: Record<
     highlightLine: "A Stronger Network.",
     subtitle:
       "Access your workspace, manage operations, collaborate with teams and keep the logistics ecosystem moving.",
-    bgImage: "/images/auth/ops-bg.jpg",
+    bgImage: "/auth/employee-ops-bg.jpg",
     scriptText: "Behind Every Movement A Stronger Team.",
     features: [
       {
@@ -101,7 +101,7 @@ const PORTAL_CONFIGS: Record<
     highlightLine: "Stronger Partnerships.",
     subtitle:
       "Access available loads, manage your fleet and drivers, track trips and grow your business with ShunLink.",
-    bgImage: "/images/auth/transporter-bg.jpg",
+    bgImage: "/auth/shunlink-hero-bg.jpg",
     scriptText: "Together We Move More Possibilities.",
     features: [
       {
@@ -140,7 +140,7 @@ const PORTAL_CONFIGS: Record<
     highlightLine: "with confidence.",
     subtitle:
       "Create requirements, track shipments, manage documents and stay in control of your logistics — all in one place.",
-    bgImage: "/images/auth/client-bg.jpg",
+    bgImage: "/auth/shunlink-hero-bg.jpg",
     scriptText: "Connected Logistics. Simplified.",
     features: [
       {
@@ -464,8 +464,8 @@ function LoginContent() {
           className="absolute inset-0 bg-cover bg-center transition-all duration-700 scale-105"
           style={{ backgroundImage: `url(${cfg.bgImage})` }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/95 via-slate-950/75 to-slate-950/40" />
-        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/50 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/40 to-slate-950/20" />
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-950/85 via-slate-950/35 to-transparent" />
 
         {/* Top: Logo & Category Header */}
         <div className="relative z-10">
@@ -489,7 +489,7 @@ function LoginContent() {
                 {line}
               </span>
             ))}
-            <span className="text-[#FBBF24] block">{cfg.highlightLine}</span>
+            <span className="text-[#F5D33C] block">{cfg.highlightLine}</span>
           </h1>
 
           <p className="text-white/80 text-base max-w-md leading-relaxed font-normal">
@@ -503,7 +503,7 @@ function LoginContent() {
             const FIcon = f.icon;
             return (
               <div key={f.title} className="flex items-center gap-3.5">
-                <div className="h-10 w-10 rounded-xl bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-[#FBBF24] shrink-0 shadow-sm">
+                <div className="h-10 w-10 rounded-xl bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-[#F5D33C] shrink-0 shadow-sm">
                   <FIcon className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">

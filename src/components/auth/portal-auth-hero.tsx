@@ -47,7 +47,7 @@ export default function PortalAuthHero({ config, className }: PortalAuthHeroProp
           <BrandLogo variant="dark" href="/login" size="lg" className="mb-8 xl:mb-10" />
           {config.eyebrow && (
             <div className="flex items-center gap-3 mb-4 xl:mb-5">
-              <span className="h-1 w-10 shrink-0 rounded-full bg-[#FFB800]" />
+              <span className="h-1 w-10 shrink-0 rounded-full bg-[#F5D33C]" />
               <p className="text-[11px] font-semibold tracking-[0.22em] text-white/95">{config.eyebrow}</p>
             </div>
           )}
@@ -62,8 +62,8 @@ export default function PortalAuthHero({ config, className }: PortalAuthHeroProp
             const Icon = feature.icon;
             return (
               <li key={feature.title} className="flex gap-3.5 items-start">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#FFB800]/12 border border-[#FFB800]/35">
-                  <Icon className="h-[18px] w-[18px] text-[#FFB800]" strokeWidth={2} />
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#F5D33C]/12 border border-[#F5D33C]/35">
+                  <Icon className="h-[18px] w-[18px] text-[#F5D33C]" strokeWidth={2} />
                 </div>
                 <div className="min-w-0 pt-0.5">
                   <p className="font-semibold text-[15px] leading-snug">{feature.title}</p>
@@ -78,7 +78,7 @@ export default function PortalAuthHero({ config, className }: PortalAuthHeroProp
           <span className="relative inline-block">
             {config.tagline}
             <span
-              className="absolute -bottom-0.5 left-0 right-0 h-[3px] rounded-full bg-[#FFB800]"
+              className="absolute -bottom-0.5 left-0 right-0 h-[3px] rounded-full bg-[#F5D33C]"
               aria-hidden
             />
           </span>
