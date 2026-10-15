@@ -86,7 +86,7 @@ export default function VendorQuoteForm({
         />
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
-      <Button type="submit" size="sm" disabled={busy}>
+      <Button type="submit" size="sm" disabled={busy} className="bg-[#F5D33C] hover:bg-[#ebd034] text-gray-950 font-bold shadow-xs">
         {busy ? "Submitting..." : "Submit Quote"}
       </Button>
     </form>

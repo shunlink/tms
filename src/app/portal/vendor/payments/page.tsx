@@ -1,29 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Wallet } from "lucide-react";
-import PortalPageHeader from "@/components/portal/portal-page-header";
-import PortalSectionCard from "@/components/portal/portal-section-card";
-import PortalEmptyState from "@/components/portal/portal-empty-state";
-import {
-  PortalTable,
-  PortalTableWrap,
-  portalTbodyRow,
-  portalTd,
-  portalTdMuted,
-  portalTdStrong,
-  portalTh,
-  portalTheadRow,
-} from "@/components/portal/portal-data-table";
+import { Wallet, Receipt, CreditCard, ArrowRight, ExternalLink } from "lucide-react";
 import StatusBadge from "@/components/status-badge";
 import { getSessionUser } from "@/lib/auth";
 import { getVendorPayments } from "@/lib/queries";
-import { formatINR, formatDate, cn } from "@/lib/utils";
+import { formatINR, formatDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default async function VendorPaymentsPage() {
   const user = await getSessionUser();
-  if (!user?.vendorId) redirect("/login");
+  if (!user?.vendorId) redirect("/login?portal=transporter");
 
   const payments = await getVendorPayments(user.vendorId);
   const paidTotal = payments.filter((p) => p.status === "PAID").reduce((s, p) => s + p.paidAmount, 0);
@@ -35,87 +22,163 @@ export default async function VendorPaymentsPage() {
     .reduce((s, p) => s + p.paidAmount, 0);
 
   return (
-    <div>
-      <PortalPageHeader
-        accent="vendor"
-        title="Payments"
-        description={`Total received ${formatINR(paidTotal)} · Advances ${formatINR(advanceTotal)} · Balance ${formatINR(balanceTotal)}`}
-      />
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-2xs flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-extrabold text-gray-950 tracking-tight">
+            Payments & Settlement
+          </h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-1">
+            Track all advance and balance payouts transferred to your registered bank account.
+          </p>
+        </div>
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-purple-50 text-purple-700 text-xs font-semibold border border-purple-200/60">
+          <Receipt className="h-4 w-4" />
+          <span>{payments.length} Records</span>
+        </div>
+      </div>
 
-      <PortalSectionCard title={`Payment history (${payments.length})`}>
+      {/* 3 Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-2xs flex items-center gap-3.5">
+          <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100/60">
+            <Wallet className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Total Received</p>
+            <p className="text-xl sm:text-2xl font-extrabold text-gray-950 tabular-nums mt-0.5">
+              {formatINR(paidTotal)}
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-2xs flex items-center gap-3.5">
+          <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100/60">
+            <CreditCard className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Advances Paid</p>
+            <p className="text-xl sm:text-2xl font-extrabold text-gray-950 tabular-nums mt-0.5">
+              {formatINR(advanceTotal)}
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-2xs flex items-center gap-3.5">
+          <div className="p-2.5 rounded-xl bg-purple-50 text-purple-600 border border-purple-100/60">
+            <Receipt className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Balance Settled</p>
+            <p className="text-xl sm:text-2xl font-extrabold text-gray-950 tabular-nums mt-0.5">
+              {formatINR(balanceTotal)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Table Card */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-2xs overflow-hidden">
+        <div className="p-5 sm:p-6 border-b border-gray-100 flex items-center justify-between">
+          <h2 className="text-base sm:text-lg font-bold text-gray-950">Payment History</h2>
+          <span className="text-xs text-gray-500 font-medium">Showing {payments.length} transactions</span>
+        </div>
+
         {payments.length === 0 ? (
-          <PortalEmptyState
-            icon={Wallet}
-            title="No payments recorded yet"
-            description="Advance and balance payouts appear here once finance processes them."
-          />
+          <div className="p-12 text-center">
+            <div className="mx-auto w-14 h-14 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center mb-4 border border-purple-100">
+              <Wallet className="h-7 w-7" />
+            </div>
+            <h3 className="text-base font-bold text-gray-950">No payments recorded yet</h3>
+            <p className="text-xs sm:text-sm text-gray-500 mt-1 max-w-sm mx-auto">
+              Advance and balance payouts appear here once operations and finance process them.
+            </p>
+          </div>
         ) : (
-          <PortalTableWrap>
-            <PortalTable>
-              <thead>
-                <tr className={portalTheadRow}>
-                  <th className={portalTh}>Date</th>
-                  <th className={portalTh}>Type</th>
-                  <th className={portalTh}>LR No.</th>
-                  <th className={portalTh}>Route</th>
-                  <th className={cn(portalTh, "text-right")}>Freight</th>
-                  <th className={cn(portalTh, "text-right")}>Paid</th>
-                  <th className={portalTh}>Reference</th>
-                  <th className={portalTh}>Status</th>
-                  <th className={portalTh}>Proof</th>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs sm:text-sm">
+              <thead className="bg-gray-50/70 border-b border-gray-100 text-gray-500 font-semibold text-[11px] uppercase tracking-wider">
+                <tr>
+                  <th className="px-6 py-3.5">Date</th>
+                  <th className="px-6 py-3.5">Type</th>
+                  <th className="px-6 py-3.5">LR No.</th>
+                  <th className="px-6 py-3.5">Route</th>
+                  <th className="px-6 py-3.5 text-right">Freight</th>
+                  <th className="px-6 py-3.5 text-right">Paid Amount</th>
+                  <th className="px-6 py-3.5">Reference / UTR</th>
+                  <th className="px-6 py-3.5">Status</th>
+                  <th className="px-6 py-3.5 text-right">Voucher</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-gray-100 text-gray-700">
                 {payments.map((p) => (
-                  <tr key={p.id} className={portalTbodyRow}>
-                    <td className={portalTdMuted}>{p.paidAt ? formatDate(p.paidAt) : "—"}</td>
-                    <td className={portalTdMuted}>{p.paymentTypeLabel}</td>
-                    <td className={portalTdStrong}>
-                      <Link href={`/portal/vendor/trips/${p.tripId}`} className="text-primary hover:underline">
+                  <tr key={p.id} className="hover:bg-gray-50/80 transition-colors">
+                    <td className="px-6 py-4 text-gray-500">
+                      {p.paidAt ? formatDate(p.paidAt) : "—"}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="inline-flex px-2 py-0.5 rounded-md text-[11px] font-semibold bg-gray-100 text-gray-700">
+                        {p.paymentTypeLabel}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 font-bold text-gray-950">
+                      <Link
+                        href={`/portal/vendor/trips/${p.tripId}`}
+                        className="text-gray-950 hover:text-blue-600 transition-colors"
+                      >
                         {p.lrNumber}
                       </Link>
                     </td>
-                    <td className={portalTdMuted}>{p.route}</td>
-                    <td className={`${portalTdStrong} text-right tabular-nums`}>{formatINR(p.amount)}</td>
-                    <td className={`${portalTdStrong} text-right tabular-nums text-success`}>
+                    <td className="px-6 py-4 text-gray-500">{p.route}</td>
+                    <td className="px-6 py-4 text-right font-semibold text-gray-900 tabular-nums">
+                      {formatINR(p.amount)}
+                    </td>
+                    <td className="px-6 py-4 text-right font-bold text-emerald-600 tabular-nums">
                       {formatINR(p.paidAmount)}
                     </td>
-                    <td className={portalTdMuted}>{p.referenceNo ?? p.chequeNumber ?? "—"}</td>
-                    <td className={portalTd}>
+                    <td className="px-6 py-4 font-mono text-xs text-gray-500">
+                      {p.referenceNo ?? p.chequeNumber ?? "—"}
+                    </td>
+                    <td className="px-6 py-4">
                       <StatusBadge status={p.status} />
                     </td>
-                    <td className={portalTd}>
-                      <div className="flex flex-wrap gap-2">
-                        {p.proofUrl && (
-                          <a
-                            href={p.proofUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary text-sm hover:underline font-medium"
-                          >
-                            Proof
-                          </a>
-                        )}
+                    <td className="px-6 py-4 text-right">
+                      <div className="inline-flex items-center gap-2 justify-end">
                         {p.voucherUrl && (
                           <a
                             href={p.voucherUrl}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-primary text-sm hover:underline font-medium"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
                           >
-                            Voucher
+                            <span>Voucher</span>
+                            <ExternalLink className="h-3 w-3" />
                           </a>
                         )}
-                        {!p.proofUrl && !p.voucherUrl && <span className="text-muted-foreground">—</span>}
+                        {p.proofUrl && (
+                          <a
+                            href={p.proofUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-700"
+                          >
+                            <span>Proof</span>
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                        {!p.voucherUrl && !p.proofUrl && (
+                          <span className="text-gray-400">—</span>
+                        )}
                       </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
-            </PortalTable>
-          </PortalTableWrap>
+            </table>
+          </div>
         )}
-      </PortalSectionCard>
+      </div>
     </div>
   );
 }

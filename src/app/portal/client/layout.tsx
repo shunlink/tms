@@ -6,6 +6,8 @@ import OnboardingStatusBanner from "@/components/onboarding-status-banner";
 import { getSessionUser } from "@/lib/auth";
 import { getOnboardingStatus } from "@/lib/queries";
 import { isProfileOnlyStatus, shouldCompleteOnboarding } from "@/lib/portal-access";
+import { prisma } from "@/lib/prisma";
+import ClientPortalShell from "@/components/client-portal-shell";
 
 export default async function ClientPortalLayout({
   children,
@@ -13,31 +15,25 @@ export default async function ClientPortalLayout({
   children: React.ReactNode;
 }) {
   const user = await getSessionUser();
-  if (!user) redirect("/login");
+  if (!user) redirect("/login?portal=client");
   if (user.role !== "CLIENT") redirect("/");
-  if (!user.clientId) redirect("/login");
+  if (!user.clientId) redirect("/login?portal=client");
 
-  const onboarding = await getOnboardingStatus("CLIENT", user.clientId);
+  const [onboarding, client] = await Promise.all([
+    getOnboardingStatus("CLIENT", user.clientId),
+    prisma.client.findFirst({ where: { id: user.clientId }, select: { name: true } }),
+  ]);
   const status = onboarding?.onboardingStatus ?? "PENDING";
+  const clientName = client?.name || user.name || "Client";
 
   if (shouldCompleteOnboarding(status)) {
     redirect("/onboard/client");
   }
 
   const profileOnly = isProfileOnlyStatus(status);
-  const fullNav = [
-    { href: "/portal/client", label: "Overview" },
-    { href: "/portal/client/trips", label: "My Trips" },
-    { href: "/portal/client/requirements", label: "Requirements" },
-    { href: "/portal/client/invoices", label: "Invoices", pendingCountKey: "clientInvoices" as const },
-    { href: "/portal/client/profile", label: "Profile & Docs" },
-  ];
-  const navItems = profileOnly
-    ? [{ href: "/portal/client/profile", label: "Profile & Docs" }]
-    : fullNav;
 
   return (
-    <>
+    <div className="h-screen w-full flex flex-col overflow-hidden bg-[#F4F6F9]">
       <PortalAccessBanner />
       {profileOnly && (
         <PortalAccessGuard
@@ -45,21 +41,20 @@ export default async function ClientPortalLayout({
           onboardingStatus={status}
         />
       )}
-      <PortalShell
-        brand="Client Portal"
-        subtitle={user.name ?? "Client"}
-        userName={user.email ?? ""}
-        navItems={navItems}
-        accent="client"
-      >
-        {profileOnly && (
-          <OnboardingStatusBanner
-            status={status}
-            remarks={onboarding?.onboardingRemarks}
-          />
-        )}
-        {children}
-      </PortalShell>
-    </>
+      <div className="flex-1 min-h-0 flex overflow-hidden">
+        <ClientPortalShell
+          clientName={clientName}
+          userName={user.email ?? ""}
+        >
+          {profileOnly && (
+            <OnboardingStatusBanner
+              status={status}
+              remarks={onboarding?.onboardingRemarks}
+            />
+          )}
+          {children}
+        </ClientPortalShell>
+      </div>
+    </div>
   );
 }

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ArrowLeft, Truck, Building2, Wallet } from "lucide-react";
 import DocumentUpload from "@/components/forms/document-upload";
 import PodUpload from "@/components/forms/pod-upload";
 import TripAdvancePanel from "@/components/forms/trip-advance-panel";
@@ -18,7 +17,7 @@ export default async function VendorTripDetailPage({
   params: { id: string };
 }) {
   const user = await getSessionUser();
-  if (!user?.vendorId) redirect("/login");
+  if (!user?.vendorId) redirect("/login?portal=transporter");
 
   const [trip, advanceRequest] = await Promise.all([
     getVendorTripDetail(user.vendorId, params.id),
@@ -27,70 +26,97 @@ export default async function VendorTripDetailPage({
   if (!trip) notFound();
 
   return (
-    <div className="max-w-3xl">
-      <Link href="/portal/vendor/trips" className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-4">
-        <ArrowLeft className="h-4 w-4" /> Back to Trips
-      </Link>
-
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-slate-900">{trip.lrNumber}</h2>
-        <p className="text-slate-500">{trip.route}</p>
+    <div className="max-w-4xl space-y-6">
+      {/* Back button */}
+      <div>
+        <Link
+          href="/portal/vendor/trips"
+          className="inline-flex items-center gap-2 text-xs font-semibold text-gray-500 hover:text-gray-900 bg-white border border-gray-200/80 px-3.5 py-1.5 rounded-xl shadow-2xs hover:bg-gray-50 transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to Assigned Trips
+        </Link>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 text-sm">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-slate-500">Client</p>
-            <p className="font-medium text-slate-900">{trip.client}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-slate-500">Vehicle</p>
-            <p className="font-medium text-slate-900">
+      {/* Header */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-2xs">
+        <h1 className="text-xl sm:text-2xl font-extrabold text-gray-950 tracking-tight">
+          {trip.lrNumber}
+        </h1>
+        <p className="text-xs sm:text-sm text-gray-500 mt-1">{trip.route}</p>
+      </div>
+
+      {/* 3 Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-2xs flex items-center gap-3.5">
+          <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-100/60">
+            <Building2 className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Client</p>
+            <p className="font-bold text-gray-950 text-sm mt-0.5">{trip.client}</p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-2xs flex items-center gap-3.5">
+          <div className="p-2.5 rounded-xl bg-orange-50 text-orange-600 border border-orange-100/60">
+            <Truck className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Vehicle</p>
+            <p className="font-bold text-gray-950 text-sm mt-0.5">
               {trip.vehicle} · {trip.vehicleType.replace(/_/g, " ")}
             </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-slate-500">Your Freight</p>
-            <p className="font-medium text-slate-900">{formatINR(trip.vendorRate)}</p>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-2xs flex items-center gap-3.5">
+          <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100/60">
+            <Wallet className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Your Freight</p>
+            <p className="font-bold text-gray-950 text-sm mt-0.5 tabular-nums">
+              {formatINR(trip.vendorRate)}
+            </p>
+          </div>
+        </div>
       </div>
 
-      <TripAdvancePanel
-        tripId={trip.id}
-        vendorRate={trip.vendorRate}
-        initialRequest={advanceRequest}
-      />
+      {/* Advance Request Panel */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-2xs overflow-hidden">
+        <TripAdvancePanel
+          tripId={trip.id}
+          vendorRate={trip.vendorRate}
+          initialRequest={advanceRequest}
+        />
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Complete POD</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <PodUpload tripId={trip.id} alwaysCamera />
-        </CardContent>
-      </Card>
+      {/* Complete POD */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-2xs space-y-4">
+        <div>
+          <h2 className="text-base sm:text-lg font-bold text-gray-950">Complete POD</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Take a clear photo of the stamped and signed Proof of Delivery.
+          </p>
+        </div>
+        <PodUpload tripId={trip.id} alwaysCamera />
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Upload Documents</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-slate-500 mb-4">
+      {/* Upload Documents */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-2xs space-y-4">
+        <div>
+          <h2 className="text-base sm:text-lg font-bold text-gray-950">Upload Documents</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
             Upload the POD, e-way bill or LR for this trip.
           </p>
-          <DocumentUpload
-            tripId={trip.id}
-            documents={trip.documents}
-            allowedTypes={["POD", "EWAY_BILL", "LR"]}
-            allowDelete={false}
-          />
-        </CardContent>
-      </Card>
+        </div>
+        <DocumentUpload
+          tripId={trip.id}
+          documents={trip.documents}
+          allowedTypes={["POD", "EWAY_BILL", "LR"]}
+          allowDelete={false}
+        />
+      </div>
     </div>
   );
 }

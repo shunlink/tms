@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
-import PortalShell from "@/components/portal-shell";
 import PortalAccessGuard from "@/components/portal-access-guard";
 import PortalAccessBanner from "@/components/superadmin/portal-access-banner";
 import OnboardingStatusBanner from "@/components/onboarding-status-banner";
 import { getSessionUser } from "@/lib/auth";
 import { getOnboardingStatus } from "@/lib/queries";
 import { isProfileOnlyStatus, shouldCompleteOnboarding } from "@/lib/portal-access";
+import { prisma } from "@/lib/prisma";
+import VendorPortalShell from "@/components/vendor-portal-shell";
 
 export default async function VendorPortalLayout({
   children,
@@ -13,31 +14,25 @@ export default async function VendorPortalLayout({
   children: React.ReactNode;
 }) {
   const user = await getSessionUser();
-  if (!user) redirect("/login");
+  if (!user) redirect("/login?portal=transporter");
   if (user.role !== "VENDOR") redirect("/");
-  if (!user.vendorId) redirect("/login");
+  if (!user.vendorId) redirect("/login?portal=transporter");
 
-  const onboarding = await getOnboardingStatus("VENDOR", user.vendorId);
+  const [onboarding, vendor] = await Promise.all([
+    getOnboardingStatus("VENDOR", user.vendorId),
+    prisma.vendor.findFirst({ where: { id: user.vendorId }, select: { name: true } }),
+  ]);
   const status = onboarding?.onboardingStatus ?? "PENDING";
+  const vendorName = vendor?.name || user.name || "Sharma Transport";
 
   if (shouldCompleteOnboarding(status)) {
     redirect("/onboard/vendor");
   }
 
   const profileOnly = isProfileOnlyStatus(status);
-  const fullNav = [
-    { href: "/portal/vendor", label: "Overview" },
-    { href: "/portal/vendor/indents", label: "Open Indents", pendingCountKey: "vendorOpenIndents" as const },
-    { href: "/portal/vendor/trips", label: "Assigned Trips", pendingCountKey: "vendorTrips" as const },
-    { href: "/portal/vendor/payments", label: "Payments", pendingCountKey: "vendorPaymentsPortal" as const },
-    { href: "/portal/vendor/profile", label: "Profile" },
-  ];
-  const navItems = profileOnly
-    ? [{ href: "/portal/vendor/profile", label: "Profile" }]
-    : fullNav;
 
   return (
-    <>
+    <div className="h-screen w-full flex flex-col overflow-hidden bg-[#F4F6F9]">
       <PortalAccessBanner />
       {profileOnly && (
         <PortalAccessGuard
@@ -45,21 +40,20 @@ export default async function VendorPortalLayout({
           onboardingStatus={status}
         />
       )}
-      <PortalShell
-        brand="Vendor Portal"
-        subtitle={user.name ?? "Vendor"}
-        userName={user.email ?? ""}
-        navItems={navItems}
-        accent="vendor"
-      >
-        {profileOnly && (
-          <OnboardingStatusBanner
-            status={status}
-            remarks={onboarding?.onboardingRemarks}
-          />
-        )}
-        {children}
-      </PortalShell>
-    </>
+      <div className="flex-1 min-h-0 flex overflow-hidden">
+        <VendorPortalShell
+          vendorName={vendorName}
+          userName={user.email ?? ""}
+        >
+          {profileOnly && (
+            <OnboardingStatusBanner
+              status={status}
+              remarks={onboarding?.onboardingRemarks}
+            />
+          )}
+          {children}
+        </VendorPortalShell>
+      </div>
+    </div>
   );
 }
