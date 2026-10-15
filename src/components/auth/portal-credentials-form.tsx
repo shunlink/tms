@@ -18,7 +18,7 @@ type PortalCredentialsFormProps = {
 };
 
 const inputWrap =
-  "flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 min-h-[52px] focus-within:ring-2 focus-within:ring-[#FFB800]/40 focus-within:border-[#FFB800]/60 transition-shadow";
+  "flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 min-h-[52px] focus-within:ring-2 focus-within:ring-[#F5D33C]/40 focus-within:border-[#F5D33C]/60 transition-shadow";
 
 export default function PortalCredentialsForm({
   emailPlaceholder = "you@company.com or 9876543210",
@@ -144,7 +144,7 @@ export default function PortalCredentialsForm({
           disabled={loading}
           className={cn(
             "w-full flex items-center justify-center gap-2 rounded-xl min-h-[52px] text-base font-bold",
-            "bg-[#FFB800] text-slate-900 hover:bg-[#F5A800] disabled:opacity-60 transition-colors"
+            "bg-[#F5D33C] text-slate-900 hover:bg-[#EAC72E] disabled:opacity-60 transition-colors"
           )}
         >
           {loading ? "Signing in..." : "Sign in"}

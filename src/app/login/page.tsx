@@ -489,7 +489,7 @@ function LoginContent() {
                 {line}
               </span>
             ))}
-            <span className="text-[#FBBF24] block">{cfg.highlightLine}</span>
+            <span className="text-[#F5D33C] block">{cfg.highlightLine}</span>
           </h1>
 
           <p className="text-white/80 text-base max-w-md leading-relaxed font-normal">
@@ -503,7 +503,7 @@ function LoginContent() {
             const FIcon = f.icon;
             return (
               <div key={f.title} className="flex items-center gap-3.5">
-                <div className="h-10 w-10 rounded-xl bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-[#FBBF24] shrink-0 shadow-sm">
+                <div className="h-10 w-10 rounded-xl bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-[#F5D33C] shrink-0 shadow-sm">
                   <FIcon className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">

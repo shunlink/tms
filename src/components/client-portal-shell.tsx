@@ -271,7 +271,7 @@ export default function ClientPortalShell({
                 onClick={() => setUserDropdownOpen(!userDropdownOpen)}
                 className="flex items-center gap-2.5 p-1 sm:pr-2.5 rounded-full hover:bg-gray-100 transition-colors"
               >
-                <div className="h-8 w-8 rounded-full bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center">
+                <div className="h-8 w-8 rounded-full bg-[#F5D33C] text-gray-950 font-bold text-xs flex items-center justify-center shadow-xs">
                   {initials}
                 </div>
                 <span className="hidden sm:inline-block text-xs font-semibold text-gray-800 max-w-[10rem] truncate">

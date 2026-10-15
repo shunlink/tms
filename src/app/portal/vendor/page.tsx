@@ -163,7 +163,7 @@ export default async function VendorOverviewPage() {
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <Link
               href="/portal/vendor/indents"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#F5D33C] hover:bg-[#ebd034] text-gray-950 font-bold text-xs sm:text-sm shadow-xs transition-all active:scale-[0.98]"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-xs sm:text-sm shadow-xs transition-all active:scale-[0.98]"
             >
               <FileSpreadsheet className="h-4 w-4" />
               <span>View Open Indents</span>
@@ -300,7 +300,7 @@ export default async function VendorOverviewPage() {
                 <div className="mt-4">
                   <Link
                     href="/portal/vendor/indents"
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#F5D33C] hover:bg-[#ebd034] text-gray-950 text-xs font-bold shadow-xs transition-colors"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 text-xs font-bold shadow-xs transition-colors"
                   >
                     Browse Open Indents
                   </Link>

@@ -232,7 +232,7 @@ export default function AppShell({
                 onClick={() => setMenuOpen((v) => !v)}
                 className="inline-flex h-11 items-center gap-2 rounded-lg border border-input bg-background px-3 hover:bg-muted"
               >
-                <span className="h-7 w-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold">
+                <span className="h-7 w-7 rounded-full bg-[#F5D33C] text-gray-950 flex items-center justify-center text-xs font-bold">
                   {(user.name ?? "U").charAt(0)}
                 </span>
               </button>

@@ -55,7 +55,7 @@ export default function WelcomePage({
           <h1 className="font-heading text-4xl xl:text-5xl font-extrabold text-white leading-[1.12] tracking-tight mb-4">
             A connected<br />
             workspace for<br />
-            <span className="text-[#FBBF24]">every movement.</span>
+            <span className="text-[#F5D33C]">every movement.</span>
           </h1>
 
           <p className="text-white/80 text-base max-w-md leading-relaxed font-normal">
@@ -66,7 +66,7 @@ export default function WelcomePage({
         {/* 3 Feature Items */}
         <div className="relative z-10 space-y-4 my-8 max-w-md">
           <div className="flex items-center gap-3.5">
-            <div className="h-10 w-10 rounded-xl bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-[#FBBF24] shrink-0 shadow-sm">
+            <div className="h-10 w-10 rounded-xl bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-[#F5D33C] shrink-0 shadow-sm">
               <Truck className="h-5 w-5" />
             </div>
             <div className="min-w-0">
@@ -78,7 +78,7 @@ export default function WelcomePage({
           </div>
 
           <div className="flex items-center gap-3.5">
-            <div className="h-10 w-10 rounded-xl bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-[#FBBF24] shrink-0 shadow-sm">
+            <div className="h-10 w-10 rounded-xl bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-[#F5D33C] shrink-0 shadow-sm">
               <TrendingUp className="h-5 w-5" />
             </div>
             <div className="min-w-0">
@@ -90,7 +90,7 @@ export default function WelcomePage({
           </div>
 
           <div className="flex items-center gap-3.5">
-            <div className="h-10 w-10 rounded-xl bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-[#FBBF24] shrink-0 shadow-sm">
+            <div className="h-10 w-10 rounded-xl bg-white/10 backdrop-blur-md border border-white/15 flex items-center justify-center text-[#F5D33C] shrink-0 shadow-sm">
               <Users className="h-5 w-5" />
             </div>
             <div className="min-w-0">

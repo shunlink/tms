@@ -22,7 +22,7 @@ export const PORTAL_THEME: Record<
     chip: "bg-teal-600 hover:bg-teal-700 text-white",
   },
   vendor: {
-    pageBg: "bg-[radial-gradient(ellipse_120%_80%_at_50%_-20%,hsl(32_90%_90%/0.5),transparent_55%)]",
+    pageBg: "bg-[radial-gradient(ellipse_120%_80%_at_50%_-20%,hsl(49_90%_92%/0.5),transparent_55%)]",
     headerGlow: "from-accent/25 to-transparent",
     navActive: "text-white bg-white/10",
     navActiveBorder: "border-accent",

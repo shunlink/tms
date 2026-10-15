@@ -42,7 +42,7 @@ export const PORTAL_HERO: Record<PortalLoginVariant, PortalHeroConfig> = {
     eyebrow: "TRANSPORT MANAGEMENT SYSTEM",
     headline: (
       <>
-        A connected workspace for <span className="text-[#FFB800]">every movement.</span>
+        A connected workspace for <span className="text-[#F5D33C]">every movement.</span>
       </>
     ),
     description:
@@ -73,7 +73,7 @@ export const PORTAL_HERO: Record<PortalLoginVariant, PortalHeroConfig> = {
     eyebrow: "CLIENT PORTAL",
     headline: (
       <>
-        Move your business forward <span className="text-[#FFB800]">with confidence.</span>
+        Move your business forward <span className="text-[#F5D33C]">with confidence.</span>
       </>
     ),
     description:
@@ -109,7 +109,7 @@ export const PORTAL_HERO: Record<PortalLoginVariant, PortalHeroConfig> = {
     eyebrow: "INTERNAL OPERATIONS PORTAL",
     headline: (
       <>
-        People. Operations. <span className="text-[#FFB800]">A Stronger Network.</span>
+        People. Operations. <span className="text-[#F5D33C]">A Stronger Network.</span>
       </>
     ),
     description:
@@ -145,7 +145,7 @@ export const PORTAL_HERO: Record<PortalLoginVariant, PortalHeroConfig> = {
     eyebrow: "TRANSPORTER PORTAL",
     headline: (
       <>
-        More Loads. <span className="text-[#FFB800]">Stronger Partnerships.</span> A Connected Tomorrow.
+        More Loads. <span className="text-[#F5D33C]">Stronger Partnerships.</span> A Connected Tomorrow.
       </>
     ),
     description:
