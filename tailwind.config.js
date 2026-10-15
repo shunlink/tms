@@ -19,6 +19,7 @@ module.exports = {
       fontFamily: {
         sans: ["var(--font-source-sans)", "system-ui", "sans-serif"],
         heading: ["var(--font-plus-jakarta)", "var(--font-source-sans)", "system-ui", "sans-serif"],
+        script: ["var(--font-script)", "cursive"],
       },
       colors: {
         border: "hsl(var(--border))",

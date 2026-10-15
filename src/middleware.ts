@@ -124,6 +124,6 @@ export default withAuth(
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/health|api/webhooks|api/webhook|api/integration/bidding|api/drivers/otp|login|signup|welcome|_next/static|_next/image|favicon.ico|brand/).*)",
+    "/((?!api/auth|api/health|api/webhooks|api/webhook|api/integration/bidding|api/drivers/otp|login(?:/|$)|signup|welcome|_next/static|_next/image|favicon.ico|brand/|auth/).*)",
   ],
 };
