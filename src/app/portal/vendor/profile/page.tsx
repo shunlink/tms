@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
-import VendorForm from "@/components/forms/vendor-form";
 import OnboardingDocuments from "@/components/forms/onboarding-documents";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import PortalPageHeader from "@/components/portal/portal-page-header";
+import PortalSectionCard from "@/components/portal/portal-section-card";
+import PortalVendorProfileView from "@/components/portal/portal-vendor-profile-view";
 import { getSessionUser } from "@/lib/auth";
+import { VENDOR_ONBOARDING_DOCS } from "@/lib/onboarding-docs";
 import { getVendorDetail } from "@/lib/queries";
+import { FileText } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -15,57 +17,30 @@ export default async function VendorProfilePage() {
   const v = await getVendorDetail(user.vendorId);
   if (!v) redirect("/portal/vendor");
 
-  const initial = {
-    name: v.name ?? "",
-    type: v.type ?? "FLEET_OWNER",
-    contactName: v.contactName ?? "",
-    phone: v.phone ?? "",
-    altPhone: v.altPhone ?? "",
-    email: v.email ?? "",
-    whatsapp: v.whatsapp ?? "",
-    gstin: v.gstin ?? "",
-    pan: v.pan ?? "",
-    msme: v.msme ?? "",
-    addressLine1: v.addressLine1 ?? "",
-    addressLine2: v.addressLine2 ?? "",
-    city: v.city ?? "",
-    state: v.state ?? "",
-    pincode: v.pincode ?? "",
-    bankName: v.bankName ?? "",
-    bankAccount: v.bankAccount ?? "",
-    bankIfsc: v.bankIfsc ?? "",
-    bankBranch: v.bankBranch ?? "",
-    accountHolder: v.accountHolder ?? "",
-    upiId: v.upiId ?? "",
-    paymentTerms: v.paymentTerms != null ? String(v.paymentTerms) : "",
-    notes: v.notes ?? "",
-  };
-
   return (
     <div className="space-y-6">
       <PortalPageHeader
         accent="vendor"
         title="Profile & documents"
-        description="Keep your fleet details and onboarding documents up to date"
+        description="Your fleet details and compliance documents on file with ShunLink"
       />
 
-      <VendorForm initial={initial} endpoint="/api/portal/profile" submitLabel="Save Profile" />
+      <PortalVendorProfileView vendor={v} />
 
-      <Card className="border-border/80 shadow-sm">
-        <CardHeader className="border-b border-border/60 bg-muted/20">
-          <CardTitle>Required documents</CardTitle>
-        </CardHeader>
-        <CardContent className="pt-5">
-          <p className="text-sm text-muted-foreground mb-4">
-            Upload your GST certificate, PAN, MSME/Udyam, bank proof and agreement.
-          </p>
-          <OnboardingDocuments
-            endpoint="/api/portal/documents"
-            documents={v.documents}
-            allowedTypes={["GST", "PAN", "MSME", "BANK_PROOF", "AGREEMENT", "OTHER"]}
-          />
-        </CardContent>
-      </Card>
+      <PortalSectionCard
+        title="Documents"
+        description="Certificates and agreements submitted during onboarding"
+      >
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/15 text-accent mb-4">
+          <FileText className="h-4 w-4" aria-hidden />
+        </div>
+        <OnboardingDocuments
+          documents={v.documents}
+          docTypes={VENDOR_ONBOARDING_DOCS}
+          readOnly
+          allowDelete={false}
+        />
+      </PortalSectionCard>
     </div>
   );
 }

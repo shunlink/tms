@@ -3,7 +3,7 @@ import { clientSchema, vendorSchema, driverSchema, validate } from "@/lib/valida
 import { logAudit } from "@/lib/audit";
 import { updateClientProfile, updateVendorProfile } from "@/lib/services/profile.service";
 import { getOnboardingStatus } from "@/lib/services/onboarding.service";
-import { stripSignupLockedProfileFields } from "@/lib/portal-access";
+import { canSelfServiceEditPortalProfile, stripSignupLockedProfileFields } from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 
 export async function PATCH(req: Request) {
@@ -15,9 +15,12 @@ export async function PATCH(req: Request) {
 
     if (user.role === "CLIENT") {
       if (!user.clientId) return forbidden("No client account linked");
+      const onboardingStatus = await getOnboardingStatus("CLIENT", user.clientId);
+      if (!canSelfServiceEditPortalProfile(onboardingStatus)) {
+        return forbidden("Profile is read-only. Contact your administrator to make changes.");
+      }
       const parsed = validate(clientSchema.partial(), body);
       if (!parsed.success) return badRequest(parsed.error);
-      const onboardingStatus = await getOnboardingStatus("CLIENT", user.clientId);
       const data = stripSignupLockedProfileFields(parsed.data, onboardingStatus);
       const record = await updateClientProfile(user.clientId, data);
       if (!record) return notFound("Client not found");
@@ -27,9 +30,12 @@ export async function PATCH(req: Request) {
 
     if (user.role === "VENDOR") {
       if (!user.vendorId) return forbidden("No vendor account linked");
+      const onboardingStatus = await getOnboardingStatus("VENDOR", user.vendorId);
+      if (!canSelfServiceEditPortalProfile(onboardingStatus)) {
+        return forbidden("Profile is read-only. Contact your administrator to make changes.");
+      }
       const parsed = validate(vendorSchema.partial(), body);
       if (!parsed.success) return badRequest(parsed.error);
-      const onboardingStatus = await getOnboardingStatus("VENDOR", user.vendorId);
       const data = stripSignupLockedProfileFields(parsed.data, onboardingStatus);
       const record = await updateVendorProfile(user.vendorId, data);
       if (!record) return notFound("Vendor not found");

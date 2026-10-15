@@ -39,6 +39,11 @@ export function isProfileOnlyStatus(status: string) {
   return status === "SUBMITTED" || status === "REJECTED";
 }
 
+/** Portal profile/doc edits allowed only during onboarding (not after submit/approval). */
+export function canSelfServiceEditPortalProfile(status: string) {
+  return status === "PENDING" || status === "REJECTED";
+}
+
 /** Profile fields collected at signup; locked during onboarding until approved. */
 export const SIGNUP_LOCKED_PROFILE_FIELDS = ["name", "contactName", "phone", "email"] as const;
 

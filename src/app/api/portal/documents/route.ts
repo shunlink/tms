@@ -2,6 +2,8 @@ import { requireAuth, ok, created, badRequest, forbidden, unauthorized, serverEr
 import { logAudit } from "@/lib/audit";
 import { listDocuments, uploadDocument, ALLOWED_DOCUMENT_TYPES, type DocumentEntityType } from "@/lib/services/document.service";
 import { validateUploadedFile } from "@/lib/document-validation";
+import { canSelfServiceEditPortalProfile } from "@/lib/portal-access";
+import { getOnboardingStatus } from "@/lib/services/onboarding.service";
 
 export const runtime = "nodejs";
 
@@ -38,6 +40,12 @@ export async function POST(req: Request) {
   const user = auth.user;
   const o = ownerOf(user);
   if (!o) return forbidden("No onboarding record linked to this account");
+  if (o.type === "CLIENT" || o.type === "VENDOR") {
+    const status = await getOnboardingStatus(o.type, o.id);
+    if (!canSelfServiceEditPortalProfile(status)) {
+      return forbidden("Documents are read-only. Contact your administrator to make changes.");
+    }
+  }
   try {
     const formData = await req.formData();
     const file = formData.get("file");

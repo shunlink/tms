@@ -47,6 +47,7 @@ export default function OnboardingDocuments({
   allowedTypes,
   docTypes,
   allowDelete = true,
+  readOnly = false,
 }: {
   ownerType?: "client" | "vendor" | "vehicle" | "indent" | "driver";
   ownerId?: string;
@@ -56,6 +57,8 @@ export default function OnboardingDocuments({
   /** Structured doc list with required flags — preferred over allowedTypes */
   docTypes?: DocTypeConfig[];
   allowDelete?: boolean;
+  /** View-only: no upload, replace, or delete */
+  readOnly?: boolean;
 }) {
   const router = useRouter();
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -192,7 +195,7 @@ export default function OnboardingDocuments({
                         <ExternalLink className="h-3 w-3 shrink-0" />
                         {d.name ?? "View file"}
                       </a>
-                      {allowDelete && (
+                      {allowDelete && !readOnly && (
                         <button
                           type="button"
                           onClick={() => remove(d.id)}
@@ -207,30 +210,37 @@ export default function OnboardingDocuments({
                 </div>
               )}
 
-              <input
-                ref={(el) => {
-                  fileRefs.current[cfg.type] = el;
-                }}
-                type="file"
-                className="hidden"
-                accept=".pdf,.jpg,.jpeg,.png,.webp"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) upload(cfg.type, file);
-                  e.target.value = "";
-                }}
-              />
-              <Button
-                type="button"
-                variant={hasFile ? "outline" : "default"}
-                size="sm"
-                className="w-full rounded-lg"
-                disabled={isBusy}
-                onClick={() => fileRefs.current[cfg.type]?.click()}
-              >
-                <Upload className="h-3.5 w-3.5 mr-2" />
-                {isBusy ? "Uploading..." : hasFile ? "Replace file" : "Upload file"}
-              </Button>
+              {!readOnly && (
+                <>
+                  <input
+                    ref={(el) => {
+                      fileRefs.current[cfg.type] = el;
+                    }}
+                    type="file"
+                    className="hidden"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) upload(cfg.type, file);
+                      e.target.value = "";
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant={hasFile ? "outline" : "default"}
+                    size="sm"
+                    className="w-full rounded-lg"
+                    disabled={isBusy}
+                    onClick={() => fileRefs.current[cfg.type]?.click()}
+                  >
+                    <Upload className="h-3.5 w-3.5 mr-2" />
+                    {isBusy ? "Uploading..." : hasFile ? "Replace file" : "Upload file"}
+                  </Button>
+                </>
+              )}
+              {readOnly && !hasFile && (
+                <p className="text-xs text-muted-foreground italic py-1">No file on record</p>
+              )}
             </div>
           );
         })}

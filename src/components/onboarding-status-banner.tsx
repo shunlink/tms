@@ -14,7 +14,7 @@ export default function OnboardingStatusBanner({
         <div className="text-base text-amber-900">
           <p className="font-semibold">Under review</p>
           <p className="mt-1 text-amber-800">
-            Your account is pending admin approval. You can update your profile and documents while you wait.
+            Your account is pending admin approval. You can view your profile and documents while you wait.
           </p>
         </div>
       </div>
