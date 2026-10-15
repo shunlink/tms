@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ShunLink brand — light mode only */
+    --background: 40 20% 97%;
+    --foreground: 215 28% 17%;
+    --card: 0 0% 100%;
+    --card-foreground: 215 28% 17%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 215 28% 17%;
+    --primary: 221 44% 20%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 40 15% 94%;
+    --secondary-foreground: 215 28% 17%;
+    --muted: 40 12% 93%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 32 65% 49%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 41%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 76% 28%;
+    --success-foreground: 0 0% 100%;
+    --warning: 26 90% 37%;
+    --warning-foreground: 0 0% 100%;
+    --info: 224 76% 48%;
+    --info-foreground: 0 0% 100%;
+    --border: 214 20% 90%;
+    --input: 214 20% 88%;
+    --ring: 32 65% 49%;
+    --radius: 0.75rem;
+    --sidebar: 221 44% 20%;
+    --sidebar-foreground: 0 0% 100%;
+    --sidebar-muted: 221 30% 35%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    overflow-x: clip;
+  }
+  body {
+    @apply bg-background text-foreground text-base antialiased;
+    overflow-x: clip;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading;
+  }
+}
+
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}

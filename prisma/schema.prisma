@@ -1,0 +1,2506 @@
+// ShunLink TMS — single-company production schema
+// Indent is the single operational source of truth. No multi-tenant/SaaS layer.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// =============================================================================
+// AUTH & RBAC
+// =============================================================================
+
+model Team {
+  id          String   @id @default(cuid())
+  code        String   @unique // ADMIN | SALES | OPERATIONS | FINANCE | VENDOR_TEAM
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members User[]
+}
+
+model User {
+  id       String  @id @default(cuid())
+  email    String? @unique
+  phone    String? @unique
+  name     String?
+  password String
+  role     String  @default("OPERATIONS") // SUPER_ADMIN | ADMIN | SALES | OPERATIONS | FINANCE | VENDOR_TEAM | CLIENT | VENDOR | DRIVER
+  isActive Boolean @default(true)
+
+  // Internal employee fields (null for portal users)
+  teamId       String?
+  team         Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  employeeCode String? @unique
+  jobTitle     String?
+
+  // Portal/entity linkage (nullable for internal staff)
+  clientId String?
+  vendorId String?
+  driverId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  vendor   Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  driver   Driver? @relation(fields: [driverId], references: [id], onDelete: SetNull)
+
+  lastLoginAt DateTime?
+
+  // Email OTP password reset — a single active, hashed code per user.
+  resetOtpHash      String?
+  resetOtpExpiresAt DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userPermissions UserPermission[]
+  auditLogs       AuditLog[]       @relation("AuditActor")
+
+  // Audit-trail relations (who created/recorded/allocated/reviewed/uploaded/verified/acknowledged)
+  indentsCreated         Indent[]
+  recordedIndentPayments IndentPayment[]
+  allocatedIndents       IndentAllocation[]
+  reviewedOnboardingCases OnboardingCase[]
+  uploadedFiles          StoredFile[]
+  verifiedVehicles       VehicleCompliance[]
+  uploadedPods           IndentPod[]
+  verifiedPods           IndentPod[] @relation("PodVerifier")
+  rejectedPods           IndentPod[] @relation("PodRejecter")
+  acknowledgedEvents     ImportantEvent[] @relation("EventAcknowledger")
+  resolvedEvents         ImportantEvent[] @relation("EventResolver")
+  indentReleaseCities    IndentReleaseCity[]
+  advanceRequestsCreated AdvanceRequest[] @relation("AdvanceRequestCreator")
+  advanceRequestsNegotiated AdvanceRequest[] @relation("AdvanceRequestNegotiator")
+  advanceRequestsApproved AdvanceRequest[] @relation("AdvanceRequestApprover")
+  advanceRequestsProcessed AdvanceRequest[] @relation("AdvanceRequestProcessor")
+  advanceRequestsEscalated AdvanceRequest[] @relation("AdvanceRequestEscalator")
+  advanceRequestEvents   AdvanceRequestEvent[]
+  podVerifiedTrips       Trip[] @relation("TripPodVerifier")
+  invoicesCreated        ClientInvoice[] @relation("InvoiceCreator")
+  balancePaymentsProcessed VendorBalancePaymentTask[] @relation("BalancePaymentProcessor")
+  balancePaymentsApproved  VendorBalancePaymentTask[] @relation("BalancePaymentApprover")
+  balancePaymentEvents   VendorBalancePaymentEvent[]
+  vendorBalancePaymentsRecorded VendorBalancePayment[] @relation("VendorBalancePaymentRecorder")
+  tripChargesCreated     TripCharge[]
+  vendorTripPayablesApproved VendorTripPayable[] @relation("VendorTripPayableApprover")
+  vendorTripPayableAdjustments VendorTripPayableAdjustment[]
+  clientPaymentsRecorded ClientPayment[] @relation("ClientPaymentRecorder")
+  vendorPaymentsRecorded VendorPayment[] @relation("VendorPaymentRecorder")
+  notificationReads      UserNotificationRead[]
+  outboundPaymentsCreated OutboundPayment[] @relation("OutboundPaymentCreator")
+  outboundPaymentApprovals PaymentApproval[] @relation("PaymentApprovalActor")
+  vendorBeneficiariesVerified VendorBeneficiary[] @relation("VendorBeneficiaryVerifier")
+  paymentAuditLogs         PaymentAuditLog[] @relation("PaymentAuditActor")
+  reconciliationRecordsResolved ReconciliationRecord[] @relation("ReconciliationResolver")
+  journalEntriesCreated       JournalEntry[] @relation("JournalCreator")
+  journalEntriesPosted        JournalEntry[] @relation("JournalPoster")
+  journalEntriesApproved      JournalEntry[] @relation("JournalApprover")
+  accountingPeriodsClosed       AccountingPeriod[] @relation("PeriodCloser")
+  accountingPeriodsReopened     AccountingPeriod[] @relation("PeriodReopener")
+  financialNotesCreated         FinancialNote[] @relation("FinancialNoteCreator")
+  financialNotesApproved        FinancialNote[] @relation("FinancialNoteApprover")
+  financialNotesIssued          FinancialNote[] @relation("FinancialNoteIssuer")
+  financialNotesRejected          FinancialNote[] @relation("FinancialNoteRejecter")
+  financialNoteEvents           FinancialNoteEvent[]
+  bankStatementImports          BankStatementImport[] @relation("BankStatementImporter")
+  bankReconciliationMatchesConfirmed BankReconciliationMatch[] @relation("BankMatchConfirmer")
+  bankReconciliationMatchesVoided    BankReconciliationMatch[] @relation("BankMatchVoider")
+  gatewaySettlementImports      GatewaySettlementImport[] @relation("GatewaySettlementImporter")
+
+  masterOtpRegenerations     MasterOtpConfig[]     @relation("MasterOtpRegenerator")
+  portalAccessAsActor        PortalAccessSession[] @relation("PortalAccessActor")
+  portalAccessAsTarget       PortalAccessSession[] @relation("PortalAccessTarget")
+  portalAccessRevoked        PortalAccessSession[] @relation("PortalAccessRevoker")
+
+  @@index([role])
+  @@index([teamId])
+}
+
+/// Singleton row (id = "default") — hashed Master OTP for Superadmin portal access.
+model MasterOtpConfig {
+  id                String   @id @default("default")
+  otpHash           String
+  generatedAt       DateTime @default(now())
+  generatedByUserId String?
+  generatedBy       User?    @relation("MasterOtpRegenerator", fields: [generatedByUserId], references: [id], onDelete: SetNull)
+  updatedAt         DateTime @updatedAt
+}
+
+/// Superadmin viewing an employee portal — actor remains the Superadmin in the auth session.
+model PortalAccessSession {
+  id              String    @id @default(cuid())
+  actorUserId     String
+  actor           User      @relation("PortalAccessActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  targetUserId    String
+  target          User      @relation("PortalAccessTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+  startedAt       DateTime  @default(now())
+  expiresAt       DateTime
+  endedAt         DateTime?
+  revokedAt       DateTime?
+  revokedByUserId String?
+  revokedBy       User?     @relation("PortalAccessRevoker", fields: [revokedByUserId], references: [id], onDelete: SetNull)
+  lastActivityAt  DateTime  @default(now())
+
+  @@index([actorUserId, endedAt])
+  @@index([expiresAt])
+  @@index([targetUserId])
+}
+
+model Permission {
+  id     String @id @default(cuid())
+  key    String @unique // indent.create, indent.allocate, advance.approve, ...
+  label  String
+  module String
+
+  rolePermissions RolePermission[]
+  userPermissions UserPermission[]
+}
+
+model RolePermission {
+  role         String
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([role, permissionId])
+}
+
+model UserPermission {
+  userId       String
+  permissionId String
+  granted      Boolean // true = grant, false = explicit deny
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, permissionId])
+}
+
+// =============================================================================
+// SHARED PRIMITIVES
+// =============================================================================
+
+model Address {
+  id       String  @id @default(cuid())
+  label    String? // "Head Office", "Plant 1"
+  line1    String
+  line2    String?
+  city     String
+  state    String
+  pincode  String
+  country  String  @default("India")
+  landmark String?
+  lat      Decimal?
+  lng      Decimal?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clientAddresses          ClientAddress[]
+  vendorAddresses          VendorAddress[]
+  indentLoadingLocations   IndentLoadingLocation[]
+  indentUnloadingLocations IndentUnloadingLocation[]
+
+  @@index([city])
+}
+
+model BankAccount {
+  id            String  @id @default(cuid())
+  accountHolder String?
+  bankName      String?
+  accountNumber String?
+  ifsc          String?
+  branch        String?
+  upiId         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clientBanks ClientCommercial[]
+  vendorBanks VendorCommercial[]
+}
+
+model OnboardingCase {
+  id          String @id @default(cuid())
+  entityType  String // CLIENT | VENDOR | DRIVER | VEHICLE
+  entityId    String
+
+  status       String    @default("PENDING") // PENDING | SUBMITTED | APPROVED | REJECTED
+  remarks      String?
+  submittedAt  DateTime?
+  reviewedAt   DateTime?
+  reviewedById String?
+  reviewedBy   User?     @relation(fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([entityType, entityId])
+  @@index([status])
+}
+
+model StoredFile {
+  id              String  @id @default(cuid())
+  fileName        String?
+  mimeType        String?
+  sizeBytes       Int?
+  storageProvider String  @default("s3")
+  storageBucket   String?
+  storageKey      String // object key in bucket
+  url             String // public or signed URL pattern
+
+  uploadedById String?
+  uploadedBy   User? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  attachments DocumentAttachment[]
+  podFrontFiles IndentPod[] @relation("PodFrontFile")
+  podBackFiles  IndentPod[] @relation("PodBackFile")
+  clientPaymentProofs ClientPayment[]
+  advancePaymentProofs AdvanceRequest[] @relation("AdvancePaymentProof")
+  advanceVouchers       AdvanceRequest[] @relation("AdvanceVoucher")
+  vendorBalancePaymentProofs VendorBalancePayment[] @relation("VendorBalancePaymentProof")
+  vendorBalanceVouchers      VendorBalancePaymentTask[] @relation("VendorBalanceVoucher")
+  vendorPaymentProofs        VendorPayment[] @relation("VendorPaymentProof")
+  financialNoteDocuments     FinancialNote[]
+
+  @@index([storageKey])
+}
+
+model DocumentAttachment {
+  id       String     @id @default(cuid())
+  fileId   String
+  file     StoredFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  entityType   String // CLIENT | VENDOR | DRIVER | VEHICLE | INDENT | TRIP | REQUIREMENT | CLIENT_PAYMENT
+  entityId     String
+  documentType String // GST_CERT | PAN | RC | INSURANCE | POD | EWAY_BILL | LR | OTHER
+  title        String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([fileId])
+}
+
+// =============================================================================
+// LOOKUP CATALOGS (system defaults)
+// =============================================================================
+
+model LookupCatalog {
+  id       String  @id @default(cuid())
+  category String // SERVICE_TYPE | TRANSACTION_TYPE | CARGO_TYPE | VEHICLE_TYPE | INSURANCE_TYPE | BODY_TYPE | DOCUMENT_TYPE
+  code     String
+  label    String
+  sortOrder Int    @default(0)
+  isActive  Boolean @default(true)
+  meta      String? // JSON string for extra attributes
+
+  @@unique([category, code])
+  @@index([category, isActive])
+}
+
+// =============================================================================
+// CLIENT MASTER
+// =============================================================================
+
+model Client {
+  id        String  @id @default(cuid())
+  name      String
+  legalName String?
+  code      String? // internal client code
+  industry  String?
+  website   String?
+
+  contactName   String?
+  phone         String?
+  altPhone      String?
+  email         String?
+  accountsEmail String?
+
+  gstin String?
+  pan   String?
+  cin   String?
+  msme  String?
+
+  // External GST verification (Surepass / provider)
+  gstVerificationStatus   String?   // PENDING | VERIFIED | FAILED
+  gstVerifiedAt           DateTime?
+  gstVerificationProvider String?
+  gstVerificationData     Json?
+
+  isActive  Boolean  @default(true)
+  deletedAt DateTime?
+  notes     String?
+
+  biddingCompanyId     String? @unique
+  biddingApplicationId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  commercial    ClientCommercial?
+  addresses     ClientAddress[]
+  users         User[]
+  requirements  Requirement[]
+  indents       Indent[]
+  trips         Trip[]
+  invoices      ClientInvoice[]
+  invoiceTasks  InvoiceTask[]
+  payments      ClientPayment[]
+  journalLines  JournalLine[]
+  financialNotes FinancialNote[]
+
+  @@index([isActive])
+  @@index([gstin])
+}
+
+model ClientAddress {
+  id        String  @id @default(cuid())
+  clientId  String
+  client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  addressId String
+  address   Address @relation(fields: [addressId], references: [id], onDelete: Cascade)
+  type      String // BILLING | SHIPPING | OTHER
+  isPrimary Boolean @default(false)
+
+  @@unique([clientId, type, addressId])
+}
+
+model ClientCommercial {
+  clientId String @id
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  creditLimit      Decimal?
+  paymentTermsDays Int?
+  securityDeposit  Decimal?
+  bankAccountId    String?
+  bankAccount      BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+}
+
+// =============================================================================
+// VENDOR MASTER
+// =============================================================================
+
+model Vendor {
+  id        String  @id @default(cuid())
+  name      String
+  code      String?
+  type      String  @default("FLEET_OWNER") // FLEET_OWNER | BROKER
+
+  contactName String?
+  phone       String?
+  altPhone    String?
+  email       String?
+  whatsapp    String?
+
+  gstin String?
+  pan   String?
+  msme  String?
+
+  // External GST verification (Surepass / provider)
+  gstVerificationStatus   String?
+  gstVerifiedAt           DateTime?
+  gstVerificationProvider String?
+  gstVerificationData     Json?
+
+  rating    Decimal?
+  isActive  Boolean  @default(true)
+  deletedAt DateTime?
+  notes     String?
+
+  biddingCompanyId     String? @unique
+  biddingApplicationId String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  commercial   VendorCommercial?
+  addresses    VendorAddress[]
+  users        User[]
+  vehicles     Vehicle[]
+  quotes       VendorQuote[]
+  allocations  IndentAllocation[]
+  trips        Trip[]
+  payments     VendorPayment[]
+  advanceRequests AdvanceRequest[]
+  balancePaymentTasks VendorBalancePaymentTask[]
+  vendorTripPayables VendorTripPayable[]
+  assignedIndents Indent[]
+  whatsappQuoteSessions WhatsAppQuoteSession[]
+  vendorReleases      IndentVendorRelease[]
+  beneficiaries       VendorBeneficiary[]
+  outboundPayments    OutboundPayment[]
+  journalLines        JournalLine[]
+  financialNotes        FinancialNote[]
+
+  @@index([isActive])
+}
+
+model VendorAddress {
+  id        String  @id @default(cuid())
+  vendorId  String
+  vendor    Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  addressId String
+  address   Address @relation(fields: [addressId], references: [id], onDelete: Cascade)
+  type      String  @default("REGISTERED")
+  isPrimary Boolean @default(true)
+
+  @@index([vendorId])
+}
+
+model VendorCommercial {
+  vendorId String @id
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  paymentTermsDays Int?
+  tdsApplicable    Boolean @default(false)
+  bankAccountId    String?
+  bankAccount      BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+}
+
+// =============================================================================
+// DRIVER & VEHICLE
+// =============================================================================
+
+model Driver {
+  id       String @id @default(cuid())
+  name     String
+  phone    String // NOT unique — multiple drivers may share a phone number
+  dlNumber String @unique // canonical driver identity (normalized)
+
+  dlExpiry DateTime?
+  dateOfBirth DateTime?
+
+  // External DL verification (Surepass / provider)
+  dlVerified              Boolean   @default(false)
+  dlVerificationStatus    String?   // PENDING | VERIFIED | FAILED
+  dlVerifiedAt            DateTime?
+  dlVerificationProvider  String?
+  dlVerificationSnapshot  Json?
+  dlIssueDate             DateTime?
+  dlStatus                String?
+  dlVehicleClasses        String?
+
+  address String?
+  city    String?
+  state   String?
+  pincode String?
+
+  deviceType String @default("SMARTPHONE") // SMARTPHONE | FEATURE_PHONE
+
+  // OTP-based account verification (identity = DL + OTP, not phone alone)
+  otpVerified Boolean   @default(false)
+  otpCode     String?   // HMAC-SHA256 hash of the OTP (never plaintext in production)
+  otpExpiresAt DateTime?
+  otpPurpose  String?   // driver_login | driver_verify — prevents cross-purpose reuse
+  accountStatus String @default("PENDING") // PENDING | ACTIVE | SUSPENDED
+  kycStatus   String   @default("PENDING") // PENDING | IN_PROGRESS | VERIFIED
+
+  isActive  Boolean  @default(true)
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users            User[]
+  allocations      IndentAllocation[]
+  trips            Trip[]
+  trackingPings    TrackingPing[]
+  assignedIndents  Indent[]
+
+  @@index([phone])
+  @@index([city])
+}
+
+model Vehicle {
+  id                 String  @id @default(cuid())
+  vendorId           String?
+  vendor             Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+
+  registrationNumber String  @unique
+  vehicleTypeCode    String
+  bodyTypeCode       String?
+
+  capacityTons Decimal?
+  capacityCbm  Decimal?
+  make         String?
+  model        String?
+  year         Int?
+  ownership    String? @default("ATTACHED") // OWNED | ATTACHED | MARKET
+
+  isActive  Boolean  @default(true)
+  deletedAt DateTime?
+  remarks   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  compliance       VehicleCompliance?
+  telematics       VehicleTelematics?
+  quotes           VendorQuote[]
+  allocations      IndentAllocation[]
+  trips            Trip[]
+  assignedIndents  Indent[]
+
+  @@index([vendorId])
+}
+
+model VehicleCompliance {
+  vehicleId String  @id
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  verificationStatus  String @default("PENDING") // PENDING | SUBMITTED | APPROVED | REJECTED
+  verificationRemarks String?
+  verifiedAt          DateTime?
+  verifiedById        String?
+  verifiedBy          User?   @relation(fields: [verifiedById], references: [id], onDelete: SetNull)
+
+  rcNumber  String?
+  rcExpiry  DateTime?
+  ownerName String?
+  ownerPan  String?
+
+  insuranceNumber  String?
+  insuranceCompany String?
+  insuranceExpiry  DateTime?
+  insuranceValue   Decimal?
+
+  fitnessExpiry DateTime?
+  pucNumber     String?
+  pucExpiry     DateTime?
+  permitType    String?
+  permitNumber  String?
+  permitExpiry  DateTime?
+
+  // External RC verification (Surepass / provider)
+  rcVerified              Boolean   @default(false)
+  rcVerificationStatus    String?   // PENDING | VERIFIED | FAILED
+  rcVerifiedAt            DateTime?
+  rcVerificationProvider  String?
+  rcVerificationSnapshot  Json?
+  complianceState         String?   // VERIFIED | NON_COMPLIANT | UNKNOWN
+  fuelType                String?
+  vehicleClass            String?
+}
+
+model VehicleTelematics {
+  vehicleId  String  @id
+  vehicle    Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  gpsEnabled  Boolean @default(false)
+  gpsDeviceId String?
+  fastagId    String?
+}
+
+// =============================================================================
+// REQUIREMENT (client-initiated, optional precursor)
+// =============================================================================
+
+model Requirement {
+  id         String @id @default(cuid())
+  reqNumber  String @unique
+  clientId   String
+  client     Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  routeFrom       String
+  routeTo         String
+  vehicleTypeCode String
+  vehicleQuantity Int    @default(1)
+  cargoSummary    String?
+  expectedAt      DateTime?
+  clientRate      Decimal?
+
+  bodyTypeCode  String?
+  insuranceType String?
+  cargoTypeCode String?
+  capacityCbm   Decimal?
+  weightValue   Decimal?
+  weightUnit    String?
+  packageCount  Int?
+  materialDescription String?
+  packingType   String?
+  materialValue Decimal?
+  hsnCode       String?
+  freightType   String?
+  paymentMode   String?
+  pickupAt      DateTime?
+  deliveryAt    DateTime?
+  specialInstructions String?
+
+  consignorName    String?
+  consignorCity    String?
+  consignorState   String?
+  consignorPincode String?
+  consignorAddress String?
+  consignorContact String?
+  consignorPhone   String?
+  consigneeName    String?
+  consigneeCity    String?
+  consigneeState   String?
+  consigneePincode String?
+  consigneeAddress String?
+  consigneeContact String?
+  consigneePhone   String?
+
+  status String @default("OPEN") // OPEN | CONVERTED | CANCELLED
+  source String @default("PORTAL") // PORTAL | EMAIL | PHONE | ADMIN
+
+  convertedAt DateTime?
+  indent      Indent?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId, status])
+}
+
+// =============================================================================
+// INDENT CLUSTER (single source of truth)
+// =============================================================================
+
+model Indent {
+  id           String @id @default(cuid())
+  indentNumber String @unique
+  clientId     String
+  client       Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  requirementId String?     @unique
+  requirement   Requirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+
+  indentDate DateTime @default(now())
+  status     String   @default("DRAFT")
+  // DRAFT | WAITING_FOR_ADVANCE | ADVANCE_PENDING | ADVANCE_PAID | RELEASED_TO_VENDORS
+  // QUOTING | VENDOR_ALLOCATED | PLACEMENT_PENDING | VEHICLE_PLACED | DRIVER_ASSIGNED
+  // IN_TRANSIT | DELIVERED | POD_PENDING | POD_RECEIVED | COMPLETED | CANCELLED
+
+  source      String  @default("ADMIN") // ADMIN | REQUIREMENT | IMPORT | BIDDING
+  allocationMode String @default("BIDDING") // BIDDING | MANUAL
+
+  biddingLoadRequirementId String? @unique
+  biddingBidId             String?
+  biddingBidAcceptanceId   String?
+  biddingHandoffKey        String? @unique
+  createdById String?
+  createdBy   User?   @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  remarks     String?
+
+  // Advance decision (Finance) — requested / approved / paid / rejected
+  advanceStatus    String   @default("PENDING") // PENDING | APPROVED | PAID | REJECTED
+  advanceRequested Decimal?
+  advanceApproved  Decimal?
+  releasedAt       DateTime?
+
+  // Current allocation (denormalized for fast reads; history lives in IndentAllocation)
+  vendorId         String?
+  vendor           Vendor?  @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  allocatedQuoteId String?
+  vendorAllocatedAt DateTime?
+
+  // Placement
+  placementStatus     String    @default("PLACEMENT_PENDING") // PLACEMENT_PENDING | VEHICLE_REACHED | PLACEMENT_FAILED
+  placementDeadlineAt DateTime?
+
+  // Assigned vehicle + driver (filled by ShunLink employee)
+  vehicleId String?
+  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  driverId  String?
+  driver    Driver?  @relation(fields: [driverId], references: [id], onDelete: SetNull)
+
+  podReceivedAt DateTime? // completion timestamp after POD accepted
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  consignment   IndentConsignment?
+  ewayBill      IndentEwayBill?
+  loading       IndentLoadingLocation?
+  unloading     IndentUnloadingLocation?
+  cargo         IndentCargo?
+  clientFreight IndentClientFreight?
+  lines         IndentLine[]
+  quotes        VendorQuote[]
+  allocations   IndentAllocation[]
+  payments      IndentPayment[]
+  trips         Trip[]
+  pods          IndentPod[]
+  trackingPings TrackingPing[]
+  importantEvents ImportantEvent[]
+  invoiceTasks    InvoiceTask[]
+  balancePaymentTasks VendorBalancePaymentTask[]
+  vendorTripPayables  VendorTripPayable[]
+  clientPayments      ClientPayment[]
+  vendorPayments      VendorPayment[]
+  whatsappQuoteSessions WhatsAppQuoteSession[]
+  releaseCities         IndentReleaseCity[]
+  vendorReleases        IndentVendorRelease[]
+  outboundPayments      OutboundPayment[]
+  journalLines          JournalLine[]
+  financialNotes        FinancialNote[]
+
+  @@index([clientId, status])
+  @@index([status])
+  @@index([vendorId])
+  @@index([indentDate])
+  @@index([biddingBidId])
+}
+
+model BiddingIntegrationHandoff {
+  id             String   @id @default(cuid())
+  idempotencyKey String   @unique
+  kind           String // ONBOARDING | AWARD
+  indentId       String?
+  tripId         String?
+  tmsPartyId     String?
+  partyType      String?
+  payloadHash    String?
+  createdAt      DateTime @default(now())
+}
+
+model IndentConsignment {
+  indentId String @id
+  indent   Indent @relation(fields: [indentId], references: [id], onDelete: Cascade)
+
+  serviceType     String // GTA (lookup: SERVICE_TYPE)
+  transactionType String // SPOT (lookup: TRANSACTION_TYPE)
+
+  vehicleTypeCode String
+  bodyTypeCode    String?
+  vehicleQuantity Int    @default(1)
+
+  insuranceType String @default("NONE") // NONE | TRANSIT | COMPREHENSIVE (lookup)
+
+  cargoTypeCode String // lookup: CARGO_TYPE
+
+  weightValue Decimal?
+  weightUnit  String   @default("MT") // MT | KG
+  packageCount Int?
+  capacityCbm  Decimal?
+
+  pickupAt   DateTime?
+  deliveryAt DateTime?
+  podDueAt   DateTime?
+
+  ewayBillRequired    Boolean @default(false)
+  specialInstructions String?
+}
+
+// Operational E-Way Bill snapshot for an indent (fetch, manual, or future generate)
+model IndentEwayBill {
+  indentId String @id
+  indent   Indent @relation(fields: [indentId], references: [id], onDelete: Cascade)
+
+  mode String @default("NONE") // EXISTING | NONE | MANUAL
+
+  ewayBillNumber   String?
+  status           String?
+  supplierGstin    String?
+  recipientGstin   String?
+  documentType     String?
+  documentNumber   String?
+  documentDate     DateTime?
+  goodsDescription String?
+  hsnCode          String?
+  quantity         String?
+  value            Decimal?
+  origin           String?
+  destination      String?
+  transporterName  String?
+  transporterGstin String?
+  vehicleNumber    String?
+  validFrom        DateTime?
+  validUntil       DateTime?
+
+  provider    String?
+  fetchedAt   DateTime?
+  generatedAt DateTime?
+  source      String @default("MANUAL") // CLIENT_PROVIDED | SHUNLINK_GENERATED | MANUAL
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model IndentLoadingLocation {
+  indentId String @id
+  indent   Indent @relation(fields: [indentId], references: [id], onDelete: Cascade)
+
+  partyName   String?
+  gstin       String?
+  contactName String?
+  phone       String?
+  email       String?
+
+  addressId String?
+  address   Address? @relation(fields: [addressId], references: [id], onDelete: SetNull)
+
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  pincode      String?
+  country      String? @default("India")
+
+  scheduledAt  DateTime?
+  instructions String?
+}
+
+model IndentUnloadingLocation {
+  indentId String @id
+  indent   Indent @relation(fields: [indentId], references: [id], onDelete: Cascade)
+
+  partyName   String?
+  gstin       String?
+  contactName String?
+  phone       String?
+  email       String?
+
+  addressId String?
+  address   Address? @relation(fields: [addressId], references: [id], onDelete: SetNull)
+
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  pincode      String?
+  country      String? @default("India")
+
+  scheduledAt  DateTime?
+  instructions String?
+}
+
+model IndentCargo {
+  indentId String @id
+  indent   Indent @relation(fields: [indentId], references: [id], onDelete: Cascade)
+
+  description   String?
+  packingType   String?
+  hsnCode       String?
+  declaredValue Decimal?
+  invoiceNumber String?
+  invoiceValue  Decimal?
+}
+
+model IndentClientFreight {
+  indentId String @id
+  indent   Indent @relation(fields: [indentId], references: [id], onDelete: Cascade)
+
+  clientRate    Decimal?
+  currency      String  @default("INR")
+  freightType   String? // FOR | TO_PAY
+  paymentMode   String? // TBB | CASH | CREDIT
+  gstApplicable Boolean @default(true)
+  gstRate       Decimal? // e.g. 0.12 for GTA
+}
+
+model IndentLine {
+  id       String @id @default(cuid())
+  indentId String
+  indent   Indent @relation(fields: [indentId], references: [id], onDelete: Cascade)
+
+  lineNumber Int
+  status     String @default("OPEN") // OPEN | ALLOCATED | TRIP_CREATED | COMPLETED | CANCELLED
+
+  vehicleTypeCode String?
+  bodyTypeCode    String?
+
+  allocations IndentAllocation[]
+  tripId     String? @unique
+  trip       Trip?   @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([indentId, lineNumber])
+  @@index([indentId])
+}
+
+model VendorQuote {
+  id       String @id @default(cuid())
+  indentId String
+  indent   Indent @relation(fields: [indentId], references: [id], onDelete: Cascade)
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  indentLineId String?
+  vehicleId    String?
+  vehicle      Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+
+  quotedRate Decimal
+  currency   String  @default("INR")
+  channel    String // PORTAL | WHATSAPP
+  status     String  @default("ACTIVE") // ACTIVE | WITHDRAWN | ACCEPTED | REJECTED
+  remarks    String?
+
+  submittedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@unique([indentId, vendorId])
+  @@index([indentId, status])
+  @@index([indentId, quotedRate])
+  @@index([vendorId])
+}
+
+/// Allocation history for an indent (one ACTIVE at a time; past ones preserved).
+model IndentAllocation {
+  id       String @id @default(cuid())
+  indentId String
+  indent   Indent @relation(fields: [indentId], references: [id], onDelete: Cascade)
+
+  indentLineId String
+  indentLine   IndentLine @relation(fields: [indentLineId], references: [id], onDelete: Cascade)
+
+  vendorId   String
+  vendor     Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  vendorRate Decimal
+  acceptedQuoteId String?
+
+  vehicleId String?
+  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  driverId  String?
+  driver    Driver?  @relation(fields: [driverId], references: [id], onDelete: SetNull)
+
+  status      String    @default("ACTIVE") // ACTIVE | CANCELLED | RELEASED | EXPIRED
+  allocatedAt DateTime  @default(now())
+  deadlineAt  DateTime? // 24-hour placement deadline from allocatedAt
+
+  reallocatedAt      DateTime?
+  reallocationReason String?
+
+  allocatedById String?
+  allocatedBy   User? @relation(fields: [allocatedById], references: [id], onDelete: SetNull)
+
+  @@index([indentId])
+  @@index([indentId, status])
+  @@index([vendorId])
+  @@index([indentLineId])
+}
+
+model IndentPayment {
+  id       String @id @default(cuid())
+  indentId String
+  indent   Indent @relation(fields: [indentId], references: [id], onDelete: Cascade)
+
+  paymentType String // ADVANCE | BALANCE | OTHER
+  amount      Decimal
+  mode        String? // Bank Transfer | UPI | Cash
+  referenceNo String?
+  paidAt      DateTime @default(now())
+  recordedById String?
+  recordedBy   User? @relation(fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([indentId])
+}
+
+// =============================================================================
+// POD (indent-scoped)
+// =============================================================================
+
+model IndentPod {
+  id       String @id @default(cuid())
+  indentId String
+  indent   Indent @relation(fields: [indentId], references: [id], onDelete: Cascade)
+
+  tripId String?
+  trip   Trip? @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  fileId String? // front side of POD
+  file   StoredFile? @relation("PodFrontFile", fields: [fileId], references: [id], onDelete: SetNull)
+
+  backFileId String?
+  backFile   StoredFile? @relation("PodBackFile", fields: [backFileId], references: [id], onDelete: SetNull)
+
+  source     String  @default("DRIVER") // DRIVER | EMPLOYEE | VENDOR
+  status     String  @default("PENDING_VERIFICATION") // PENDING_VERIFICATION | VERIFIED | BAD_POD
+  remarks    String?
+  uploadedAt DateTime @default(now())
+
+  uploadedById String?
+  uploadedBy   User? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  verifiedAt   DateTime?
+  verifiedById String?
+  verifiedBy   User? @relation("PodVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+
+  rejectionReason  String?
+  rejectedAt       DateTime?
+  rejectedById     String?
+  rejectedBy       User? @relation("PodRejecter", fields: [rejectedById], references: [id], onDelete: SetNull)
+
+  resolutionStatus String? // PENDING | CORRECTED | SLA_BREACHED
+  slaDeadlineAt    DateTime?
+  slaBreachedAt    DateTime?
+  escalatedAt      DateTime?
+
+  previousPodId String?
+  previousPod   IndentPod?  @relation("PodHistory", fields: [previousPodId], references: [id], onDelete: SetNull)
+  successors    IndentPod[] @relation("PodHistory")
+
+  @@index([indentId])
+  @@index([status])
+  @@index([tripId])
+  @@index([resolutionStatus])
+}
+
+// =============================================================================
+// IMPORTANT EVENTS (operational alerting)
+// =============================================================================
+
+model ImportantEvent {
+  id        String @id @default(cuid())
+  type      String // ALLOCATION_PLACEMENT_DEADLINE | ADVANCE_PENDING | VENDOR_QUOTE_RECEIVED | VEHICLE_NOT_REACHED | DRIVER_OTP_PENDING | POD_PENDING | POD_REJECTED | TRACKING_INACTIVE
+  severity  String @default("WARNING") // INFO | WARNING | CRITICAL
+  title     String
+  description String?
+
+  indentId String?
+  indent   Indent? @relation(fields: [indentId], references: [id], onDelete: Cascade)
+  relatedEntityId String?
+
+  /// Team that should action this event (denormalized for dashboard routing)
+  targetTeamCode String? // ADMIN | SALES | OPERATIONS | FINANCE | VENDOR_TEAM
+
+  status         String    @default("OPEN") // OPEN | ACKNOWLEDGED | RESOLVED | DISMISSED
+  dueAt          DateTime?
+  acknowledgedAt DateTime?
+  acknowledgedById String?
+  acknowledgedBy   User? @relation("EventAcknowledger", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+  resolvedAt     DateTime?
+  resolvedById   String?
+  resolvedBy     User? @relation("EventResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([status])
+  @@index([severity])
+  @@index([createdAt])
+  @@index([indentId])
+  @@index([targetTeamCode, status])
+}
+
+// =============================================================================
+// TRIP EXECUTION (LR) — child/execution record of the indent
+// =============================================================================
+
+model Trip {
+  id       String @id @default(cuid())
+  lrNumber String @unique
+  indentId String?
+  indent   Indent? @relation(fields: [indentId], references: [id], onDelete: SetNull)
+
+  clientId  String
+  client    Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  vendorId  String
+  vendor    Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  driverId  String?
+  driver    Driver? @relation(fields: [driverId], references: [id], onDelete: SetNull)
+
+  routeFrom     String
+  routeTo       String
+  cargoSummary  String?
+  loadingWeight Decimal?
+
+  clientRate Decimal
+  vendorRate Decimal
+  margin     Decimal
+
+  trackingMode String? @default("GPS") // GPS | CELL (derived from driver deviceType)
+
+  status          String    @default("PENDING")
+  dispatchedAt    DateTime?
+  deliveredAt     DateTime?
+  podReceivedAt   DateTime?
+  podVerifiedAt   DateTime?
+  podVerifiedById String?
+  podVerifiedBy   User?     @relation("TripPodVerifier", fields: [podVerifiedById], references: [id], onDelete: SetNull)
+  tripClosedAt    DateTime?
+  driverArrivedAt DateTime?
+
+  remarks   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  indentLine     IndentLine?
+  vendorPayments VendorPayment[]
+  pings          TrackingPing[]
+  notifications  Notification[]
+  invoiceLines   ClientInvoiceLine[]
+  advanceRequests AdvanceRequest[]
+  pods            IndentPod[]
+  invoiceTask     InvoiceTask?
+  balancePaymentTask VendorBalancePaymentTask?
+  clientPayments     ClientPayment[]
+  charges            TripCharge[]
+  outboundPayments   OutboundPayment[]
+  vendorTripPayable  VendorTripPayable?
+  journalLines       JournalLine[]
+  financialNotes     FinancialNote[]
+
+  @@index([status])
+  @@index([clientId])
+  @@index([vendorId])
+  @@index([driverId])
+  @@index([indentId])
+}
+
+model TrackingPing {
+  id       String  @id @default(cuid())
+  indentId String?
+  indent   Indent? @relation(fields: [indentId], references: [id], onDelete: Cascade)
+  tripId   String?
+  trip     Trip?   @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  driverId String?
+  driver   Driver? @relation(fields: [driverId], references: [id], onDelete: SetNull)
+
+  lat            Float
+  lng            Float
+  source         String  @default("GPS") // GPS | CELL
+  accuracyMeters Float?
+  provider       String?
+  note           String?
+  recordedAt     DateTime @default(now())
+
+  @@index([indentId, recordedAt])
+  @@index([tripId, recordedAt])
+  @@index([driverId])
+}
+
+// =============================================================================
+// FINANCE
+// =============================================================================
+
+model ClientInvoice {
+  id            String @id @default(cuid())
+  invoiceNumber String @unique
+  clientId      String
+  client        Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  issueDate DateTime  @default(now())
+  dueDate   DateTime?
+
+  subTotal    Decimal
+  gstAmount   Decimal
+  totalAmount Decimal
+  currency    String @default("INR")
+
+  status     String  @default("DRAFT") // DRAFT | SENT | PAID | PARTIALLY_PAID | OVERDUE | CANCELLED
+  paidAmount Decimal @default(0)
+  paidAt     DateTime?
+
+  createdById String?
+  createdBy   User? @relation("InvoiceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  finalizedAt DateTime?
+
+  // Billing snapshot — editable on invoice; does not modify Client master
+  billingName        String?
+  billingGstin       String?
+  billingAddress     String?
+  billingEmail       String?
+  paymentTermsDays   Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines        ClientInvoiceLine[]
+  invoiceTasks InvoiceTask[]
+  payments     ClientPayment[]
+  financialNotes FinancialNote[]
+
+  @@index([clientId, status])
+}
+
+/// Client advance/payment received — recorded by Finance.
+model ClientPayment {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  paymentType String @default("PAYMENT") // ADVANCE | PAYMENT | OTHER
+  amount      Decimal
+  currency    String  @default("INR")
+
+  paidAt       DateTime
+  paymentMode  String?
+  referenceNo  String?
+  chequeNumber String?
+  notes        String?
+
+  invoiceId String?
+  invoice   ClientInvoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  indentId  String?
+  indent    Indent? @relation(fields: [indentId], references: [id], onDelete: SetNull)
+  tripId    String?
+  trip      Trip? @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  proofFileId String?
+  proofFile   StoredFile? @relation(fields: [proofFileId], references: [id], onDelete: SetNull)
+
+  recordedById String?
+  recordedBy   User? @relation("ClientPaymentRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId, paidAt])
+  @@index([invoiceId])
+  @@index([indentId])
+  @@index([tripId])
+}
+
+model ClientInvoiceLine {
+  id        String       @id @default(cuid())
+  invoiceId String
+  invoice   ClientInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  tripId    String
+  trip      Trip         @relation(fields: [tripId], references: [id], onDelete: Restrict)
+
+  description String?
+  amount      Decimal
+  gstRate     Decimal?
+  gstAmount   Decimal?
+
+  // Trip/indent snapshot — editable on invoice line; does not modify source records
+  lrNumber     String?
+  routeFrom    String?
+  routeTo      String?
+  cargoSummary String?
+  vehicleReg   String?
+  indentNumber String?
+
+  @@unique([invoiceId, tripId])
+  @@index([tripId])
+}
+
+/// Finance invoice task — created when POD is verified; 24h SLA to complete invoicing.
+model InvoiceTask {
+  id       String @id @default(cuid())
+  tripId   String @unique
+  trip     Trip   @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  indentId String?
+  indent   Indent? @relation(fields: [indentId], references: [id], onDelete: SetNull)
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  status        String   @default("PENDING") // PENDING | COMPLETED | SLA_BREACHED
+  podVerifiedAt DateTime
+  deadlineAt    DateTime
+  slaBreachedAt DateTime?
+  escalatedAt   DateTime?
+
+  invoiceId String?
+  invoice   ClientInvoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([status])
+  @@index([deadlineAt])
+  @@index([clientId])
+}
+
+model VendorPayment {
+  id       String @id @default(cuid())
+  tripId   String
+  trip     Trip   @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  paymentType String @default("OTHER") // ADVANCE | BALANCE | OTHER
+  sourceType  String? // ADVANCE_REQUEST | BALANCE_PAYMENT | MANUAL
+  sourceId    String? @unique
+
+  amount        Decimal
+  advanceAmount Decimal @default(0)
+  tdsAmount     Decimal @default(0)
+  netPayable    Decimal
+  currency      String  @default("INR")
+
+  status      String    @default("PAID") // PENDING | APPROVED | PAID | FAILED
+  paidAt      DateTime?
+  paymentMode String?
+  referenceNo String?
+  chequeNumber String?
+  notes       String?
+
+  indentId String?
+  indent   Indent? @relation(fields: [indentId], references: [id], onDelete: SetNull)
+
+  proofFileId String?
+  proofFile   StoredFile? @relation("VendorPaymentProof", fields: [proofFileId], references: [id], onDelete: SetNull)
+
+  recordedById String?
+  recordedBy   User? @relation("VendorPaymentRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vendorId, status])
+  @@index([vendorId, paidAt])
+  @@index([tripId])
+  @@index([paymentType])
+}
+
+/// Trip-level vendor charges (detention, deductions) applied before balance payment.
+model TripCharge {
+  id          String   @id @default(cuid())
+  tripId      String
+  trip        Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  chargeType  String   // DETENTION | DEDUCTION | OTHER
+  amount      Decimal
+  description String?
+  createdById String?
+  createdBy   User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  financialNotes FinancialNote[]
+
+  @@index([tripId])
+  @@index([chargeType])
+}
+
+/// Authoritative vendor balance payable per trip (commercial amounts + settlement progress).
+/// Advance obligations remain on AdvanceRequest; VendorPayment is payment history.
+model VendorTripPayable {
+  id       String @id @default(cuid())
+  tripId   String @unique
+  trip     Trip   @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  indentId String?
+  indent   Indent? @relation(fields: [indentId], references: [id], onDelete: SetNull)
+
+  freightAmount           Decimal
+  additionalChargesAmount Decimal @default(0)
+  deductionsAmount        Decimal @default(0)
+  tdsAmount               Decimal @default(0)
+  finalPayableAmount      Decimal
+  advanceAppliedAmount    Decimal @default(0)
+  balanceAmount           Decimal
+  balancePaidAmount       Decimal @default(0)
+  currency                String  @default("INR")
+
+  /// Finance-approved commercial snapshot — frozen until an adjustment is recorded.
+  commercialApprovalStatus String    @default("DRAFT") // DRAFT | PENDING_REVIEW | APPROVED
+  commercialApprovedAt     DateTime?
+  commercialApprovedById   String?
+  commercialApprovedBy     User?     @relation("VendorTripPayableApprover", fields: [commercialApprovedById], references: [id], onDelete: SetNull)
+
+  balancePaymentTaskId String? @unique
+  balancePaymentTask   VendorBalancePaymentTask? @relation(fields: [balancePaymentTaskId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  adjustments VendorTripPayableAdjustment[]
+
+  @@index([vendorId])
+  @@index([indentId])
+  @@index([commercialApprovalStatus])
+}
+
+/// Explicit history when commercially significant payable amounts change.
+model VendorTripPayableAdjustment {
+  id        String @id @default(cuid())
+  payableId String
+  payable   VendorTripPayable @relation(fields: [payableId], references: [id], onDelete: Cascade)
+
+  adjustmentType String // CHARGE_CHANGE | RECALCULATION | COMMERCIAL_APPROVED | BACKFILL
+  status         String @default("APPLIED") // PENDING_APPROVAL | APPLIED | REJECTED
+
+  previousAmounts Json
+  newAmounts      Json
+  reason          String?
+
+  tripChargeId String?
+  financialNoteId String?
+  financialNote   FinancialNote? @relation(fields: [financialNoteId], references: [id], onDelete: SetNull)
+  createdById  String?
+  createdBy    User? @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  @@index([payableId, createdAt])
+  @@index([financialNoteId])
+}
+
+/// Post-POD vendor balance payment task — 96h SLA from POD verification.
+model VendorBalancePaymentTask {
+  id       String @id @default(cuid())
+  tripId   String @unique
+  trip     Trip   @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  indentId String?
+  indent   Indent? @relation(fields: [indentId], references: [id], onDelete: SetNull)
+
+  status String @default("PENDING_REVIEW")
+  // PENDING_REVIEW | APPROVED | PROCESSING | PARTIALLY_PAID | PROCESSED | SLA_BREACHED
+
+  freightAmount           Decimal
+  additionalChargesAmount Decimal @default(0)
+  deductionsAmount      Decimal @default(0)
+  finalPayableAmount      Decimal
+  advanceAmount           Decimal @default(0)
+  tdsAmount               Decimal @default(0)
+  balanceAmount           Decimal
+  paidAmount              Decimal @default(0)
+  currency                String  @default("INR")
+
+  podVerifiedAt DateTime
+  deadlineAt    DateTime
+  slaBreachedAt DateTime?
+  escalatedAt   DateTime?
+
+  approvedAt    DateTime?
+  approvedById  String?
+  approvedBy    User? @relation("BalancePaymentApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  paymentMode       String?
+  paymentDetails    String?
+  processingRemarks String?
+
+  voucherNumber String?
+  voucherFileId String?
+  voucherFile   StoredFile? @relation("VendorBalanceVoucher", fields: [voucherFileId], references: [id], onDelete: SetNull)
+
+  processedAt   DateTime?
+  processedById String?
+  processedBy   User? @relation("BalancePaymentProcessor", fields: [processedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events   VendorBalancePaymentEvent[]
+  payments VendorBalancePayment[]
+  outboundPayments OutboundPayment[]
+  vendorTripPayable VendorTripPayable?
+
+  @@index([status])
+  @@index([deadlineAt])
+  @@index([vendorId])
+  @@index([indentId])
+}
+
+/// Individual vendor balance payment records (supports partial payments).
+model VendorBalancePayment {
+  id     String @id @default(cuid())
+  taskId String
+  task   VendorBalancePaymentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  amount       Decimal
+  paidAt       DateTime
+  paymentMode  String?
+  utrReference String?
+  chequeNumber String?
+  remarks      String?
+
+  proofFileId String?
+  proofFile   StoredFile? @relation("VendorBalancePaymentProof", fields: [proofFileId], references: [id], onDelete: SetNull)
+
+  recordedById String?
+  recordedBy   User? @relation("VendorBalancePaymentRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+  @@index([paidAt])
+}
+
+/// Audit trail for vendor balance payment workflow.
+model VendorBalancePaymentEvent {
+  id     String @id @default(cuid())
+  taskId String
+  task   VendorBalancePaymentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  action     String // PAYMENT_INITIATED | PAYMENT_PROCESSED | SLA_BREACHED
+  actorId    String?
+  actor      User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  fromStatus String?
+  toStatus   String?
+  amount     Decimal?
+  remarks    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([taskId])
+  @@index([createdAt])
+}
+
+/// Trip-level advance request workflow (ShunLink or external provider).
+model AdvanceRequest {
+  id            String @id @default(cuid())
+  requestNumber String @unique
+
+  tripId   String
+  trip     Trip   @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  source           String  @default("SHUNLINK") // SHUNLINK | INTERNAL | EXTERNAL
+  externalProvider String? // NAVI, etc. — only when source = EXTERNAL
+
+  status String @default("PENDING_REVIEW")
+  // PENDING_REVIEW | NEGOTIATED | VENDOR_ACCEPTED | APPROVED | PROCESSING | PROCESSED
+  // | SLA_BREACHED | REJECTED | CANCELLED | EXTERNAL
+
+  requestedAmount  Decimal
+  negotiatedAmount Decimal?
+  approvedAmount   Decimal?
+  currency         String  @default("INR")
+
+  requestedAt      DateTime @default(now())
+  deadlineAt       DateTime
+  negotiatedAt     DateTime?
+  vendorAcceptedAt DateTime?
+  approvedAt       DateTime?
+  processedAt      DateTime?
+  escalatedAt      DateTime?
+
+  requestedById   String?
+  requestedBy     User? @relation("AdvanceRequestCreator", fields: [requestedById], references: [id], onDelete: SetNull)
+  negotiatedById  String?
+  negotiatedBy    User? @relation("AdvanceRequestNegotiator", fields: [negotiatedById], references: [id], onDelete: SetNull)
+  approvedById    String?
+  approvedBy      User? @relation("AdvanceRequestApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  processedById   String?
+  processedBy     User? @relation("AdvanceRequestProcessor", fields: [processedById], references: [id], onDelete: SetNull)
+  escalatedById   String?
+  escalatedBy     User? @relation("AdvanceRequestEscalator", fields: [escalatedById], references: [id], onDelete: SetNull)
+
+  remarks            String?
+  negotiationRemarks String?
+  processingRemarks  String?
+  externalReference  String?
+
+  paidAmount        Decimal?
+  paymentMethod     String?
+  paymentDate       DateTime?
+  utrReference      String?
+  bankAccountUsed   String?
+
+  paymentProofFileId String?
+  paymentProofFile   StoredFile? @relation("AdvancePaymentProof", fields: [paymentProofFileId], references: [id], onDelete: SetNull)
+
+  voucherNumber      String? @unique
+  voucherFileId      String?
+  voucherFile        StoredFile? @relation("AdvanceVoucher", fields: [voucherFileId], references: [id], onDelete: SetNull)
+  voucherGeneratedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events AdvanceRequestEvent[]
+  outboundPayments OutboundPayment[]
+
+  @@index([tripId])
+  @@index([voucherNumber])
+  @@index([vendorId, status])
+  @@index([status])
+  @@index([deadlineAt])
+  @@index([source, status])
+}
+
+/// Audit trail for advance request state changes.
+model AdvanceRequestEvent {
+  id               String @id @default(cuid())
+  advanceRequestId String
+  advanceRequest   AdvanceRequest @relation(fields: [advanceRequestId], references: [id], onDelete: Cascade)
+
+  action     String // REQUESTED | APPROVED | NEGOTIATED | VENDOR_ACCEPTED | PROCESSING | PROCESSED | SLA_BREACHED | REJECTED | ESCALATED
+  actorId    String?
+  actor      User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  fromStatus String?
+  toStatus   String?
+  amount     Decimal?
+  remarks    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([advanceRequestId])
+  @@index([createdAt])
+}
+
+// =============================================================================
+// SYSTEM
+// =============================================================================
+
+/// Cities an indent was released to (admin-selected; append-only per city).
+model IndentReleaseCity {
+  id           String   @id @default(cuid())
+  indentId     String
+  indent       Indent   @relation(fields: [indentId], references: [id], onDelete: Cascade)
+  city         String
+  releasedAt   DateTime @default(now())
+  releasedById String?
+  releasedBy   User?    @relation(fields: [releasedById], references: [id], onDelete: SetNull)
+
+  @@unique([indentId, city])
+  @@index([indentId])
+}
+
+/// Vendors who received an indent release (portal + WhatsApp).
+model IndentVendorRelease {
+  id         String   @id @default(cuid())
+  indentId   String
+  indent     Indent   @relation(fields: [indentId], references: [id], onDelete: Cascade)
+  vendorId   String
+  vendor     Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  city       String
+  releasedAt DateTime @default(now())
+
+  @@unique([indentId, vendorId])
+  @@index([indentId])
+  @@index([vendorId])
+}
+
+/// Tracks which indent a vendor is quoting via WhatsApp (button + amount flow).
+model WhatsAppQuoteSession {
+  id       String @id @default(cuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  indentId String
+  indent   Indent @relation(fields: [indentId], references: [id], onDelete: Cascade)
+  status   String @default("OPEN") // OPEN | AWAITING_AMOUNT | CLOSED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  closedAt  DateTime?
+
+  @@unique([vendorId, indentId])
+  @@index([vendorId, status])
+  @@index([indentId])
+}
+
+/// Idempotency guard for Meta webhook retries.
+model WhatsAppInboundEvent {
+  messageId String   @id
+  quoteId   String?
+  result    String?
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id      String @id @default(cuid())
+  channel String @default("WHATSAPP") // WHATSAPP | SMS | EMAIL | PUSH
+  to      String
+  subject String?
+  body    String
+
+  entityType String? // INDENT | TRIP
+  entityId   String?
+  tripId     String?
+  trip       Trip?   @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  status    String    @default("PENDING") // PENDING | SENT | FAILED
+  attempts  Int       @default(0)
+  error     String? // provider failure reason (e.g. Meta "#131030 ..."); null once delivered
+  createdAt DateTime  @default(now())
+  sentAt    DateTime?
+
+  reads UserNotificationRead[]
+
+  @@index([status])
+}
+
+/// Per-user read state for in-app notification visibility (sidebar badge).
+model UserNotificationRead {
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  readAt         DateTime     @default(now())
+
+  @@id([userId, notificationId])
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String @id @default(cuid())
+  userId    String?
+  actor     User?  @relation("AuditActor", fields: [userId], references: [id], onDelete: SetNull)
+  userEmail String?
+
+  /// Team at time of action (denormalized for historical accuracy)
+  teamId   String?
+  teamCode String?
+
+  action   String
+  entity   String
+  entityId String?
+  tripId   String?
+  meta     String? // JSON
+  before   String? // JSON snapshot before change
+  after    String? // JSON snapshot after change
+
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@index([userId])
+  @@index([teamCode])
+  @@index([action])
+  @@index([tripId])
+}
+
+// =============================================================================
+// UNIFIED SLA TRACKING (single evaluator — domain models hold workflow state)
+// =============================================================================
+
+model SlaTask {
+  id       String @id @default(cuid())
+  type     String // ADVANCE_REQUEST | BAD_POD | INVOICE | BALANCE_PAYMENT
+  entity   String // AdvanceRequest | IndentPod | InvoiceTask | VendorBalancePaymentTask
+  entityId String
+
+  tripId   String?
+  indentId String?
+
+  startAt    DateTime
+  deadlineAt DateTime
+  status     String   @default("ACTIVE") // ACTIVE | BREACHED | RESOLVED | CANCELLED
+  breachedAt DateTime?
+  resolvedAt DateTime?
+
+  escalatedAt      DateTime?
+  importantEventId String?
+  targetTeamCode   String? // FINANCE | OPERATIONS
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([entity, entityId])
+  @@index([status, deadlineAt])
+  @@index([type, status])
+  @@index([tripId])
+  @@index([indentId])
+}
+
+/// Sequential numbers (replaces count+1 race)
+model IdSequence {
+  id        String @id @default(cuid())
+  prefix    String // IND | LR | INV | REQ | PAY
+  year      Int
+  lastValue Int    @default(0)
+
+  @@unique([prefix, year])
+}
+
+// =============================================================================
+// OUTBOUND PAYMENT PROCESSING (provider-agnostic gateway transfers)
+// =============================================================================
+
+/// Gateway-bound or internal payment instruction — distinct from manual VendorPayment ledger rows.
+model OutboundPayment {
+  id            String @id @default(cuid())
+  paymentNumber String @unique
+
+  purpose String // ADVANCE | BALANCE | ADDITIONAL_CHARGE | REFUND | OTHER
+  /// GATEWAY = real provider transfer; MANUAL_RECORD = bookkeeping only (never executed via gateway)
+  settlementChannel String @default("GATEWAY")
+
+  amountMinor Int
+  currency    String @default("INR")
+
+  status String @default("DRAFT")
+  // DRAFT | PENDING_APPROVAL | APPROVED | PROCESSING | SUCCEEDED | FAILED | CANCELLED
+  // | REQUIRES_REVIEW | REVERSED | PARTIALLY_PAID
+
+  approvalStatus String @default("PENDING") // PENDING | APPROVED | REJECTED | NOT_REQUIRED
+
+  indentId String?
+  indent   Indent? @relation(fields: [indentId], references: [id], onDelete: SetNull)
+  tripId   String?
+  trip     Trip?   @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+
+  advanceRequestId String?
+  advanceRequest   AdvanceRequest? @relation(fields: [advanceRequestId], references: [id], onDelete: SetNull)
+  balancePaymentTaskId String?
+  balancePaymentTask   VendorBalancePaymentTask? @relation(fields: [balancePaymentTaskId], references: [id], onDelete: SetNull)
+
+  beneficiaryId String?
+  beneficiary   VendorBeneficiary? @relation(fields: [beneficiaryId], references: [id], onDelete: SetNull)
+
+  providerId            String?
+  providerTransferRef   String?
+  idempotencyKey        String @unique
+  failureCode           String?
+  failureMessage        String?
+
+  ledgerPostedAt DateTime?
+  /// TMS advance/balance records updated after verified gateway success (idempotency guard).
+  financeSettledAt DateTime?
+
+  initiatedAt DateTime?
+  approvedAt  DateTime?
+  submittedAt DateTime?
+  completedAt DateTime?
+
+  createdById String?
+  createdBy   User? @relation("OutboundPaymentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attempts      PaymentAttempt[]
+  approvals     PaymentApproval[]
+  ledgerEntries LedgerEntry[]
+  auditLogs     PaymentAuditLog[]
+  outboxJobs    PaymentOutbox[]
+  journalEntry  JournalEntry?
+  journalLines  JournalLine[]
+  bankReconciliationMatches BankReconciliationMatch[]
+
+  @@index([vendorId, status])
+  @@index([indentId])
+  @@index([tripId])
+  @@index([status])
+  @@index([purpose])
+  @@index([advanceRequestId])
+  @@index([balancePaymentTaskId])
+  @@index([providerTransferRef])
+}
+
+model PaymentAttempt {
+  id        String @id @default(cuid())
+  paymentId String
+  payment   OutboundPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  attemptNumber   Int
+  status          String @default("PENDING") // PENDING | SUBMITTED | SUCCEEDED | FAILED | AMBIGUOUS
+  providerRef     String?
+  correlationId   String?
+  idempotencyKey  String
+  failureCode     String?
+  failureMessage  String?
+  providerMeta    Json?
+
+  submittedAt DateTime?
+  completedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@unique([paymentId, attemptNumber])
+  @@index([paymentId])
+  @@index([providerRef])
+  @@index([idempotencyKey])
+}
+
+model VendorBeneficiary {
+  id       String @id @default(cuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  method String @default("BANK_TRANSFER") // BANK_TRANSFER | UPI
+  accountHolder String?
+  bankName      String?
+  /// Full account number stored server-side; never returned to clients in full.
+  accountNumber String?
+  ifsc          String?
+  upiId         String?
+  maskedDisplay String
+
+  verificationStatus String @default("PENDING") // PENDING | VERIFIED | REJECTED
+  verifiedAt         DateTime?
+  verifiedById       String?
+  verifiedBy         User? @relation("VendorBeneficiaryVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  changeHistory      Json?
+
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payments OutboundPayment[]
+
+  @@index([vendorId, isActive])
+  @@index([verificationStatus])
+}
+
+model PaymentApproval {
+  id        String @id @default(cuid())
+  paymentId String
+  payment   OutboundPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  decision String // APPROVED | REJECTED
+  policy   String?
+  reason   String?
+
+  approverId String?
+  approver   User? @relation("PaymentApprovalActor", fields: [approverId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([paymentId])
+}
+
+model PaymentWebhookEvent {
+  id              String @id @default(cuid())
+  providerId      String
+  providerEventId String
+  signatureValid  Boolean
+  processingStatus String @default("PENDING") // PENDING | PROCESSED | FAILED | IGNORED
+  payload         Json?
+  errorMessage    String?
+  paymentId       String?
+
+  receivedAt  DateTime @default(now())
+  processedAt DateTime?
+
+  @@unique([providerId, providerEventId])
+  @@index([processingStatus])
+  @@index([paymentId])
+}
+
+model LedgerEntry {
+  id        String @id @default(cuid())
+  paymentId String
+  payment   OutboundPayment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  entryType String // DEBIT | CREDIT
+  /// Legacy string account code — mirrors ChartOfAccount.code for gateway-era rows
+  account   String
+  amountMinor Int
+  currency    String @default("INR")
+  reference   String?
+  description String?
+
+  reversalOfId String?
+  reversalOf   LedgerEntry? @relation("LedgerReversal", fields: [reversalOfId], references: [id], onDelete: SetNull)
+  reversals    LedgerEntry[] @relation("LedgerReversal")
+
+  journalEntryId String?
+  journalEntry   JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  journalLineId  String? @unique
+  journalLine    JournalLine? @relation(fields: [journalLineId], references: [id], onDelete: SetNull)
+
+  postedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([paymentId])
+  @@index([account])
+  @@index([journalEntryId])
+}
+
+model PaymentAuditLog {
+  id        String @id @default(cuid())
+  paymentId String
+  payment   OutboundPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  action   String
+  actorId  String?
+  actor    User? @relation("PaymentAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([paymentId])
+  @@index([createdAt])
+}
+
+model ReconciliationRecord {
+  id        String @id @default(cuid())
+  paymentId String?
+  providerId String
+  providerTransferRef String?
+  internalAmountMinor Int?
+  providerAmountMinor Int?
+  status String @default("OPEN") // OPEN | MATCHED | MISMATCH | UNMATCHED | RESOLVED
+  discrepancyType String?
+  notes String?
+
+  /// EXACT_PROVIDER_REF | SETTLEMENT_BATCH | MANUAL | etc.
+  matchingMethod String?
+  evidenceJson Json?
+  bankStatementLineId String?
+  bankStatementLine   BankStatementLine? @relation(fields: [bankStatementLineId], references: [id], onDelete: SetNull)
+  gatewaySettlementLineId String?
+  gatewaySettlementLine   GatewaySettlementLine? @relation(fields: [gatewaySettlementLineId], references: [id], onDelete: SetNull)
+  /// True when MATCHED without independent provider/bank evidence (legacy or manual override)
+  insufficientEvidence Boolean @default(false)
+
+  resolvedAt   DateTime?
+  resolvedById String?
+  resolvedBy   User? @relation("ReconciliationResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([paymentId])
+  @@index([bankStatementLineId])
+}
+
+model PaymentOutbox {
+  id        String @id @default(cuid())
+  paymentId String
+  payment   OutboundPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  jobType String // EXECUTE_TRANSFER | POLL_STATUS | APPLY_WEBHOOK
+  payload Json?
+  status  String @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED | DEAD_LETTER
+  attempts     Int      @default(0)
+  nextAttemptAt DateTime @default(now())
+  lastError     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([paymentId])
+}
+
+// =============================================================================
+// GENERAL LEDGER (Phase 2 accounting foundation)
+// =============================================================================
+
+/// Finance-approved chart of accounts — classification via accountType, not name matching.
+model ChartOfAccount {
+  id                   String  @id @default(cuid())
+  code                 String  @unique
+  name                 String
+  /// ASSET | LIABILITY | EQUITY | REVENUE | EXPENSE
+  accountType          String
+  /// DEBIT | CREDIT — expected normal balance for reporting
+  normalBalance        String
+  parentId             String?
+  parent               ChartOfAccount?  @relation("CoaHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children             ChartOfAccount[] @relation("CoaHierarchy")
+  isActive             Boolean @default(true)
+  isSystem             Boolean @default(false)
+  manualPostingAllowed Boolean @default(true)
+  description          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  journalLines JournalLine[]
+
+  @@index([accountType, isActive])
+  @@index([parentId])
+}
+
+/// Non-overlapping accounting periods — posting allowed only into OPEN periods.
+model AccountingPeriod {
+  id        String   @id @default(cuid())
+  name      String
+  startDate DateTime @db.Date
+  endDate   DateTime @db.Date
+  /// OPEN | UNDER_REVIEW | CLOSED
+  status    String   @default("OPEN")
+
+  closedAt     DateTime?
+  closedById   String?
+  closedBy     User? @relation("PeriodCloser", fields: [closedById], references: [id], onDelete: SetNull)
+  reopenedAt   DateTime?
+  reopenedById String?
+  reopenedBy   User? @relation("PeriodReopener", fields: [reopenedById], references: [id], onDelete: SetNull)
+  reopenReason String?
+
+  closeValidationReport Json?
+  closeNotes            String?
+  permittedExceptions   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  journalEntries JournalEntry[]
+
+  @@index([status])
+  @@index([startDate, endDate])
+}
+
+/// Double-entry journal header — posted rows are immutable (correct via reversal).
+model JournalEntry {
+  id            String @id @default(cuid())
+  journalNumber String @unique
+  accountingDate DateTime @db.Date
+  /// DRAFT | POSTED | REVERSED
+  status        String @default("DRAFT")
+  description   String?
+  /// e.g. OUTBOUND_PAYMENT | MANUAL | OPENING_BALANCE
+  sourceType    String
+  sourceId      String?
+  idempotencyKey String @unique
+
+  currency String @default("INR")
+
+  accountingPeriodId String?
+  accountingPeriod   AccountingPeriod? @relation(fields: [accountingPeriodId], references: [id], onDelete: SetNull)
+
+  outboundPaymentId String? @unique
+  outboundPayment   OutboundPayment? @relation(fields: [outboundPaymentId], references: [id], onDelete: SetNull)
+
+  createdById  String?
+  createdBy    User? @relation("JournalCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  approvedById String?
+  approvedBy   User? @relation("JournalApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  postedById   String?
+  postedBy     User? @relation("JournalPoster", fields: [postedById], references: [id], onDelete: SetNull)
+
+  postedAt   DateTime?
+  reversedAt DateTime?
+
+  /// This journal reverses another posted journal
+  reversesJournalId String? @unique
+  reversesJournal   JournalEntry? @relation("JournalReversalPair", fields: [reversesJournalId], references: [id], onDelete: SetNull)
+  reversedByJournal JournalEntry? @relation("JournalReversalPair")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines         JournalLine[]
+  legacyEntries LedgerEntry[]
+
+  financialNoteIssued   FinancialNote? @relation("FinancialNoteIssuedJournal")
+  financialNoteReversal FinancialNote? @relation("FinancialNoteReversalJournal")
+  bankReconciliationMatches BankReconciliationMatch[]
+
+  @@index([sourceType, sourceId])
+  @@index([status, accountingDate])
+  @@index([accountingPeriodId])
+}
+
+// =============================================================================
+// FORMAL DEBIT / CREDIT NOTES (Phase 4)
+// =============================================================================
+
+/// Commercial adjustment document — distinct from operational TripCharge rows.
+model FinancialNote {
+  id         String @id @default(cuid())
+  /// Assigned on issuance; drafts use reserved draft number or null.
+  noteNumber String? @unique
+
+  noteType         String // DEBIT_NOTE | CREDIT_NOTE
+  issuerEntity     String @default("SHUNLINK")
+  counterpartyType String // VENDOR | CLIENT
+
+  vendorId String?
+  vendor   Vendor? @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  indentId        String?
+  indent          Indent? @relation(fields: [indentId], references: [id], onDelete: SetNull)
+  tripId          String?
+  trip            Trip? @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  clientInvoiceId String?
+  clientInvoice   ClientInvoice? @relation(fields: [clientInvoiceId], references: [id], onDelete: SetNull)
+
+  /// When set, links operational charge — payable may already include this amount.
+  tripChargeId String? @unique
+  tripCharge   TripCharge? @relation(fields: [tripChargeId], references: [id], onDelete: SetNull)
+
+  issueDate      DateTime?
+  accountingDate DateTime? @db.Date
+
+  reason      String?
+  description String?
+
+  /// VENDOR_FREIGHT_INCREASE | VENDOR_FREIGHT_REDUCTION | CLIENT_BILLING_INCREASE | CLIENT_BILLING_REDUCTION | OTHER
+  businessPurpose String
+
+  /// APPLY_TO_SUBLEDGER | SUBLEDGER_ALREADY_REFLECTED | NONE
+  payableEffect String @default("APPLY_TO_SUBLEDGER")
+
+  status String @default("DRAFT")
+  // DRAFT | PENDING_APPROVAL | APPROVED | ISSUED | REJECTED | VOIDED | REVERSED
+
+  taxableAmount Decimal @default(0)
+  taxAmount     Decimal @default(0)
+  totalAmount   Decimal @default(0)
+  currency      String  @default("INR")
+
+  taxJurisdiction String?
+  taxMeta         Json?
+
+  documentFileId String?
+  documentFile   StoredFile? @relation(fields: [documentFileId], references: [id], onDelete: SetNull)
+
+  issuedJournalId   String? @unique
+  issuedJournal     JournalEntry? @relation("FinancialNoteIssuedJournal", fields: [issuedJournalId], references: [id], onDelete: SetNull)
+  reversalJournalId String? @unique
+  reversalJournal   JournalEntry? @relation("FinancialNoteReversalJournal", fields: [reversalJournalId], references: [id], onDelete: SetNull)
+
+  reversesNoteId String?
+  reversesNote   FinancialNote?  @relation("FinancialNoteReversalChain", fields: [reversesNoteId], references: [id], onDelete: SetNull)
+  reversedByNotes FinancialNote[] @relation("FinancialNoteReversalChain")
+
+  subledgerAppliedAt DateTime?
+
+  createdById String?
+  createdBy   User? @relation("FinancialNoteCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  approvedById String?
+  approvedBy   User? @relation("FinancialNoteApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  issuedById   String?
+  issuedBy     User? @relation("FinancialNoteIssuer", fields: [issuedById], references: [id], onDelete: SetNull)
+  rejectedById String?
+  rejectedBy   User? @relation("FinancialNoteRejecter", fields: [rejectedById], references: [id], onDelete: SetNull)
+
+  approvedAt  DateTime?
+  issuedAt    DateTime?
+  rejectedAt  DateTime?
+  voidedAt    DateTime?
+  reversedAt  DateTime?
+
+  rejectionReason String?
+  voidReason      String?
+  reversalReason  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines       FinancialNoteLine[]
+  events      FinancialNoteEvent[]
+  adjustments VendorTripPayableAdjustment[]
+
+  @@index([status])
+  @@index([noteType, counterpartyType])
+  @@index([vendorId, status])
+  @@index([clientId, status])
+  @@index([tripId])
+  @@index([clientInvoiceId])
+  @@index([accountingDate])
+}
+
+model FinancialNoteLine {
+  id     String @id @default(cuid())
+  noteId String
+  note   FinancialNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  lineNumber  Int
+  description String?
+  quantity    Decimal @default(1)
+  unitAmount  Decimal @default(0)
+  amount      Decimal
+  taxRate     Decimal?
+  taxAmount   Decimal @default(0)
+
+  @@unique([noteId, lineNumber])
+  @@index([noteId])
+}
+
+model FinancialNoteEvent {
+  id     String @id @default(cuid())
+  noteId String
+  note   FinancialNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  action     String
+  fromStatus String?
+  toStatus   String?
+  actorId    String?
+  actor      User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  reason     String?
+  meta       Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([noteId, createdAt])
+}
+
+model JournalLine {
+  id             String @id @default(cuid())
+  journalEntryId String
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  accountId      String
+  account        ChartOfAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  debitMinor  Int @default(0)
+  creditMinor Int @default(0)
+  currency    String @default("INR")
+  description String?
+
+  vendorId String?
+  vendor   Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  indentId String?
+  indent   Indent? @relation(fields: [indentId], references: [id], onDelete: SetNull)
+  tripId   String?
+  trip     Trip? @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  outboundPaymentId String?
+  outboundPayment   OutboundPayment? @relation(fields: [outboundPaymentId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  legacyLedgerEntry LedgerEntry?
+
+  @@index([journalEntryId])
+  @@index([accountId])
+  @@index([vendorId])
+  @@index([clientId])
+  @@index([tripId])
+  @@index([outboundPaymentId])
+}
+
+// =============================================================================
+// BANK / GATEWAY RECONCILIATION (Phase 6)
+// =============================================================================
+
+/// Manually uploaded bank statement file — not a verified live bank feed.
+model BankStatementImport {
+  id            String @id @default(cuid())
+  glAccountCode String
+  bankLabel     String?
+
+  fileName      String?
+  fileSha256    String
+  fileSizeBytes Int
+  mimeType      String?
+  /// CSV_UPLOAD | PROVIDER_REPORT
+  importSource  String @default("CSV_UPLOAD")
+  columnMapping Json
+
+  /// PREVIEW | COMMITTED | FAILED | REJECTED
+  status          String @default("PREVIEW")
+  rowCount        Int    @default(0)
+  errorSummary    String?
+  validationReport Json?
+
+  duplicateOfId String?
+  duplicateOf   BankStatementImport?  @relation("BankImportDuplicate", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates    BankStatementImport[] @relation("BankImportDuplicate")
+
+  importedById String?
+  importedBy   User? @relation("BankStatementImporter", fields: [importedById], references: [id], onDelete: SetNull)
+  committedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines BankStatementLine[]
+
+  @@index([glAccountCode, fileSha256])
+  @@index([status])
+}
+
+model BankStatementLine {
+  id       String @id @default(cuid())
+  importId String
+  import   BankStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  glAccountCode String
+  lineNumber    Int
+  externalLineId String?
+  /// Stable key for duplicate detection within glAccountCode (includes external id when present)
+  stableRowKey String
+
+  transactionDate DateTime @db.Date
+  valueDate       DateTime? @db.Date
+  description     String?
+  externalReference String?
+  /// DEBIT | CREDIT
+  direction     String
+  amountMinor   Int
+  currency      String @default("INR")
+  runningBalanceMinor Int?
+
+  rawRow Json
+  /// MANUAL_CSV — uploaded statement, not independently verified bank data
+  evidenceSource String @default("MANUAL_CSV")
+  /// UNMATCHED | SUGGESTED | MATCHED | EXCLUDED | DUPLICATE_ROW
+  reconStatus    String @default("UNMATCHED")
+
+  createdAt DateTime @default(now())
+
+  matches               BankReconciliationMatch[]
+  gatewayReconciliation ReconciliationRecord[]
+
+  @@unique([importId, lineNumber])
+  @@unique([glAccountCode, stableRowKey])
+  @@index([importId])
+  @@index([reconStatus])
+  @@index([transactionDate])
+}
+
+model BankReconciliationMatch {
+  id              String @id @default(cuid())
+  statementLineId String
+  statementLine   BankStatementLine @relation(fields: [statementLineId], references: [id], onDelete: Cascade)
+
+  /// SUGGESTED | CONFIRMED | VOIDED
+  status         String
+  matchingMethod String
+  evidenceJson   Json?
+  rationale      String?
+  varianceMinor  Int     @default(0)
+  varianceExplanation String?
+
+  journalEntryId    String?
+  journalEntry      JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+  journalLineId     String?
+  outboundPaymentId String?
+  outboundPayment   OutboundPayment? @relation(fields: [outboundPaymentId], references: [id], onDelete: SetNull)
+  ledgerEntryId     String?
+
+  createdById   String?
+  confirmedAt   DateTime?
+  confirmedById String?
+  confirmedBy   User? @relation("BankMatchConfirmer", fields: [confirmedById], references: [id], onDelete: SetNull)
+  voidedAt      DateTime?
+  voidedById    String?
+  voidedBy      User? @relation("BankMatchVoider", fields: [voidedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([statementLineId, status])
+  @@index([outboundPaymentId])
+  @@index([journalEntryId])
+}
+
+/// Provider settlement report import (CSV) when live settlement API is unavailable.
+model GatewaySettlementImport {
+  id         String @id @default(cuid())
+  providerId String
+  fileName   String?
+  fileSha256 String?
+  importSource String @default("CSV_UPLOAD")
+  status     String @default("COMMITTED")
+
+  batchReference  String?
+  settlementDate  DateTime? @db.Date
+  grossAmountMinor Int?
+  feesAmountMinor  Int?
+  netAmountMinor   Int?
+  currency         String @default("INR")
+  rawPayload       Json?
+
+  importedById String?
+  importedBy   User? @relation("GatewaySettlementImporter", fields: [importedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines GatewaySettlementLine[]
+
+  @@index([providerId, batchReference])
+}
+
+model GatewaySettlementLine {
+  id       String @id @default(cuid())
+  importId String
+  import   GatewaySettlementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  lineNumber          Int
+  providerTransferRef String?
+  outboundPaymentId   String?
+  amountMinor         Int?
+  feeMinor            Int?
+  netMinor            Int?
+  stableRowKey        String
+  rawRow              Json
+
+  reconciliationRecords ReconciliationRecord[]
+
+  @@unique([importId, lineNumber])
+  @@unique([importId, stableRowKey])
+  @@index([providerTransferRef])
+  @@index([outboundPaymentId])
+}

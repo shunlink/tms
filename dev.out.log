@@ -1,0 +1,59 @@
+
+> tms-aggregator@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.5
+  - Local:        http://localhost:3000
+  - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 11.7s
+ ○ Compiling /api/health ...
+ ✓ Compiled /api/health in 2.8s (29 modules)
+ GET /api/health 200 in 4340ms
+ ○ Compiling /api/webhooks/whatsapp/quotes ...
+ ✓ Compiled /api/webhooks/whatsapp/quotes in 1809ms (64 modules)
+ GET /api/webhooks/whatsapp/quotes?hub.mode=subscribe&hub.verify_token=brandflow_verify_9f3k2m_mychocolate_whatsapp&hub.challenge=CHALLENGE_OK_123 200 in 4083ms
+ GET /api/webhooks/whatsapp/quotes?hub.mode=subscribe&hub.verify_token=WRONG 403 in 72ms
+ POST /api/webhooks/whatsapp/quotes 404 in 260ms
+ POST /api/webhooks/whatsapp/quotes 200 in 123ms
+ POST /api/webhooks/whatsapp/quotes 200 in 59ms
+ ✓ Compiled in 188ms (64 modules)
+ ○ Compiling /src/middleware ...
+ ✓ Compiled /src/middleware in 870ms (181 modules)
+ ○ Compiling /login ...
+ ✓ Compiled /login in 27.6s (664 modules)
+ GET /login?callbackUrl=%2Fapi%2Fnotifications%2Fwhatsapp-status 200 in 35075ms
+ ✓ Compiled in 7.8s (320 modules)
+ ○ Compiling /portal/vendor/indents ...
+ ✓ Compiled /portal/vendor/indents in 20.5s (919 modules)
+ GET /portal/vendor/indents 200 in 25831ms
+ ○ Compiling /api/auth/[...nextauth] ...
+ ✓ Compiled /api/auth/[...nextauth] in 1404ms (608 modules)
+ GET /api/auth/session 200 in 8309ms
+ GET /api/auth/session 200 in 392ms
+ GET /login?callbackUrl=%2Fapi%2Fnotifications%2Fwhatsapp-status 200 in 333ms
+ ✓ Compiled in 5.8s (329 modules)
+ ✓ Compiled in 3.7s (329 modules)
+ GET /portal/vendor/indents?_rsc=njn62 200 in 3255ms
+ GET /portal/vendor/indents?_rsc=njn62 200 in 3142ms
+ ✓ Compiled in 2s (329 modules)
+ ✓ Compiled in 3s (329 modules)
+ GET /portal/vendor/indents?_rsc=njn62 200 in 1889ms
+ GET /portal/vendor/indents?_rsc=njn62 200 in 664ms
+ ○ Compiling /api/health ...
+ ✓ Compiled /api/health in 2.7s (600 modules)
+ GET /api/health 200 in 3889ms
+ ○ Compiling /api/webhooks/whatsapp/quotes ...
+ ✓ Compiled /api/webhooks/whatsapp/quotes in 1926ms (627 modules)
+ GET /api/webhooks/whatsapp/quotes?hub.mode=subscribe&hub.verify_token=brandflow_verify_9f3k2m_mychocolate_whatsapp&hub.challenge=OK 200 in 8136ms
+ POST /api/webhooks/whatsapp/quotes 200 in 409ms
+ GET /api/health 200 in 263ms
+ GET /api/health 200 in 1097ms
+ GET /api/webhooks/whatsapp/quotes?hub.mode=subscribe&hub.verify_token=brandflow_verify_9f3k2m_mychocolate_whatsapp&hub.challenge=SMOKE_OK 200 in 536ms
+ POST /api/webhooks/whatsapp/quotes 400 in 285ms
+ POST /api/webhooks/whatsapp/quotes 400 in 563ms
+ POST /api/webhooks/whatsapp/quotes 200 in 317ms
+ POST /api/webhooks/whatsapp/quotes 404 in 695ms
+ POST /api/webhooks/whatsapp/quotes 200 in 157ms
+[?25h
