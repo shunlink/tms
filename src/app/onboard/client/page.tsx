@@ -1,11 +1,7 @@
 import { redirect } from "next/navigation";
-import ClientForm from "@/components/forms/client-form";
-import OnboardingDocuments from "@/components/forms/onboarding-documents";
-import OnboardingSubmit from "@/components/forms/onboarding-submit";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import PortalOnboardingClientContent from "@/components/onboarding/portal-onboarding-client-content";
 import { getSessionUser } from "@/lib/auth";
 import { getClientDetail } from "@/lib/queries";
-import { CLIENT_ONBOARDING_DOCS, CLIENT_REQUIRED_DOCS } from "@/lib/onboarding-docs";
 
 export const dynamic = "force-dynamic";
 
@@ -53,49 +49,18 @@ export default async function OnboardClientPage() {
   };
 
   return (
-    <div className="space-y-8">
-      {c.onboardingStatus === "REJECTED" && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-800">
-          <strong>Submission rejected.</strong>
-          {c.onboardingRemarks ? ` ${c.onboardingRemarks}` : " Please update your details and re-submit."}
-        </div>
-      )}
-
-      <ClientForm
-        initial={initial}
-        clientId={c.id}
-        endpoint="/api/portal/profile"
-        submitLabel="Save & continue"
-        variant="onboarding"
-        lockSignupFields
-        gstVerificationMeta={{
-          verificationStatus: c.gstVerificationStatus,
-          verifiedAt: c.gstVerifiedAt?.toISOString() ?? null,
-          provider: c.gstVerificationProvider,
-        }}
-      />
-
-      <Card className="border-slate-200/80 shadow-sm overflow-hidden">
-        <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b">
-          <CardTitle className="text-base">Required documents</CardTitle>
-          <p className="text-sm text-slate-500 font-normal mt-1">
-            GST certificate and PAN card are mandatory. Other documents help speed up approval.
-          </p>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <OnboardingDocuments
-            endpoint="/api/portal/documents"
-            documents={c.documents}
-            docTypes={CLIENT_ONBOARDING_DOCS}
-          />
-        </CardContent>
-      </Card>
-
-      <OnboardingSubmit
-        status={c.onboardingStatus}
-        documents={c.documents}
-        requiredDocTypes={CLIENT_REQUIRED_DOCS}
-      />
-    </div>
+    <PortalOnboardingClientContent
+      clientId={c.id}
+      entityName={c.name ?? "Client"}
+      onboardingStatus={c.onboardingStatus}
+      onboardingRemarks={c.onboardingRemarks}
+      initial={initial}
+      documents={c.documents}
+      gstVerificationMeta={{
+        verificationStatus: c.gstVerificationStatus,
+        verifiedAt: c.gstVerifiedAt?.toISOString() ?? null,
+        provider: c.gstVerificationProvider,
+      }}
+    />
   );
 }

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import OnboardingShell from "@/components/onboarding/onboarding-shell";
+import PortalOnboardingShell from "@/components/onboarding/portal-onboarding-shell";
 import { getSessionUser } from "@/lib/auth";
-import { getOnboardingStatus } from "@/lib/queries";
+import { getClientDetail, getVendorDetail } from "@/lib/queries";
 
 export default async function OnboardLayout({
   children,
@@ -11,29 +11,31 @@ export default async function OnboardLayout({
   const user = await getSessionUser();
   if (!user?.id) redirect("/login");
 
-  const roleLabel =
-    user.role === "CLIENT"
-      ? "Client"
-      : user.role === "VENDOR"
-        ? "Vendor"
-        : "Account";
-
-  let status = "PENDING";
   if (user.role === "CLIENT" && user.clientId) {
-    const ob = await getOnboardingStatus("CLIENT", user.clientId);
-    status = ob?.onboardingStatus ?? "PENDING";
-  } else if (user.role === "VENDOR" && user.vendorId) {
-    const ob = await getOnboardingStatus("VENDOR", user.vendorId);
-    status = ob?.onboardingStatus ?? "PENDING";
+    const c = await getClientDetail(user.clientId);
+    return (
+      <PortalOnboardingShell
+        kind="client"
+        entityName={c?.name ?? user.name ?? "Client"}
+        userEmail={user.email ?? ""}
+      >
+        {children}
+      </PortalOnboardingShell>
+    );
   }
 
-  return (
-    <OnboardingShell
-      roleLabel={roleLabel}
-      userName={user.name ?? user.email ?? ""}
-      status={status}
-    >
-      {children}
-    </OnboardingShell>
-  );
+  if (user.role === "VENDOR" && user.vendorId) {
+    const v = await getVendorDetail(user.vendorId);
+    return (
+      <PortalOnboardingShell
+        kind="vendor"
+        entityName={v?.name ?? user.name ?? "Vendor"}
+        userEmail={user.email ?? ""}
+      >
+        {children}
+      </PortalOnboardingShell>
+    );
+  }
+
+  redirect("/login");
 }

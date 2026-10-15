@@ -170,7 +170,7 @@ export default function ClientPortalShell({
 
           <div className="space-y-1 pt-1">
             <Link
-              href="mailto:support@shunlink.in"
+              href="mailto:founder@shunlink.in"
               className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium text-neutral-300 hover:text-white hover:bg-neutral-900/60 transition-colors"
             >
               <Headphones className="h-4 w-4 text-neutral-400" />

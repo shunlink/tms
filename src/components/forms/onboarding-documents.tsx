@@ -48,6 +48,7 @@ export default function OnboardingDocuments({
   docTypes,
   allowDelete = true,
   readOnly = false,
+  onDocumentsChange,
 }: {
   ownerType?: "client" | "vendor" | "vehicle" | "indent" | "driver";
   ownerId?: string;
@@ -59,6 +60,8 @@ export default function OnboardingDocuments({
   allowDelete?: boolean;
   /** View-only: no upload, replace, or delete */
   readOnly?: boolean;
+  /** Client-side progress sync (no extra API) */
+  onDocumentsChange?: (documents: Doc[]) => void;
 }) {
   const router = useRouter();
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -104,6 +107,19 @@ export default function OnboardingDocuments({
       setError(data.error || "Upload failed");
       return;
     }
+    const data = await res.json().catch(() => null);
+    if (data?.id && onDocumentsChange) {
+      const next = [
+        ...documents.filter((d) => d.type !== type),
+        {
+          id: String(data.id),
+          type,
+          url: String(data.url ?? ""),
+          name: data.name != null ? String(data.name) : file.name,
+        },
+      ];
+      onDocumentsChange(next);
+    }
     router.refresh();
   }
 
@@ -111,6 +127,9 @@ export default function OnboardingDocuments({
     setBusyType("delete");
     await fetch(`/api/documents/${id}`, { method: "DELETE" });
     setBusyType(null);
+    if (onDocumentsChange) {
+      onDocumentsChange(documents.filter((d) => d.id !== id));
+    }
     router.refresh();
   }
 
@@ -140,7 +159,7 @@ export default function OnboardingDocuments({
         </p>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 gap-4 portal-onboarding-doc-grid">
         {configs.map((cfg) => {
           const uploaded = docsByType.get(cfg.type) ?? [];
           const hasFile = uploaded.length > 0;

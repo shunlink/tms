@@ -159,7 +159,7 @@ export default function VendorPortalShell({
             </div>
 
             <Link
-              href="mailto:support@shunlink.in"
+              href="mailto:founder@shunlink.in"
               className="flex items-center justify-between px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 transition-colors w-full"
             >
               <span>Contact Support</span>

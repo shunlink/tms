@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,10 @@ export default function VendorForm({
   submitLabel,
   lockSignupFields = false,
   gstVerificationMeta,
+  formId,
+  hideActions = false,
+  presentation = "default",
+  onValuesChange,
 }: {
   initial?: Partial<Record<Field, string>>;
   vendorId?: string;
@@ -39,6 +43,10 @@ export default function VendorForm({
     verifiedAt?: string | null;
     provider?: string | null;
   };
+  formId?: string;
+  hideActions?: boolean;
+  presentation?: "default" | "portal";
+  onValuesChange?: (values: Record<string, string>) => void;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -53,6 +61,15 @@ export default function VendorForm({
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const set = (k: Field, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  useEffect(() => {
+    onValuesChange?.(form);
+  }, [form, onValuesChange]);
+
+  const cardClass =
+    presentation === "portal"
+      ? "portal-onboard-card border-slate-200/80 shadow-sm rounded-2xl"
+      : "";
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -97,8 +114,9 @@ export default function VendorForm({
           )}
         </label>
         <input
+          name={k}
           type={type}
-          className={`w-full border rounded-md px-3 py-2 text-sm${locked ? " bg-slate-100 text-slate-500 cursor-not-allowed opacity-80" : ""}`}
+          className={`w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm bg-[#F8FAFC] focus:outline-none focus:ring-2 focus:ring-amber-400/50${locked ? " bg-slate-100 text-slate-500 cursor-not-allowed opacity-80" : ""}`}
           value={form[k]}
           onChange={(e) => {
             if (locked) return;
@@ -113,14 +131,14 @@ export default function VendorForm({
   };
 
   return (
-    <form onSubmit={submit} className="space-y-6">
-      <Card>
-        <CardHeader><CardTitle>Vendor</CardTitle></CardHeader>
+    <form id={formId} onSubmit={submit} className="space-y-6">
+      <Card className={cardClass}>
+        <CardHeader><CardTitle>Business details</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {input("name", "Vendor Name", "text", true)}
+          {input("name", "Vendor / Business Name", "text", true)}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Type *</label>
-            <select className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={form.type} onChange={(e) => set("type", e.target.value)}>
+            <select name="type" className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm bg-[#F8FAFC]" value={form.type} onChange={(e) => set("type", e.target.value)}>
               <option value="FLEET_OWNER">Fleet Owner</option>
               <option value="BROKER">Broker</option>
             </select>
@@ -133,8 +151,8 @@ export default function VendorForm({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader><CardTitle>Compliance</CardTitle></CardHeader>
+      <Card className={cardClass}>
+        <CardHeader><CardTitle>Compliance details</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-2">
             <GstVerificationField
@@ -156,10 +174,15 @@ export default function VendorForm({
           </div>
           {input("pan", "PAN")}
           {input("msme", "MSME / Udyam No.")}
+          {presentation === "portal" && (
+            <div className="md:col-span-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs text-emerald-900 leading-relaxed">
+              Your GST details will be verified automatically. This helps us keep our platform compliant and secure.
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className={cardClass}>
         <CardHeader><CardTitle>Address</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {input("addressLine1", "Address Line 1")}
@@ -170,8 +193,8 @@ export default function VendorForm({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader><CardTitle>Bank & Settlement</CardTitle></CardHeader>
+      <Card className={cardClass}>
+        <CardHeader><CardTitle>Bank & settlement</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {input("bankName", "Bank Name")}
           {input("bankAccount", "Account Number")}
@@ -187,19 +210,23 @@ export default function VendorForm({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader><CardTitle>Notes</CardTitle></CardHeader>
-        <CardContent>
-          <textarea className="w-full border rounded-md px-3 py-2 text-sm" rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
-        </CardContent>
-      </Card>
+      {presentation !== "portal" && (
+        <Card>
+          <CardHeader><CardTitle>Notes</CardTitle></CardHeader>
+          <CardContent>
+            <textarea className="w-full border rounded-md px-3 py-2 text-sm" rows={3} value={form.notes} onChange={(e) => set("notes", e.target.value)} />
+          </CardContent>
+        </Card>
+      )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
-      <div className="flex gap-3">
-        <Button type="submit" disabled={saving}>{saving ? "Saving..." : submitLabel ?? (vendorId ? "Update Vendor" : "Save Vendor")}</Button>
-        <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>
-      </div>
+      {!hideActions && (
+        <div className="flex gap-3">
+          <Button type="submit" disabled={saving}>{saving ? "Saving..." : submitLabel ?? (vendorId ? "Update Vendor" : "Save Vendor")}</Button>
+          <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>
+        </div>
+      )}
     </form>
   );
 }

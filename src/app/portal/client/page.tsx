@@ -337,7 +337,7 @@ export default async function ClientOverviewPage() {
                 <h3 className="text-sm font-bold text-gray-950 mb-1">Need Support?</h3>
                 <p className="text-xs text-gray-600 mb-4">Our team is here to help you.</p>
                 <Link
-                  href="mailto:support@shunlink.in"
+                  href="mailto:founder@shunlink.in"
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-gray-200 text-xs font-semibold text-gray-800 hover:bg-gray-50 transition-colors shadow-2xs"
                 >
                   <span>Contact Support</span>

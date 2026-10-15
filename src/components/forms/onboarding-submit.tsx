@@ -12,10 +12,12 @@ export default function OnboardingSubmit({
   status,
   documents = [],
   requiredDocTypes = ["GST", "PAN"],
+  variant = "default",
 }: {
   status: string;
   documents?: Doc[];
   requiredDocTypes?: string[];
+  variant?: "default" | "portal";
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -59,11 +61,16 @@ export default function OnboardingSubmit({
     );
   }
 
+  const shellClass =
+    variant === "portal"
+      ? "rounded-2xl border border-slate-200/80 bg-white p-5 sm:p-6 shadow-sm"
+      : "rounded-xl border border-slate-200 bg-white p-5 shadow-sm";
+
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className={shellClass}>
       <h3 className="font-semibold text-slate-900 mb-1">Ready to submit?</h3>
       <p className="text-sm text-slate-500 mb-4">
-        Ensure all required documents are uploaded and your details are saved before submitting.
+        Ensure all required documents are uploaded and your details are saved before submitting for admin review.
       </p>
 
       {!ok && (
@@ -75,7 +82,11 @@ export default function OnboardingSubmit({
 
       {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
 
-      <Button onClick={submit} disabled={busy || !ok} className="rounded-xl gap-2">
+      <Button
+        onClick={submit}
+        disabled={busy || !ok}
+        className={`rounded-xl gap-2 ${variant === "portal" ? "bg-[#0F172A] hover:bg-slate-800" : ""}`}
+      >
         <Send className="h-4 w-4" />
         {busy ? "Submitting..." : "Submit for approval"}
       </Button>

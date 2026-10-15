@@ -1,11 +1,7 @@
 import { redirect } from "next/navigation";
-import VendorForm from "@/components/forms/vendor-form";
-import OnboardingDocuments from "@/components/forms/onboarding-documents";
-import OnboardingSubmit from "@/components/forms/onboarding-submit";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import PortalOnboardingVendorContent from "@/components/onboarding/portal-onboarding-vendor-content";
 import { getSessionUser } from "@/lib/auth";
 import { getVendorDetail } from "@/lib/queries";
-import { VENDOR_ONBOARDING_DOCS, VENDOR_REQUIRED_DOCS } from "@/lib/onboarding-docs";
 
 export const dynamic = "force-dynamic";
 
@@ -46,48 +42,18 @@ export default async function OnboardVendorPage() {
   };
 
   return (
-    <div className="space-y-8">
-      {v.onboardingStatus === "REJECTED" && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-800">
-          <strong>Submission rejected.</strong>
-          {v.onboardingRemarks ? ` ${v.onboardingRemarks}` : " Please update and re-submit."}
-        </div>
-      )}
-
-      <VendorForm
-        initial={initial}
-        vendorId={v.id}
-        endpoint="/api/portal/profile"
-        submitLabel="Save & continue"
-        lockSignupFields
-        gstVerificationMeta={{
-          verificationStatus: v.gstVerificationStatus,
-          verifiedAt: v.gstVerifiedAt?.toISOString() ?? null,
-          provider: v.gstVerificationProvider,
-        }}
-      />
-
-      <Card className="border-slate-200/80 shadow-sm overflow-hidden">
-        <CardHeader className="bg-gradient-to-r from-orange-50 to-amber-50 border-b">
-          <CardTitle className="text-base">Fleet compliance documents</CardTitle>
-          <p className="text-sm text-slate-500 font-normal mt-1">
-            GST certificate and PAN are mandatory for transporter verification.
-          </p>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <OnboardingDocuments
-            endpoint="/api/portal/documents"
-            documents={v.documents}
-            docTypes={VENDOR_ONBOARDING_DOCS}
-          />
-        </CardContent>
-      </Card>
-
-      <OnboardingSubmit
-        status={v.onboardingStatus}
-        documents={v.documents}
-        requiredDocTypes={VENDOR_REQUIRED_DOCS}
-      />
-    </div>
+    <PortalOnboardingVendorContent
+      vendorId={v.id}
+      entityName={v.name ?? "Vendor"}
+      onboardingStatus={v.onboardingStatus}
+      onboardingRemarks={v.onboardingRemarks}
+      initial={initial}
+      documents={v.documents}
+      gstVerificationMeta={{
+        verificationStatus: v.gstVerificationStatus,
+        verifiedAt: v.gstVerifiedAt?.toISOString() ?? null,
+        provider: v.gstVerificationProvider,
+      }}
+    />
   );
 }

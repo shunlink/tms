@@ -397,8 +397,8 @@ export default async function ClientProfilePage() {
         <ShieldCheck className="h-4 w-4 text-blue-600 shrink-0" />
         <p>
           Company details and compliance documents are managed securely. If you need to update any information, please reach out to our team at{" "}
-          <a href="mailto:support@shunlink.in" className="font-bold underline hover:text-blue-950">
-            support@shunlink.in
+          <a href="mailto:founder@shunlink.in" className="font-bold underline hover:text-blue-950">
+            founder@shunlink.in
           </a>
           .
         </p>
