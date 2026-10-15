@@ -19,17 +19,19 @@ import {
   FileText,
   FileCheck2,
   ShieldCheck,
-  UserPlus,
   Network,
   TrendingUp,
+  Phone,
+  User,
 } from "lucide-react";
 import BrandLogo from "@/components/brand-logo";
 import { useToast } from "@/components/toast";
-import { driverLoginOtpRequestSchema, otpSchema } from "@/lib/validation";
+import { driverLoginOtpRequestSchema, otpSchema, signupSchema } from "@/lib/validation";
 import { otpErrorMessage, parseApiError } from "@/lib/toast-utils";
 import ForgotPasswordPanel from "@/components/forms/forgot-password-panel";
 
 type PortalType = "employee" | "transporter" | "client";
+type AuthTab = "login" | "register";
 
 const PORTAL_CONFIGS: Record<
   PortalType,
@@ -126,7 +128,7 @@ const PORTAL_CONFIGS: Record<
     cardIcon: Truck,
     cardIconBg: "bg-[#ECFDF5]",
     cardIconColor: "text-[#15803D]",
-    cardTitle: "Transporter / Vendor Login",
+    cardTitle: "Transporter / Vendor",
     cardSubtitle: "Access loads, manage trips and grow with ShunLink.",
     usernameLabel: "Email or Phone",
     usernamePlaceholder: "you@company.com or 9876543210",
@@ -165,8 +167,8 @@ const PORTAL_CONFIGS: Record<
     cardIcon: Building2,
     cardIconBg: "bg-[#FFF7ED]",
     cardIconColor: "text-[#C2410C]",
-    cardTitle: "Client Login",
-    cardSubtitle: "Access your ShunLink TMS workspace",
+    cardTitle: "Client Portal",
+    cardSubtitle: "Access or register your ShunLink TMS client account",
     usernameLabel: "Email or Phone",
     usernamePlaceholder: "you@company.com or 9876543210",
     bottomNoticeType: "client",
@@ -186,15 +188,33 @@ function LoginContent() {
       ? "transporter"
       : "employee";
 
-  const [portal, setPortal] = useState<PortalType>(initialPortal);
-  const [mode, setMode] = useState<"password" | "driver" | "forgot">(
-    searchParams.get("mode") === "driver" ? "driver" : "password"
-  );
+  const initialTab: AuthTab =
+    searchParams.get("mode") === "register" || searchParams.get("tab") === "register"
+      ? "register"
+      : "login";
 
+  const [portal, setPortal] = useState<PortalType>(initialPortal);
+  const [authTab, setAuthTab] = useState<AuthTab>(initialTab);
+  const [isDriverMode, setIsDriverMode] = useState<boolean>(
+    searchParams.get("mode") === "driver" && initialPortal === "transporter"
+  );
+  const [isForgotMode, setIsForgotMode] = useState<boolean>(false);
+
+  // Standard Login fields
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
+  // Registration fields
+  const [regName, setRegName] = useState("");
+  const [regCompanyName, setRegCompanyName] = useState("");
+  const [regEmail, setRegEmail] = useState("");
+  const [regPhone, setRegPhone] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [regLoading, setRegLoading] = useState(false);
+
+  // Driver OTP fields
   const [dlNumber, setDlNumber] = useState("");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
@@ -205,9 +225,16 @@ function LoginContent() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (portalParam === "client") setPortal("client");
-    else if (portalParam === "vendor" || portalParam === "transporter") setPortal("transporter");
-    else if (portalParam === "employee") setPortal("employee");
+    if (portalParam === "client") {
+      setPortal("client");
+      setIsDriverMode(false);
+    } else if (portalParam === "vendor" || portalParam === "transporter") {
+      setPortal("transporter");
+    } else if (portalParam === "employee") {
+      setPortal("employee");
+      setIsDriverMode(false);
+      setAuthTab("login");
+    }
   }, [portalParam]);
 
   useEffect(() => {
@@ -215,6 +242,14 @@ function LoginContent() {
     const t = setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
     return () => clearInterval(t);
   }, [resendCooldown]);
+
+  function switchPortal(target: PortalType) {
+    setPortal(target);
+    setAuthTab("login");
+    setIsDriverMode(false);
+    setIsForgotMode(false);
+    setError("");
+  }
 
   function goHome(role: string | undefined) {
     let home = "/";
@@ -241,6 +276,68 @@ function LoginContent() {
     const session = await sessionRes.json();
     toast.push({ title: "Signed in successfully", variant: "success" });
     goHome(session?.user?.role as string | undefined);
+  }
+
+  async function handleRegister(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+
+    const role: "CLIENT" | "VENDOR" = portal === "client" ? "CLIENT" : "VENDOR";
+    const payload = {
+      role,
+      name: regName,
+      companyName: regCompanyName,
+      email: regEmail,
+      phone: regPhone,
+      password: regPassword,
+    };
+
+    const parsed = signupSchema.safeParse(payload);
+    if (!parsed.success) {
+      const msg = parsed.error.issues[0]?.message ?? "Please check your details.";
+      setError(msg);
+      toast.push({ title: msg, variant: "error" });
+      return;
+    }
+
+    setRegLoading(true);
+    const res = await fetch("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(parsed.data),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setRegLoading(false);
+      const msg = parseApiError(data, "Registration failed. Please try again.");
+      setError(msg);
+      toast.push({ title: msg, variant: "error" });
+      return;
+    }
+
+    // Automatically sign in upon registration
+    const signInRes = await signIn("credentials", {
+      email: regEmail,
+      password: regPassword,
+      redirect: false,
+    });
+    setRegLoading(false);
+
+    if (signInRes?.error) {
+      const msg = "Account created. Please sign in with your password.";
+      toast.push({ title: msg, variant: "warning" });
+      setAuthTab("login");
+      setEmail(regEmail);
+      return;
+    }
+
+    toast.push({ title: "Account created successfully", variant: "success" });
+    if (role === "CLIENT") {
+      router.push("/portal/client");
+    } else {
+      router.push("/portal/vendor");
+    }
+    router.refresh();
   }
 
   async function sendOtp(e: React.FormEvent) {
@@ -322,15 +419,39 @@ function LoginContent() {
     await sendOtp({ preventDefault: () => {} } as React.FormEvent);
   }
 
-  function handleSSOClick() {
-    toast.push({
-      title: "SSO is enabled for enterprise accounts. Please enter your work email above.",
-      variant: "info",
-    });
-  }
-
   const cfg = PORTAL_CONFIGS[portal];
   const CardIcon = cfg.cardIcon;
+
+  // Dynamic titles and subtitles based on active mode
+  let displayCardTitle = cfg.cardTitle;
+  let displayCardSubtitle = cfg.cardSubtitle;
+
+  if (isForgotMode) {
+    displayCardTitle = "Forgot Password";
+    displayCardSubtitle = "Reset your account access credentials";
+  } else if (isDriverMode) {
+    displayCardTitle = "Driver Login";
+    displayCardSubtitle = "Enter your Driving License & OTP to proceed";
+  } else if (authTab === "register") {
+    if (portal === "client") {
+      displayCardTitle = "Register Client";
+      displayCardSubtitle = "Create your corporate shipping account";
+    } else if (portal === "transporter") {
+      displayCardTitle = "Register Vendor";
+      displayCardSubtitle = "Join the verified ShunLink transporter network";
+    }
+  } else {
+    if (portal === "client") {
+      displayCardTitle = "Client Login";
+      displayCardSubtitle = "Access your ShunLink TMS client workspace";
+    } else if (portal === "transporter") {
+      displayCardTitle = "Vendor Login";
+      displayCardSubtitle = "Access loads, manage trips and grow with ShunLink";
+    } else {
+      displayCardTitle = "Employee Login";
+      displayCardSubtitle = "Access your ShunLink internal workspace";
+    }
+  }
 
   return (
     <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-[#F8FAFC]">
@@ -416,7 +537,7 @@ function LoginContent() {
       </div>
 
       {/* =========================================================================
-          RIGHT PANE (Login Form Card matching reference screenshots)
+          RIGHT PANE (Login / Register Card)
           ========================================================================= */}
       <div className="flex flex-col justify-between p-6 sm:p-10 lg:p-12 xl:p-16 min-h-screen overflow-y-auto">
         {/* Top Header: Back Link & Portal Switcher */}
@@ -433,10 +554,7 @@ function LoginContent() {
           <div className="hidden sm:inline-flex p-1 bg-gray-100 rounded-lg text-xs font-semibold text-gray-600">
             <button
               type="button"
-              onClick={() => {
-                setPortal("employee");
-                setError("");
-              }}
+              onClick={() => switchPortal("employee")}
               className={`px-2.5 py-1 rounded-md transition-all ${
                 portal === "employee" ? "bg-white text-gray-900 shadow-sm" : "hover:text-gray-900"
               }`}
@@ -445,10 +563,7 @@ function LoginContent() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setPortal("transporter");
-                setError("");
-              }}
+              onClick={() => switchPortal("transporter")}
               className={`px-2.5 py-1 rounded-md transition-all ${
                 portal === "transporter" ? "bg-white text-gray-900 shadow-sm" : "hover:text-gray-900"
               }`}
@@ -457,10 +572,7 @@ function LoginContent() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setPortal("client");
-                setError("");
-              }}
+              onClick={() => switchPortal("client")}
               className={`px-2.5 py-1 rounded-md transition-all ${
                 portal === "client" ? "bg-white text-gray-900 shadow-sm" : "hover:text-gray-900"
               }`}
@@ -482,27 +594,25 @@ function LoginContent() {
               </div>
               <div className="min-w-0">
                 <h2 className="text-[22px] sm:text-[25px] font-bold text-gray-950 tracking-tight leading-none">
-                  {mode === "driver" ? "Driver Login" : cfg.cardTitle}
+                  {displayCardTitle}
                 </h2>
                 <p className="text-xs sm:text-sm text-gray-500 mt-1.5 leading-snug">
-                  {mode === "driver"
-                    ? "Enter your Driving License & OTP to proceed"
-                    : cfg.cardSubtitle}
+                  {displayCardSubtitle}
                 </p>
               </div>
             </div>
 
-            {/* Sub-mode Tab: Password / Driver (when not in forgot mode) */}
-            {mode !== "forgot" && (
+            {/* Sub-mode Tabs: shown for Client and Transporter when not in forgot or driver mode */}
+            {!isForgotMode && !isDriverMode && portal !== "employee" && (
               <div className="flex rounded-xl bg-gray-100/80 p-1 mb-5">
                 <button
                   type="button"
                   onClick={() => {
-                    setMode("password");
+                    setAuthTab("login");
                     setError("");
                   }}
                   className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-all ${
-                    mode === "password"
+                    authTab === "login"
                       ? "bg-white text-gray-950 shadow-sm"
                       : "text-gray-500 hover:text-gray-900"
                   }`}
@@ -512,16 +622,16 @@ function LoginContent() {
                 <button
                   type="button"
                   onClick={() => {
-                    setMode("driver");
+                    setAuthTab("register");
                     setError("");
                   }}
                   className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-all ${
-                    mode === "driver"
+                    authTab === "register"
                       ? "bg-white text-gray-950 shadow-sm"
                       : "text-gray-500 hover:text-gray-900"
                   }`}
                 >
-                  Driver with OTP
+                  {portal === "client" ? "Register Client" : "Register Vendor"}
                 </button>
               </div>
             )}
@@ -534,45 +644,113 @@ function LoginContent() {
             )}
 
             {/* ================= FORGOT PASSWORD PANEL ================= */}
-            {mode === "forgot" ? (
+            {isForgotMode ? (
               <ForgotPasswordPanel
                 initialEmail={email.includes("@") ? email : ""}
                 onBack={() => {
-                  setMode("password");
+                  setIsForgotMode(false);
                   setError("");
                 }}
                 onSuccess={(resetEmail) => {
-                  setMode("password");
+                  setIsForgotMode(false);
                   setError("");
                   setPassword("");
                   if (resetEmail) setEmail(resetEmail);
                 }}
               />
-            ) : mode === "password" ? (
-              /* ================= PASSWORD LOGIN FORM ================= */
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Username / Email field */}
+            ) : authTab === "register" ? (
+              /* ================= REGISTER FORM (Client or Vendor) ================= */
+              <form onSubmit={handleRegister} className="space-y-4">
+                {/* Full Name */}
                 <div>
                   <label className="block text-xs sm:text-sm font-semibold text-gray-800 mb-1.5">
-                    {cfg.usernameLabel}
+                    Full Name
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                      <User className="h-4 w-4" />
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={regName}
+                      onChange={(e) => setRegName(e.target.value)}
+                      placeholder="As per official records"
+                      className="w-full pl-10 pr-4 py-3 text-sm bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F5D33C]/30 focus:border-[#F5D33C] transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Company / Fleet Name */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-800 mb-1.5">
+                    {portal === "client" ? "Company Name" : "Business / Fleet Name"}
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                      {portal === "client" ? (
+                        <Building2 className="h-4 w-4" />
+                      ) : (
+                        <Truck className="h-4 w-4" />
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={regCompanyName}
+                      onChange={(e) => setRegCompanyName(e.target.value)}
+                      placeholder={
+                        portal === "client"
+                          ? "Registered company name"
+                          : "Registered fleet / agency name"
+                      }
+                      className="w-full pl-10 pr-4 py-3 text-sm bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F5D33C]/30 focus:border-[#F5D33C] transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Work Email */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-800 mb-1.5">
+                    Work Email
                   </label>
                   <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
                       <Mail className="h-4 w-4" />
                     </div>
                     <input
-                      type="text"
-                      autoComplete="username"
+                      type="email"
+                      autoComplete="email"
                       required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder={cfg.usernamePlaceholder}
+                      value={regEmail}
+                      onChange={(e) => setRegEmail(e.target.value)}
+                      placeholder="you@company.com"
                       className="w-full pl-10 pr-4 py-3 text-sm bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F5D33C]/30 focus:border-[#F5D33C] transition-all"
                     />
                   </div>
                 </div>
 
-                {/* Password field */}
+                {/* Mobile Number */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-800 mb-1.5">
+                    Mobile Number
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                      <Phone className="h-4 w-4" />
+                    </div>
+                    <input
+                      type="tel"
+                      required
+                      value={regPhone}
+                      onChange={(e) => setRegPhone(e.target.value)}
+                      placeholder="+91 98765 43210"
+                      className="w-full pl-10 pr-4 py-3 text-sm bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F5D33C]/30 focus:border-[#F5D33C] transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Password */}
                 <div>
                   <label className="block text-xs sm:text-sm font-semibold text-gray-800 mb-1.5">
                     Password
@@ -582,129 +760,58 @@ function LoginContent() {
                       <Lock className="h-4 w-4" />
                     </div>
                     <input
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="current-password"
+                      type={showRegPassword ? "text" : "password"}
+                      autoComplete="new-password"
                       required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter your password"
+                      minLength={8}
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      placeholder="Minimum 8 characters"
                       className="w-full pl-10 pr-11 py-3 text-sm bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F5D33C]/30 focus:border-[#F5D33C] transition-all"
                     />
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
+                      onClick={() => setShowRegPassword(!showRegPassword)}
                       className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
                       tabIndex={-1}
-                      aria-label={showPassword ? "Hide password" : "Show password"}
                     >
-                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  </div>
-                  <div className="mt-2 text-right">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMode("forgot");
-                        setError("");
-                      }}
-                      className="text-xs sm:text-sm font-medium text-[#1E3A8A] hover:text-blue-800 hover:underline"
-                    >
-                      Forgot password?
+                      {showRegPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
                 </div>
 
-                {/* Primary Button: Sign in → */}
+                {/* Primary Button */}
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={regLoading}
                   className="w-full h-12 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-sm transition-all disabled:opacity-60 disabled:cursor-not-allowed mt-2"
                 >
-                  {loading ? (
-                    "Signing in..."
+                  {regLoading ? (
+                    "Creating account..."
                   ) : (
                     <>
-                      Sign in <ArrowRight className="h-4 w-4" />
+                      {portal === "client" ? "Create Account & Continue" : "Register Fleet & Continue"}{" "}
+                      <ArrowRight className="h-4 w-4" />
                     </>
                   )}
                 </button>
 
-                {/* Divider: OR */}
-                <div className="relative my-4 flex items-center justify-center">
-                  <div className="w-full border-t border-gray-200" />
-                  <span className="bg-white px-3 text-[11px] font-bold uppercase tracking-wider text-gray-400 absolute">
-                    OR
-                  </span>
-                </div>
+                <p className="text-[11px] text-gray-500 text-center leading-relaxed">
+                  By registering you agree to submit accurate compliance & KYC documents for verification.
+                </p>
 
-                {/* Secondary Button: Continue with SSO */}
-                <button
-                  type="button"
-                  onClick={handleSSOClick}
-                  className="w-full h-12 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-800 font-semibold text-sm flex items-center justify-center gap-2.5 transition-colors shadow-none"
-                >
-                  <Lock className="h-4 w-4 text-gray-600" />
-                  Continue with SSO
-                </button>
-
-                {/* Bottom Card Notice / Banner */}
-                <div className="pt-3">
-                  {cfg.bottomNoticeType === "employee" && (
-                    <div className="rounded-xl bg-[#F0F4F9]/70 border border-[#E2E8F0] p-3 flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-lg bg-blue-100/60 flex items-center justify-center text-blue-700 shrink-0">
-                        <ShieldCheck className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold text-gray-900 leading-tight">
-                          Authorized access only
-                        </p>
-                        <p className="text-[11px] text-gray-500 mt-0.5 leading-tight">
-                          For ShunLink employees and internal team members.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {cfg.bottomNoticeType === "transporter" && (
-                    <div className="rounded-xl bg-[#F0FDF4] border border-[#DCFCE7] p-3 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="h-8 w-8 rounded-lg bg-emerald-100/70 flex items-center justify-center text-emerald-700 shrink-0">
-                          <UserPlus className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xs font-semibold text-gray-900 leading-tight">
-                            New to ShunLink?
-                          </p>
-                          <p className="text-[11px] text-gray-500 mt-0.5 leading-tight truncate">
-                            Register your transporter business to get started.
-                          </p>
-                        </div>
-                      </div>
-                      <Link
-                        href="/signup/vendor"
-                        className="text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline shrink-0 flex items-center gap-1"
-                      >
-                        Register now <ArrowRight className="h-3 w-3" />
-                      </Link>
-                    </div>
-                  )}
-
-                  {cfg.bottomNoticeType === "client" && (
-                    <div className="text-center pt-2">
-                      <p className="text-xs sm:text-sm text-gray-500">
-                        Need help?{" "}
-                        <Link
-                          href="mailto:support@shunlink.in"
-                          className="text-gray-950 font-bold hover:underline"
-                        >
-                          Contact Support
-                        </Link>
-                      </p>
-                    </div>
-                  )}
+                <div className="pt-2 text-center text-xs sm:text-sm text-gray-500">
+                  Already have an account?{" "}
+                  <button
+                    type="button"
+                    onClick={() => setAuthTab("login")}
+                    className="text-[#1E3A8A] font-bold hover:underline"
+                  >
+                    Sign in
+                  </button>
                 </div>
               </form>
-            ) : (
+            ) : isDriverMode ? (
               /* ================= DRIVER OTP LOGIN FORM ================= */
               <div className="space-y-4">
                 <div>
@@ -778,7 +885,158 @@ function LoginContent() {
                     </button>
                   </form>
                 )}
+
+                <div className="pt-2 text-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsDriverMode(false);
+                      setError("");
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs sm:text-sm font-semibold text-gray-600 hover:text-gray-950 hover:underline"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" /> Back to Standard Login
+                  </button>
+                </div>
               </div>
+            ) : (
+              /* ================= PASSWORD LOGIN FORM (Standard) ================= */
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Username / Email field */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-800 mb-1.5">
+                    {cfg.usernameLabel}
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                      <Mail className="h-4 w-4" />
+                    </div>
+                    <input
+                      type="text"
+                      autoComplete="username"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder={cfg.usernamePlaceholder}
+                      className="w-full pl-10 pr-4 py-3 text-sm bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F5D33C]/30 focus:border-[#F5D33C] transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Password field */}
+                <div>
+                  <label className="block text-xs sm:text-sm font-semibold text-gray-800 mb-1.5">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
+                      <Lock className="h-4 w-4" />
+                    </div>
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="current-password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Enter your password"
+                      className="w-full pl-10 pr-11 py-3 text-sm bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F5D33C]/30 focus:border-[#F5D33C] transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none"
+                      tabIndex={-1}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  <div className="mt-2 text-right">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsForgotMode(true);
+                        setError("");
+                      }}
+                      className="text-xs sm:text-sm font-medium text-[#1E3A8A] hover:text-blue-800 hover:underline"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                </div>
+
+                {/* Primary Button: Sign in → */}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full h-12 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-sm sm:text-base flex items-center justify-center gap-2 shadow-sm transition-all disabled:opacity-60 disabled:cursor-not-allowed mt-2"
+                >
+                  {loading ? (
+                    "Signing in..."
+                  ) : (
+                    <>
+                      Sign in <ArrowRight className="h-4 w-4" />
+                    </>
+                  )}
+                </button>
+
+                {/* Transporter only: Driver Login with OTP placed where Continue with SSO was */}
+                {portal === "transporter" && (
+                  <>
+                    <div className="relative my-4 flex items-center justify-center">
+                      <div className="w-full border-t border-gray-200" />
+                      <span className="bg-white px-3 text-[11px] font-bold uppercase tracking-wider text-gray-400 absolute">
+                        OR
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDriverMode(true);
+                        setError("");
+                      }}
+                      className="w-full h-12 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-800 font-semibold text-sm flex items-center justify-center gap-2.5 transition-colors shadow-none"
+                    >
+                      <Truck className="h-4 w-4 text-emerald-700" />
+                      Driver Login with OTP
+                    </button>
+                  </>
+                )}
+
+                {/* Bottom Notices */}
+                <div className="pt-3">
+                  {portal === "employee" && (
+                    <div className="rounded-xl bg-[#F0F4F9]/70 border border-[#E2E8F0] p-3 flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-lg bg-blue-100/60 flex items-center justify-center text-blue-700 shrink-0">
+                        <ShieldCheck className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-gray-900 leading-tight">
+                          Authorized access only
+                        </p>
+                        <p className="text-[11px] text-gray-500 mt-0.5 leading-tight">
+                          For ShunLink employees and internal team members.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {portal === "client" && (
+                    <div className="text-center pt-2">
+                      <p className="text-xs sm:text-sm text-gray-500">
+                        Need help?{" "}
+                        <Link
+                          href="mailto:support@shunlink.in"
+                          className="text-gray-950 font-bold hover:underline"
+                        >
+                          Contact Support
+                        </Link>
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </form>
             )}
           </div>
         </div>

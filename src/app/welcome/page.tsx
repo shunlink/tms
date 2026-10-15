@@ -127,17 +127,8 @@ export default function WelcomePage({
           RIGHT PANE (Portal Selection matching Image 1 exactly)
           ========================================================================= */}
       <div className="flex flex-col justify-between p-6 sm:p-10 lg:p-12 xl:p-16 min-h-screen overflow-y-auto">
-        {/* Top Header: New to ShunLink TMS? Create an account */}
-        <div className="flex items-center justify-end gap-3 mb-6">
-          <span className="text-xs sm:text-sm text-gray-500">New to ShunLink TMS?</span>
-          <Link
-            href="/signup"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-300 text-xs sm:text-sm font-semibold text-gray-800 hover:bg-gray-50 hover:border-gray-400 transition-colors shadow-2xs"
-          >
-            <span>Create an account</span>
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
+        {/* Top spacer */}
+        <div className="mb-6 h-6" />
 
         {/* Center: Main Portal Chooser */}
         <div className="w-full max-w-[500px] mx-auto my-auto py-4">
