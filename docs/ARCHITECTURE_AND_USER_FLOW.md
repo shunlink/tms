@@ -1,8 +1,10 @@
 # TMS — Architecture & User Flow
 
-**Version:** 1.0  
+**Version:** 2.0  
 **Status:** Living document  
-**Last updated:** September 2026
+**Last updated:** October 2026
+
+**See also:** [DEVELOPER_CODEMAP.md](./DEVELOPER_CODEMAP.md) (routes, APIs, services, and where to edit code), [ARCHITECTURE.md](./ARCHITECTURE.md) (POD, advances, email workers), [bidding-integration.md](./bidding-integration.md), [PAYMENT_PROCESSING.md](./PAYMENT_PROCESSING.md).
 
 ---
 
@@ -12,19 +14,20 @@
 
 ```mermaid
 graph TB
-    subgraph "Entry Points"
-        SHUNLINK["shunlink.in<br/>(marketing site)"]
-        ADMIN_WEB["Admin Dashboard<br/>(Next.js Web)"]
-        CLIENT_WEB["Client Portal<br/>(Next.js Web)"]
-        VENDOR_WEB["Vendor Portal<br/>(Next.js Web)"]
-        DRIVER_APP["Driver App<br/>(React Native)"]
+    subgraph "Entry Points (one Next.js deployable)"
+        WELCOME["/welcome · /login · /signup"]
+        DASH["(dashboard)/<br/>Staff: Ops · Sales · Finance"]
+        PC["portal/client/"]
+        PV["portal/vendor/"]
+        DRV_WEB["driver/<br/>(web + OTP)"]
+        BIDDING["External Bidding app<br/>(integration APIs)"]
     end
 
     subgraph "Application Layer"
-        NEXTJS["Next.js 14 Monolith<br/>App Router + API Routes"]
-        MW["Middleware<br/>JWT Auth + RBAC"]
-        RSC["React Server Components<br/>(reads)"]
-        API["Route Handlers<br/>(writes)"]
+        NEXTJS["Next.js 14 App Router<br/>RSC pages + API routes"]
+        MW["middleware.ts<br/>JWT + role routing + portal API allowlist"]
+        RSC["Server Components<br/>queries.ts reads"]
+        API["route.ts handlers<br/>services + Prisma writes"]
     end
 
     subgraph "Data Layer"
@@ -41,11 +44,12 @@ graph TB
         MAPS["Maps / Geocoding"]
     end
 
-    SHUNLINK -->|redirect| CLIENT_WEB
-    ADMIN_WEB --> MW
-    CLIENT_WEB --> MW
-    VENDOR_WEB --> MW
-    DRIVER_APP -->|REST API| API
+    WELCOME --> MW
+    DASH --> MW
+    PC --> MW
+    PV --> MW
+    DRV_WEB --> MW
+    BIDDING -->|server secret| API
 
     MW --> RSC
     MW --> API
@@ -123,10 +127,6 @@ graph TB
         S3["S3 Bucket<br/>(documents, POD photos)"]
     end
 
-    subgraph "Mobile"
-        RN["React Native Driver App<br/>(Expo EAS)"]
-    end
-
     CF --> LB
     LB --> APP1
     LB --> APP2
@@ -140,154 +140,127 @@ graph TB
     PGB --> PG_PRIMARY
     PG_PRIMARY --> PG_REPLICA
     APP1 --> S3
-    RN --> LB
 ```
 
 ---
 
 ## 2. User Flows
 
+### 2.0 Authentication and entry routes
+
+All authenticated surfaces share **NextAuth JWT** (`src/lib/auth.ts`). **Middleware** (`src/middleware.ts`) sends each role to the correct app shell and restricts portal API calls.
+
+| Step | Route | Notes |
+|------|--------|--------|
+| Choose portal | `/welcome` | Links to client/vendor signup or login |
+| Register | `/signup/client`, `/signup/vendor` | Creates user + party stub |
+| Login | `/login`, `/login/client`, `/login/vendor`, `/login/employee`, `/login/driver` | Employee = internal dashboard |
+| KYC wizard | `/onboard/client`, `/onboard/vendor` | Until docs submitted (`portal-access.ts`) |
+| After approval | `/portal/client`, `/portal/vendor` | Full nav in portal shells |
+
+**Onboarding statuses:** `PENDING` → must complete `/onboard/*`; `SUBMITTED` / `REJECTED` → **profile only** (`/portal/*/profile`); `APPROVED` → overview, trips, requirements, invoices (client) or indents/trips/payments (vendor).
+
+**Super Admin support:** `/superadmin/portal-access` can start a time-limited **portal access** session to view client/vendor UI as that party (banner shown; sensitive actions blocked).
+
 ### 2.1 Client journey
 
 ```mermaid
 flowchart TD
-    A["User visits shunlink.in"] -->|redirect| B["TMS Client Portal"]
-    B --> C{"Has account?"}
-    C -->|No| D["Sign Up / Onboarding"]
-    C -->|Yes| E["Login"]
+    A["/welcome or /login/client"] --> B{"Account?"}
+    B -->|No| C["/signup/client"]
+    B -->|Yes| D["Login"]
+    C --> E["/onboard/client<br/>company + documents"]
+    E --> F["POST /api/portal/onboarding<br/>status: SUBMITTED"]
+    F --> G{"Admin review<br/>/onboarding queue"}
+    G -->|Rejected| H["/portal/client/profile only"]
+    G -->|Approved| I["/portal/client full access"]
 
-    D --> F["Fill company details<br/>GST, PAN, address, bank"]
-    F --> G["Upload documents<br/>GST cert, PAN card, etc."]
-    G --> H["Submit for verification"]
-    H --> I{"Admin verifies<br/>& approves?"}
-    I -->|Rejected| J["Profile page only<br/>(see rejection remarks)"]
-    I -->|Approved| K["Full portal access"]
+    D --> J{"onboardingStatus"}
+    J -->|PENDING| E
+    J -->|SUBMITTED or REJECTED| H
+    J -->|APPROVED| I
 
-    E --> L{"Onboarding<br/>status?"}
-    L -->|Not approved| J
-    L -->|Approved| K
+    I --> K["Overview /portal/client"]
+    I --> L["Shipments /portal/client/trips"]
+    I --> M["Requirements /portal/client/requirements"]
+    I --> N["Invoices /portal/client/invoices"]
 
-    K --> M["Dashboard Overview<br/>active shipments, outstanding"]
-    K --> N["Consignments<br/>view trip status + tracking"]
-    K --> O["Requirements<br/>raise new vehicle need"]
-    K --> P["Invoices<br/>view & download"]
-
-    O --> Q["Fill requirement form<br/>route, vehicle type, cargo, date"]
-    Q --> R["Requirement submitted<br/>status: OPEN"]
-    R --> S["Admin reviews → creates Indent"]
-    S --> T["Client sees indent progress<br/>in consignments tab"]
-
-    T --> U["Trip executed by vendor/driver"]
-    U --> V["POD received"]
-    V --> W["Invoice generated"]
-    W --> X["Accounts marks as PAID"]
-    X --> Y["Trip CLOSED"]
+    M --> O["POST /api/requirements"]
+    O --> P["Staff converts to indent<br/>(dashboard)"]
+    P --> L
+    L --> Q["Trip execution + POD"]
+    Q --> R["Finance: invoice + client payment"]
+    R --> S["Trip closed"]
 ```
 
-**Note:** Client requirement creation happens ~0.1% of the time. The primary path is admin creating indents directly from phone/email requests.
+**Note:** Most indents are still created by **staff** from phone/email; client requirements are the exception path.
 
-### 2.2 Admin journey
+### 2.2 Internal staff journey (dashboard)
+
+Staff use **`/login/employee`** (or the employee tab on `/login`) and land on **`/`** — the `(dashboard)` app shell. Navigation is **permission-based** (`nav-permissions.ts`) and can be **team-scoped** (Sales, Operations, Finance).
 
 ```mermaid
 flowchart TD
-    A["Admin logs in"] --> B["Dashboard<br/>KPIs, pending actions"]
+    A["/login/employee"] --> B["Dashboard /"]
+    B --> C["/onboarding — KYC queue"]
+    B --> D["/requirements + /indents"]
+    B --> E["/placement — vehicle at pickup"]
+    B --> F["/trips — execution + tracking"]
 
-    B --> C["Onboarding Queue"]
-    C --> C1["Review client docs → Approve/Reject"]
-    C --> C2["Review vendor docs → Approve/Reject"]
-    C --> C3["Review driver docs → Approve/Reject"]
-    C --> C4["Review vehicle docs → Approve/Reject"]
+    D --> G["Create / edit indent"]
+    G --> H{"Allocation mode"}
+    H -->|Manual quotes| I["Vendors quote via portal or WhatsApp<br/>first-wins per vendor"]
+    H -->|Bidding award| J["/api/integration/bidding/award-handoff"]
+    I --> K["POST allocate vendor"]
+    J --> K
+    K --> E
+    E --> L["Vendor assigns vehicle + driver<br/>portal or staff APIs"]
+    L --> F
 
-    B --> D["Requirements Tab"]
-    D --> D1{"Source?"}
-    D1 -->|Client portal| D2["Review client requirement"]
-    D1 -->|Phone/email| D3["Admin creates indent directly"]
+    F --> M["Advance request / approval<br/>trip-advance.service"]
+    M --> N["IN_TRANSIT when advance rules pass"]
+    N --> O["POD upload → /pods queue"]
+    O --> P["Finance: invoices, payables,<br/>client-payments, outbound payments"]
+    P --> Q["Accounting journals / subledgers<br/>optional GL posting"]
+    Q --> R["Trip CLOSED"]
 
-    D2 --> E["Create Indent from Requirement"]
-    D3 --> E
-
-    E --> F["Enter consignor/consignee details<br/>vehicle type, material, freight terms"]
-    F --> G["Indent created<br/>status: OPEN, unassigned"]
-
-    G --> H["System broadcasts to eligible vendors<br/>(portal listing + future WhatsApp)"]
-    H --> I["Vendors submit quotes<br/>(portal or WhatsApp, first-wins)"]
-
-    I --> J["Admin sees top 5 vendor quotes"]
-    J --> K["Admin allocates to chosen vendor"]
-    K --> L["Vendor notified of assignment"]
-
-    L --> M["Vendor assigns vehicle + driver"]
-    M --> N{"Driver source?"}
-    N -->|Vendor's driver| O["Vendor registered driver<br/>(must be KYC-approved)"]
-    N -->|Pool driver| P["Request from ShunAssist pool"]
-    P --> Q["Admin/system assigns certified driver"]
-
-    O --> R["Trip created — PENDING"]
-    Q --> R
-
-    R --> S{"Driver device?"}
-    S -->|Smartphone| S1["Driver app: GPS + in-app POD"]
-    S -->|Feature phone| S2["Cell triangulation + ops/vendor POD"]
-    S1 --> T["POD uploaded"]
-    S2 --> T
-    T --> U["Admin/Accounts creates invoice"]
-    U --> V["Mark invoice as PAID"]
-    V --> W["Trip CLOSED"]
+    B --> S["/bidding-management<br/>ADMIN / SUPER_ADMIN"]
+    S --> T["Proxy to external Bidding UI"]
 ```
+
+**Roles:** `SUPER_ADMIN`, `ADMIN`, `SALES`, `OPERATIONS`, `FINANCE`, `VENDOR_TEAM` — internal roles cannot browse `/portal/*` (middleware redirects to `/`).
 
 ### 2.3 Vendor (transporter) journey
 
 ```mermaid
 flowchart TD
-    A["Vendor visits TMS portal"] --> B{"Has account?"}
-    B -->|No| C["Sign Up / Onboarding"]
+    A["/welcome or /login/vendor"] --> B{"Account?"}
+    B -->|No| C["/signup/vendor"]
     B -->|Yes| D["Login"]
+    C --> E["/onboard/vendor"]
+    E --> F["Submit KYC → SUBMITTED"]
+    F --> G{"Admin /onboarding"}
+    G -->|REJECTED| H["/portal/vendor/profile only"]
+    G -->|APPROVED| I["Full vendor portal"]
 
-    C --> E["Fill business details<br/>GST, PAN, fleet info"]
-    E --> F["Upload documents"]
-    F --> G["Admin verifies & approves"]
-    G --> D
+    D --> J{"onboardingStatus"}
+    J -->|PENDING| E
+    J -->|SUBMITTED or REJECTED| H
+    J -->|APPROVED| I
 
-    D --> H{"Approved?"}
-    H -->|No| I["Profile page only"]
-    H -->|Yes| J["Full vendor portal"]
+    I --> K["/portal/vendor/indents<br/>open indents + quote"]
+    K --> L["POST /api/indents/:id/quotes"]
+    K --> M["WhatsApp quote webhook<br/>first-wins vs portal"]
 
-    J --> K["Available Indents<br/>(open, matching fleet)"]
-    K --> L{"Want to quote?"}
-    L -->|Portal| M["Submit quote via portal form<br/>rate + vehicle selection"]
-    L -->|WhatsApp| N["Reply with quote via WhatsApp<br/>(future integration)"]
+    I --> N["/portal/vendor/trips<br/>assigned trips"]
+    I --> O["/portal/vendor/assignments/:id<br/>placement detail"]
+    N --> P["POD / advance / tracking APIs"]
+    I --> Q["/portal/vendor/payments<br/>summary + Bidding mirror trips"]
 
-    M --> O{"Already quoted<br/>via other channel?"}
-    N --> O
-    O -->|Yes, other channel first| P["Quote rejected<br/>(first-wins rule)"]
-    O -->|No| Q["Quote recorded<br/>channel locked"]
-
-    J --> R["My Assignments<br/>(allocated indents/trips)"]
-    R --> S["Select vehicle from approved list"]
-    S --> T{"Need new vehicle?"}
-    T -->|Yes| U["Add vehicle + upload docs<br/>→ verification queue"]
-    T -->|No| V["Vehicle selected"]
-
-    U --> W["Wait for admin approval"]
-    W --> V
-
-    V --> X{"Has driver?"}
-    X -->|Yes| Y["Register driver on vendor portal<br/>name, phone, license, docs"]
-    X -->|No| Z["Request driver from pool<br/>(ShunAssist)"]
-
-    Y --> Y1["Driver account created<br/>source: VENDOR"]
-    Y1 --> Y2{"Admin approves<br/>driver KYC?"}
-    Y2 -->|Approved| Y3["Driver can use mobile app<br/>device: smartphone or feature phone"]
-    Y2 -->|Pending/Rejected| Y4["Driver app: profile only"]
-
-    Z --> AB["Pool driver assigned<br/>source: POOL (ShunAssist certified)"]
-    Y3 --> AA["Driver + vehicle confirmed"]
-    AB --> AA
-
-    AA --> AC["Trip ready — awaiting driver pickup"]
-    AC --> AD["Track trip progress<br/>(GPS or cell triangulation)"]
-    AD --> AE["View payments & POD status"]
+    P --> R["Finance pays vendor<br/>dashboard /payments"]
 ```
+
+Vendors linked to **Bidding** also receive trips via integration (`bidding-integration.service.ts`); payment summary can be read from `/api/integration/bidding/vendor/*`.
 
 ### 2.4 Driver types & onboarding paths
 
@@ -324,9 +297,13 @@ flowchart TD
     CERT --> POOL["Eligible for pool assignments<br/>+ can accept trips"]
 ```
 
-### 2.5 Driver app experience (React Native)
+### 2.5 Driver experience (web today; mobile planned)
 
-The driver app is **one app for all drivers**, but the home screen depends on **source + approval/certification status**:
+**Production today:** drivers sign in at **`/login/driver`** (DL number + OTP) and use the **web** shell at **`/driver`** — current indent, tracking form, profile. APIs are allowlisted in middleware (`/api/drivers/me/current-indent`, tracking, POD on indent/trip).
+
+**Planned:** React Native app with the same role gates; pool/certification flows below still apply for independent drivers.
+
+The driver home depends on **source + approval/certification status**:
 
 ```mermaid
 flowchart TD
@@ -438,11 +415,12 @@ stateDiagram-v2
 flowchart LR
     PAGE["Page (RSC)"] --> CACHE{"Redis cache<br/>hit?"}
     CACHE -->|Hit| RESP["Return cached data"]
-    CACHE -->|Miss| QUERY["queries/*.ts"]
-    QUERY --> PGB["PgBouncer"]
+    CACHE -->|Miss| QUERY["queries.ts"]
+    QUERY --> SVC["services/*.ts"]
+    SVC --> PGB["PgBouncer"]
     PGB --> PG["PostgreSQL"]
-    PG --> QUERY
-    QUERY --> STORE["Store in Redis<br/>(TTL 30-60s)"]
+    PG --> SVC
+    SVC --> STORE["Store in Redis<br/>(TTL 30-60s)"]
     STORE --> RESP
 ```
 
@@ -450,10 +428,11 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    FORM["Client Component<br/>(form action)"] --> API["API Route Handler"]
-    API --> AUTH["requireAuth()<br/>+ ownership check"]
+    FORM["Client Component<br/>(fetch to API)"] --> API["API Route Handler"]
+    API --> AUTH["requireAuth() + authorize(permission)"]
     AUTH --> VALIDATE["Zod validation"]
-    VALIDATE --> TX["Prisma transaction"]
+    VALIDATE --> SVC["services/*.ts"]
+    SVC --> TX["Prisma transaction"]
     TX --> PG["PostgreSQL"]
     TX --> AUDIT["Audit log entry"]
     TX --> NOTIFY["Notification outbox<br/>(if status change)"]
@@ -502,86 +481,90 @@ sequenceDiagram
 
 ```mermaid
 graph TB
-    subgraph "src/app/ — Routes"
-        DASH["(dashboard)/<br/>Admin pages"]
-        PC["portal/client/<br/>Client pages"]
-        PV["portal/vendor/<br/>Vendor pages"]
-        DRV["driver/<br/>Driver web (legacy)"]
-        ONB["onboard/<br/>KYC forms"]
-        API_R["api/<br/>REST handlers"]
-        MOB["api/mobile/<br/>Driver app API"]
+    subgraph "src/app/"
+        DASH["(dashboard)/ — staff UI"]
+        PC["portal/client/"]
+        PV["portal/vendor/"]
+        DRV["driver/"]
+        ONB["onboard/ + login/ + signup/ + welcome/"]
+        API_R["api/**/route.ts"]
+        SA["superadmin/"]
     end
 
-    subgraph "src/lib/ — Business Logic"
-        AUTH_L["auth.ts"]
-        QUERIES["queries/*.ts"]
+    subgraph "src/lib/"
+        AUTH_L["auth.ts · auth-context.ts"]
+        API_LIB["api.ts — requireAuth, authorize"]
+        QUERIES["queries.ts — RSC reads"]
+        SVC["services/*.ts — domain writes"]
+        ACCT["accounting/ · payments/"]
+        INT["integration/bidding · integrations/"]
         VALID["validation.ts"]
-        LOGIC["logic.ts"]
         AUDIT_L["audit.ts"]
-        NOTIFY_L["notifications.ts"]
-        STORAGE_L["storage.ts"]
-        SEQ["sequence.ts"]
-        ADAPTERS["adapters/<br/>shunassist.ts<br/>whatsapp.ts"]
+        PERM["services/permission.service.ts"]
+        NAV["nav-permissions.ts"]
     end
 
     subgraph "src/components/"
-        UI["ui/ — primitives"]
-        FORMS["forms/ — feature forms"]
-        SHELL["app-shell.tsx"]
-        TABLE["data-table.tsx"]
+        UI["ui/"]
+        FORMS["forms/"]
+        PORTAL["portal/ · onboarding/"]
+        SHELL["app-shell · *-portal-shell"]
     end
 
     DASH --> QUERIES
     PC --> QUERIES
     PV --> QUERIES
-    API_R --> VALID
-    API_R --> LOGIC
-    API_R --> AUDIT_L
-    API_R --> NOTIFY_L
-    MOB --> VALID
-    MOB --> LOGIC
-
-    QUERIES --> AUTH_L
-    FORMS --> API_R
-    SHELL --> UI
+    DRV --> QUERIES
+    API_R --> API_LIB
+    API_LIB --> SVC
+    API_LIB --> VALID
+    SVC --> AUDIT_L
+    QUERIES --> SVC
     DASH --> SHELL
-    TABLE --> UI
+    PC --> SHELL
+    PV --> SHELL
+    FORMS --> API_R
 ```
+
+Detailed file index: **[DEVELOPER_CODEMAP.md](./DEVELOPER_CODEMAP.md)**.
 
 ---
 
 ## 5. Authentication & Authorization Model
 
-### 5.1 Role hierarchy
+### 5.1 Roles and RBAC
 
 ```mermaid
 graph TD
-    ADMIN["ADMIN<br/>(full access + permission management)"]
-    OPS["OPERATIONS<br/>(indents, trips, onboarding)"]
-    ACCOUNTS["ACCOUNTS<br/>(invoices, payments)"]
-    CLIENT["CLIENT<br/>(portal: requirements, trips, invoices)"]
-    VENDOR["VENDOR<br/>(portal: quotes, assignments, POD)"]
-    DRIVER["DRIVER<br/>(mobile app: trips, courses, or KYC gate)"]
+    SA["SUPER_ADMIN<br/>all permissions + portal access tool"]
+    ADMIN["ADMIN<br/>permission matrix (no /permissions UI)"]
+    OPS["OPERATIONS / SALES / FINANCE / VENDOR_TEAM<br/>team-scoped sidebar"]
+    CLIENT["CLIENT — portal"]
+    VENDOR["VENDOR — portal"]
+    DRIVER["DRIVER — /driver web"]
 
+    SA --> ADMIN
     ADMIN --> OPS
-    ADMIN --> ACCOUNTS
-    ADMIN -.->|future: configurable| PERM["Permission Matrix<br/>(per role / team / user)"]
+    OPS --> PERM["Permission keys<br/>permission.service + nav-permissions"]
 ```
+
+**Internal** users are authorized per **permission key** on each API (`authorize(auth, "indent.allocate")`). **Portal** users are constrained by middleware route prefixes and a small **API allowlist** (e.g. client may `POST /api/requirements`).
 
 ### 5.2 Onboarding gate
 
 ```mermaid
 flowchart LR
-    SIGNUP["Sign Up"] --> SUBMIT["Submit KYC"]
-    SUBMIT --> PENDING["Status: PENDING"]
-    PENDING --> REVIEW["Admin reviews docs"]
-    REVIEW -->|Approve| APPROVED["Status: APPROVED<br/>→ full portal access"]
-    REVIEW -->|Reject| REJECTED["Status: REJECTED<br/>→ profile page only"]
-    REJECTED --> RESUBMIT["Resubmit with corrections"]
-    RESUBMIT --> PENDING
+    SIGNUP["Signup /api/auth/signup"] --> ONB["/onboard/* wizard"]
+    ONB --> PENDING["PENDING — editing allowed"]
+    PENDING --> SUBMIT["POST /api/portal/onboarding"]
+    SUBMIT --> SUBMITTED["SUBMITTED — profile-only portal"]
+    SUBMITTED --> REVIEW["Staff /onboarding review"]
+    REVIEW -->|Approve| APPROVED["APPROVED — full portal"]
+    REVIEW -->|Reject| REJECTED["REJECTED — profile-only + remarks"]
+    REJECTED --> ONB
 ```
 
-Applies to: Client, Vendor, Vehicle (verification). **Drivers** use the same KYC gate for vendor-registered drivers; independent drivers use the **certification gate** (ShunAssist courses) instead.
+Applies to **Client** and **Vendor** parties (`onboarding.service.ts`). **Vehicle** and **driver** KYC are reviewed from the dashboard onboarding queue. Independent drivers still use the **certification gate** (ShunAssist) when that path is enabled.
 
 ---
 
@@ -686,8 +669,8 @@ flowchart LR
 | Transport | HTTPS everywhere (TLS 1.2+) |
 | Authentication | NextAuth JWT (HTTP-only cookie) + bcrypt passwords |
 | Mobile auth | Short-lived access token (15min) + refresh token (7d) in Redis |
-| Authorization | Middleware role routing + API allowlist + handler-level ownership checks |
-| Future RBAC | Permission matrix per role/team/user (Phase 3) |
+| Authorization | Middleware role routing + portal API allowlist + `authorize()` permission keys |
+| RBAC | `permission.service.ts` + team-filtered sidebar (`nav-permissions.ts`) |
 | Rate limiting | Redis-backed (login: 8 attempts / 5 min) |
 | Input validation | Zod schemas on all API inputs |
 | File uploads | Type/size limits, authenticated access only |

@@ -8,31 +8,42 @@ Interactive runtime requirements:
 - A persistent location for uploaded documents (local volume or S3)
 
 ## Environment variables
+Copy `.env.production.example` to `.env.production` on the server and fill in secrets.
+Docker Compose loads `.env.production` for `db`, `app`, and `worker-email`.
+
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | yes | PostgreSQL connection string |
-| `NEXTAUTH_URL` | yes | Public URL of the app (e.g. `https://tms.example.com`) |
+| `DATABASE_URL` / `DIRECT_URL` | yes | Use host `db` inside Docker (see example file) |
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | yes (Docker) | Must match credentials in `DATABASE_URL` |
+| `REDIS_URL` | yes (Docker stack) | `redis://redis:6379` (also set in compose for app/worker) |
+| `NEXTAUTH_URL` / `PUBLIC_BASE_URL` | yes | Public HTTPS URL (e.g. `https://tms.shunlink.in`) |
 | `NEXTAUTH_SECRET` | yes | Random secret; generate with `openssl rand -base64 32` |
-| `NOTIFY_PROVIDER` | no | `console` (default) or `whatsapp_cloud` |
+| `RESEND_API_KEY` / `MAIL_FROM` | for email | Resend; emails are sent by `worker-email` |
+| `NOTIFY_PROVIDER` | for WhatsApp | `whatsapp_cloud` for driver OTP and vendor messages |
 | `WHATSAPP_TOKEN` / `WHATSAPP_PHONE_ID` | if WhatsApp | Meta WhatsApp Cloud API credentials |
+| `INTEGRATION_MODE` | no | `mock` (default) until Surepass is configured |
 | `STORAGE_DRIVER` | no | `local` (default) or `s3` |
 | `S3_BUCKET` / `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | if S3 | Object storage config |
 | `MAPS_PROVIDER` | no | `nominatim` (default, free) or `google` |
 | `GOOGLE_MAPS_API_KEY` | if google | Google Geocoding API key |
 
-## Option A — Docker (PostgreSQL + app)
+## Option A — Docker (app + PostgreSQL + Redis + email worker)
 ```bash
-# Build and start Postgres + app
+cp .env.production.example .env.production
+# Edit .env.production (secrets, URLs, Resend, WhatsApp)
+
 docker compose up -d --build
 
-# First-time seed (demo data + users)
+# First-time empty DB only — WIPES ALL DATA (demo users, password admin123)
 docker compose exec app npm run db:seed
 
-# Logs
-docker compose logs -f app
+docker compose logs -f app worker-email
 ```
-Data persists in the `tms_db` (PostgreSQL) and `tms_uploads` volumes.
+Data persists in `tms_db`, `tms_uploads`, and `tms_redis` volumes.
 The `app` container applies migrations on startup (`prisma migrate deploy`).
+Put HTTPS reverse proxy on the host → `127.0.0.1:3000`.
+
+The production `Dockerfile` installs `openssl` on Alpine so Prisma can run migrations and the email worker can use the query engine.
 
 ## Option B — Node on a VM (against managed Postgres)
 ```bash

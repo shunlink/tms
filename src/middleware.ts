@@ -20,6 +20,11 @@ function actorRole(token: { role?: string }) {
   return (token.role as string) ?? "OPERATIONS";
 }
 
+/** Files in `public/portal/` (e.g. onboarding/dashboard WebP heroes). Not app routes under /portal/client|vendor. */
+function isPublicPortalStaticAsset(pathname: string) {
+  return /^\/portal\/[^/]+\.(webp|jpe?g|png|gif|svg)$/i.test(pathname);
+}
+
 function apiAllowed(role: string, method: string, pathname: string) {
   if (pathname.startsWith("/api/portal/")) return true;
   if (pathname === "/api/geocode" && method === "GET") return true;
@@ -58,6 +63,10 @@ export default withAuth(
     const realRole = actorRole(token);
     const { pathname } = req.nextUrl;
     const method = req.method ?? "GET";
+
+    if (isPublicPortalStaticAsset(pathname)) {
+      return NextResponse.next();
+    }
 
     if (pathname.startsWith("/superadmin")) {
       if (realRole !== "SUPER_ADMIN") {
@@ -124,6 +133,6 @@ export default withAuth(
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/health|api/webhooks|api/webhook|api/integration/bidding|api/drivers/otp|login(?:/|$)|signup|welcome|_next/static|_next/image|favicon.ico|brand/|auth/|images/).*)",
+    "/((?!api/auth|api/health|api/webhooks|api/webhook|api/integration/bidding|api/drivers/otp|login(?:/|$)|signup|welcome|_next/static|_next/image|favicon.ico|brand/|auth/|images/|portal/[^/]+\\.(?:webp|jpg|jpeg|png|gif|svg)).*)",
   ],
 };

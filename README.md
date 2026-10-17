@@ -144,8 +144,10 @@ the 24-hour customer window require an approved message template.
 ## Deployment
 See [DEPLOYMENT.md](./DEPLOYMENT.md). Quick start with Docker:
 ```bash
+cp .env.production.example .env.production
+# edit secrets and URLs, then:
 docker compose up -d --build
-docker compose exec app npm run db:seed
+docker compose exec app npm run db:seed   # empty DB only — wipes data
 ```
 `GET /api/health` is the health probe. For multiple instances, switch Prisma to
 PostgreSQL and set `STORAGE_DRIVER=s3` (see DEPLOYMENT.md).

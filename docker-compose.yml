@@ -1,155 +1,108 @@
-# # Full-stack deployment: Next.js app + PostgreSQL.
-# # For local dev with the app on the host, run just the db:
-# #   docker compose up -d db
-# # For the whole stack in Docker:
-# #   docker compose up -d --build
-# #   docker compose exec app npm run db:seed
-
-# services:
-#   pgbouncer:
-#     image: edoburu/pgbouncer:1.21.0-p0
-#     environment:
-#       DATABASE_URL: "postgresql://tms:tms@db:5432/tms"
-#       POOL_MODE: transaction
-#       MAX_CLIENT_CONN: 200
-#       DEFAULT_POOL_SIZE: 20
-#     ports:
-#       - "6432:5432"
-#     depends_on:
-#       db:
-#         condition: service_healthy
-#     profiles:
-#       - production
-
-#   redis:
-#     image: redis:7-alpine
-#     ports:
-#       - "6379:6379"
-#     volumes:
-#       - tms_redis:/data
-#     profiles:
-#       - production
-
-#   db:
-#     image: postgres:16-alpine
-#     environment:
-#       POSTGRES_USER: tms
-#       POSTGRES_PASSWORD: tms
-#       POSTGRES_DB: tms
-#     ports:
-#       - "5432:5432"
-#     volumes:
-#       - tms_db:/var/lib/postgresql/data
-#     healthcheck:
-#       test: ["CMD-SHELL", "pg_isready -U tms -d tms"]
-#       interval: 5s
-#       timeout: 5s
-#       retries: 10
-#     restart: unless-stopped
-
-#   app:
-#     build: .
-#     ports:
-#       - "3000:3000"
-#     environment:
-#       DATABASE_URL: "postgresql://tms:tms@db:5432/tms?schema=public"
-#       NEXTAUTH_URL: "http://localhost:3000"
-#       NEXTAUTH_SECRET: "${NEXTAUTH_SECRET:-change-me-in-production}"
-#       NOTIFY_PROVIDER: "console"
-#       STORAGE_DRIVER: "local"
-#       MAPS_PROVIDER: "nominatim"
-#     volumes:
-#       - tms_uploads:/app/public/uploads
-#     depends_on:
-#       db:
-#         condition: service_healthy
-#     restart: unless-stopped
-
-# volumes:
-#   tms_db:
-#   tms_uploads:
-#   tms_redis:
-
-
-# Full-stack deployment: Next.js app + PostgreSQL + Redis.
-#
-# For local dev with the app on the host:
-#   docker compose up -d db redis
-#
-# For the whole stack in Docker:
-#   docker compose up -d --build
-#   docker compose exec app npm run db:seed
-
-services:
-
-  pgbouncer:
-    image: edoburu/pgbouncer:1.21.0-p0
-    environment:
-      DATABASE_URL: "postgresql://tms:tms@db:5432/tms"
-      POOL_MODE: transaction
-      MAX_CLIENT_CONN: 200
-      DEFAULT_POOL_SIZE: 20
-    ports:
-      - "6432:5432"
-    depends_on:
-      db:
-        condition: service_healthy
-    profiles:
-      - production
-
-  redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--bind", "0.0.0.0", "--port", "6379"]
-    ports:
-      - "127.0.0.1:6379:6379"
-    volumes:
-      - tms_redis:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    restart: unless-stopped
-
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: tms
-      POSTGRES_PASSWORD: tms
-      POSTGRES_DB: tms
-    ports:
-      - "5432:5432"
-    volumes:
-      - tms_db:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tms -d tms"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-
-  app:
-    build: .
-    ports:
-      - "3000:3000"
-    environment:
-      DATABASE_URL: "postgresql://tms:tms@db:5432/tms?schema=public"
-      REDIS_URL: "redis://redis:6379"
-      NEXTAUTH_URL: "http://localhost:3000"
-      NEXTAUTH_SECRET: "${NEXTAUTH_SECRET:-change-me-in-production}"
-      NOTIFY_PROVIDER: "console"
-      STORAGE_DRIVER: "local"
-      MAPS_PROVIDER: "nominatim"
-    volumes:
-      - tms_uploads:/app/public/uploads
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    restart: unless-stopped
-
-volumes:
-  tms_db:
-  tms_uploads:
-  tms_redis:
+# TMS full stack: app + PostgreSQL + Redis + email worker.
+#
+# Setup:
+#   cp .env.production.example .env.production
+#   # Edit secrets — POSTGRES_PASSWORD must match DATABASE_URL and DIRECT_URL
+#   docker compose up -d --build
+#
+# Compose reads variables for interpolation from .env.production (see env_file below).
+# First-time empty database only (WIPES ALL DATA):
+#   docker compose exec app npm run db:seed
+#
+# Local dev with app on the host:
+#   docker compose up -d db redis
+
+services:
+
+  pgbouncer:
+    image: edoburu/pgbouncer:1.21.0-p0
+    env_file:
+      - .env.production
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-tms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-tms}"
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 20
+    ports:
+      - "127.0.0.1:6432:5432"
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - scaled
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--port", "6379"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - tms_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    env_file:
+      - .env.production
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - tms_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file:
+      - .env.production
+    environment:
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - tms_uploads:/app/public/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  worker-email:
+    build: .
+    command: ["npm", "run", "worker:email"]
+    env_file:
+      - .env.production
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  tms_db:
+  tms_uploads:
+  tms_redis:
+
