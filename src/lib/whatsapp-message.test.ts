@@ -103,13 +103,13 @@ describe("buildIndentBidMessage", () => {
     expect(message).toContain("Tarpaulin required");
   });
 
-  it("tells the vendor how to bid via the interactive button flow", () => {
+  it("tells the vendor how to bid via the quote page CTA", () => {
     expect(message).toContain(WHATSAPP_QUOTE_BUTTON_TITLE);
-    expect(message).toContain("example: 43000");
-    expect(message).toContain(`quote ${fullIndent.indentNumber} 43000`);
+    expect(message).toContain("no login needed");
+    expect(message).not.toContain(`quote ${fullIndent.indentNumber} 43000`);
   });
 
-  it("still accepts the legacy full-quote reply format", () => {
+  it("still parses legacy quote text for webhook routing", () => {
     expect(parseQuoteMessage(`quote ${fullIndent.indentNumber} 42000`)).toEqual({
       indentNumber: "IND-2026-0001",
       quotedRate: 42000,

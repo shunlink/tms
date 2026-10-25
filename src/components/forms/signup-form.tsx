@@ -11,14 +11,12 @@ import { portalHomeForRole } from "@/lib/portal-access";
 import type { SignupRole } from "@/lib/services/signup.service";
 import { signupSchema } from "@/lib/validation";
 import { useToast } from "@/components/toast";
-import { parseApiError } from "@/lib/toast-utils";
-
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 export default function SignupForm({ role }: { role: SignupRole }) {
   const router = useRouter();
   const toast = useToast();
   const brand = AUTH_BRANDING[role];
 
-  const [name, setName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -30,7 +28,13 @@ export default function SignupForm({ role }: { role: SignupRole }) {
     e.preventDefault();
     setError("");
 
-    const payload = { role, name, companyName, email, phone, password };
+    const payload = {
+      role,
+      companyName,
+      email,
+      phone,
+      password,
+    };
     const parsed = signupSchema.safeParse(payload);
     if (!parsed.success) {
       const msg = parsed.error.issues[0]?.message ?? "Please check your details.";
@@ -46,16 +50,19 @@ export default function SignupForm({ role }: { role: SignupRole }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(parsed.data),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJsonBody(res);
     if (!res.ok) {
       setLoading(false);
-      const msg = parseApiError(data, "Signup failed. Please try again.");
-      setError(msg);
-      toast.push({ title: msg, variant: "error" });
+      reportApiFailure(res, data, { toast, setError, fallback: "Signup failed. Please try again." });
       return;
     }
 
-    const signInRes = await signIn("credentials", { email, password, redirect: false });
+    const signInRes = await signIn("credentials", {
+      email,
+      password,
+      loginPortal: role === "CLIENT" ? "client" : "vendor",
+      redirect: false,
+    });
     setLoading(false);
     if (signInRes?.error) {
       const msg = "Account created but sign-in failed. Please log in manually.";
@@ -76,18 +83,6 @@ export default function SignupForm({ role }: { role: SignupRole }) {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        <div>
-          <label className={authLabelClass}>Full name</label>
-          <input
-            type="text"
-            className={authInputClass}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="As per official records"
-            required
-          />
-        </div>
-
         <div>
           <label className={authLabelClass}>
             {role === "CLIENT" ? "Company name" : "Business / fleet name"}

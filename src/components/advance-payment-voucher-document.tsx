@@ -1,13 +1,15 @@
-import { companyProfile } from "@/lib/company";
+import type { CompanyProfile } from "@/lib/company";
 import type { AdvanceVoucherData } from "@/lib/services/advance-voucher.service";
 import { formatINR, formatDate } from "@/lib/utils";
 import PrintButton from "@/components/print-button";
 
 export default function AdvancePaymentVoucherDocument({
   data,
+  company,
   paymentProofUrl,
 }: {
   data: AdvanceVoucherData;
+  company: CompanyProfile;
   paymentProofUrl?: string | null;
 }) {
   const route = `${data.routeFrom} → ${data.routeTo}`;
@@ -31,13 +33,13 @@ export default function AdvancePaymentVoucherDocument({
       <div className="bg-white border rounded-lg p-8 print:border-0 print:p-0">
         <div className="flex justify-between items-start border-b pb-6 mb-6">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">{companyProfile.name}</h1>
-            <p className="text-sm text-slate-600 mt-1">{companyProfile.address}</p>
-            <p className="text-sm text-slate-600">GSTIN: {companyProfile.gstin} · PAN: {companyProfile.pan}</p>
-            <p className="text-sm text-slate-600">{companyProfile.phone} · {companyProfile.email}</p>
+            <h1 className="text-xl font-bold text-slate-900">{company.name}</h1>
+            <p className="text-sm text-slate-600 mt-1">{company.address}</p>
+            <p className="text-sm text-slate-600">GSTIN: {company.gstin} · PAN: {company.pan}</p>
+            <p className="text-sm text-slate-600">{company.phone} · {company.email}</p>
           </div>
           <div className="text-right">
-            <h2 className="text-2xl font-bold text-blue-700">ADVANCE PAYMENT VOUCHER</h2>
+            <h2 className="text-2xl font-bold text-slate-900">ADVANCE PAYMENT VOUCHER</h2>
             <p className="text-sm text-slate-600 mt-2">
               Voucher No: <span className="font-medium text-slate-900">{data.voucherNumber}</span>
             </p>
@@ -101,7 +103,7 @@ export default function AdvancePaymentVoucherDocument({
         </div>
 
         <p className="text-xs text-slate-500 mt-8 border-t pt-4">
-          This is a system-generated advance payment voucher from {companyProfile.name}.
+          This is a system-generated advance payment voucher from {company.name}.
         </p>
       </div>
     </div>

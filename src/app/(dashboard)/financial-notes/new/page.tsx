@@ -5,8 +5,26 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewFinancialNotePage() {
+export default async function NewFinancialNotePage({
+  searchParams,
+}: {
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
   await requirePagePermission("financial_note.create");
+
+  const sp = searchParams ?? {};
+  const one = (k: string) => {
+    const v = sp[k];
+    return typeof v === "string" ? v : Array.isArray(v) ? v[0] : undefined;
+  };
+  const prefill = {
+    vendorId: one("vendorId"),
+    tripId: one("tripId"),
+    indentPodId: one("indentPodId"),
+    indentId: one("indentId"),
+    purpose: one("purpose"),
+    noteType: one("noteType") as "DEBIT_NOTE" | "CREDIT_NOTE" | undefined,
+  };
 
   const [vendors, clients, trips, invoices] = await Promise.all([
     prisma.vendor.findMany({
@@ -49,6 +67,7 @@ export default async function NewFinancialNotePage() {
     <div>
       <PageHeader title="New debit / credit note" description="Draft only — issue after approval" />
       <NewFinancialNoteForm
+        prefill={prefill}
         options={{
           vendors,
           clients,

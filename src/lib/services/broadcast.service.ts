@@ -5,9 +5,12 @@ import { resolveWhatsAppRecipient } from "../phone";
 import { deliverNow } from "../notify";
 import { labelOf, resolveLookupLabels } from "../lookup";
 import { buildIndentBidMessage, buildIndentBidSubject, WHATSAPP_QUOTE_BUTTON_TITLE } from "../whatsapp-message";
-import { buildQuoteButtonId } from "../whatsapp-parse";
 import { listVendorsInCities } from "../vendor-eligibility";
-import { openQuoteSession } from "./whatsapp-quote-session.service";
+import {
+  buildVendorQuoteLoginUrl,
+  buildVendorQuoteTemplateButtonParamFromAccessUrl,
+} from "../vendor-quote-portal-url";
+import { ensureVendorQuoteAccess } from "./vendor-quote-access.service";
 
 const n = (d: { toNumber(): number } | null | undefined) => (d ? d.toNumber() : null);
 
@@ -137,7 +140,13 @@ export async function broadcastIndentToVendors(
       continue;
     }
 
-    await openQuoteSession(vendor.id, indentId);
+    const access = await ensureVendorQuoteAccess(vendor.id, indentId);
+    const quotePageUrl = access?.url ?? buildVendorQuoteLoginUrl(indentId);
+    if (!access) {
+      console.warn(
+        `[broadcast] ${payload.indentNumber} -> ${vendor.name}: using portal login fallback (no quote access link)`
+      );
+    }
 
     const send = await deliverNow({
       channel: "WHATSAPP",
@@ -146,9 +155,9 @@ export async function broadcastIndentToVendors(
       body,
       entityType: "INDENT",
       entityId: indentId,
-      buttons: templateName
+      ctaUrl: templateName
         ? undefined
-        : [{ id: buildQuoteButtonId(indentId), title: WHATSAPP_QUOTE_BUTTON_TITLE }],
+        : { url: quotePageUrl, displayText: WHATSAPP_QUOTE_BUTTON_TITLE },
       templateName,
       templateLanguage,
       templateParameters: templateName
@@ -157,6 +166,9 @@ export async function broadcastIndentToVendors(
             indent.loading?.city ?? "—",
             body.split("\n").find((line) => line.startsWith("Route:"))?.replace(/\*/g, "") ?? body.slice(0, 200),
           ]
+        : undefined,
+      templateButtonUrlParameter: templateName
+        ? buildVendorQuoteTemplateButtonParamFromAccessUrl(quotePageUrl)
         : undefined,
     });
     result.notified += 1;

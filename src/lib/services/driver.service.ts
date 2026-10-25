@@ -3,7 +3,8 @@ import { assertTransition } from "../indent-states";
 import { logAudit } from "../audit";
 import type { SessionUser } from "../auth";
 import { normalizeDl } from "../otp";
-import { assertVehicleDriverAssignable } from "../indent-placement";
+import { assertVehicleDriverAssignableForLine } from "../indent-placement";
+import { resolveTargetLine, syncIndentHeaderFromLines } from "../indent-line-rollup";
 import {
   issueDriverOtp,
   requestDriverLoginOtp,
@@ -21,6 +22,7 @@ export type IndentDriverInput = {
   city?: string | null;
   state?: string | null;
   pincode?: string | null;
+  indentLineId?: string | null;
 };
 
 /** Look up a driver by DL (canonical identity). */
@@ -51,7 +53,8 @@ export async function registerDriverForIndent(
 ) {
   const indent = await prisma.indent.findFirst({ where: { id: indentId } });
   if (!indent) return null;
-  assertVehicleDriverAssignable(indent);
+  const line = await resolveTargetLine(indentId, input.indentLineId);
+  assertVehicleDriverAssignableForLine(indent, line);
 
   const dlNumber = normalizeDl(input.dlNumber);
   const existing = await prisma.driver.findUnique({ where: { dlNumber } });
@@ -95,6 +98,10 @@ export async function registerDriverForIndent(
           ...(input.pincode !== undefined ? { pincode: input.pincode } : {}),
         },
       });
+      await tx.user.updateMany({
+        where: { driverId: d.id },
+        data: { name: input.name },
+      });
     }
     return d;
   });
@@ -108,7 +115,7 @@ export async function registerDriverForIndent(
   await createImportantEvent({
     type: "DRIVER_OTP_PENDING",
     severity: "WARNING",
-    title: `Driver OTP verification pending for ${indent.indentNumber}`,
+    title: `Driver OTP verification pending for ${indent.indentNumber} (vehicle ${line.lineNumber})`,
     description: `${input.name} (${dlNumber})`,
     indentId,
     relatedEntityId: driver.id,
@@ -119,7 +126,13 @@ export async function registerDriverForIndent(
     action: "indent.driver_otp_requested",
     entity: "INDENT",
     entityId: indentId,
-    meta: { driverId: driver.id, dlNumber, existing: Boolean(existing) },
+    meta: {
+      driverId: driver.id,
+      dlNumber,
+      existing: Boolean(existing),
+      indentLineId: line.id,
+      lineNumber: line.lineNumber,
+    },
   });
 
   await sendDriverOtp(driver.id);
@@ -143,11 +156,13 @@ export async function verifyDriverForIndent(
   indentId: string,
   driverId: string,
   otp: string,
-  actor?: SessionUser | null
+  actor?: SessionUser | null,
+  indentLineId?: string | null
 ) {
   const indent = await prisma.indent.findFirst({ where: { id: indentId } });
   if (!indent) return null;
-  assertVehicleDriverAssignable(indent);
+  const line = await resolveTargetLine(indentId, indentLineId);
+  assertVehicleDriverAssignableForLine(indent, line);
 
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new Error("Driver not found");
@@ -160,13 +175,8 @@ export async function verifyDriverForIndent(
       assertTransition(indent.status, "DRIVER_ASSIGNED");
     }
 
-    await tx.indent.update({
-      where: { id: indentId },
-      data: { driverId, ...(indent.status === "VEHICLE_PLACED" ? { status: nextStatus } : {}) },
-    });
-
     const alloc = await tx.indentAllocation.findFirst({
-      where: { indentId, status: "ACTIVE" },
+      where: { indentLineId: line.id, status: "ACTIVE" },
       orderBy: { allocatedAt: "desc" },
     });
     if (alloc) {
@@ -175,6 +185,14 @@ export async function verifyDriverForIndent(
         data: { driverId },
       });
     }
+
+    await tx.indent.update({
+      where: { id: indentId },
+      data: {
+        ...(indent.status === "VEHICLE_PLACED" ? { status: nextStatus } : {}),
+      },
+    });
+    await syncIndentHeaderFromLines(indentId, tx);
   });
 
   const { resolveImportantEvents } = await import("./important-event.service");
@@ -221,47 +239,120 @@ export async function verifyDriverOtp(driverId: string, otp: string) {
   return verifyDriverOtpSecure({ driverId, otp, purpose: "driver_verify" });
 }
 
-/** Current active indent for a driver (minimal, no historical exposure). */
+const DRIVER_ACTIVE_TRIP_EXCLUDE = ["CLOSED", "INVOICED", "CANCELLED"] as const;
+
+function mapPings(
+  pings: Array<{ id: string; lat: number; lng: number; note: string | null; recordedAt: Date }>
+) {
+  return pings.map((p) => ({
+    id: p.id,
+    lat: p.lat,
+    lng: p.lng,
+    note: p.note,
+    createdAt: p.recordedAt.toISOString(),
+  }));
+}
+
+/** Current active assignment for a driver — trip-scoped (multi-vehicle / multi-driver). */
 export async function getDriverCurrentIndent(driverId: string) {
+  const trip = await prisma.trip.findFirst({
+    where: {
+      driverId,
+      status: { notIn: [...DRIVER_ACTIVE_TRIP_EXCLUDE] },
+      indentId: { not: null },
+    },
+    orderBy: { updatedAt: "desc" },
+    include: {
+      vehicle: { select: { registrationNumber: true } },
+      pings: {
+        where: { driverId },
+        orderBy: { recordedAt: "desc" },
+        take: 5,
+        select: { id: true, lat: true, lng: true, note: true, recordedAt: true },
+      },
+      pods: { select: { status: true, resolutionStatus: true } },
+      indent: {
+        include: {
+          client: { select: { name: true } },
+          consignment: { select: { cargoTypeCode: true, pickupAt: true, deliveryAt: true } },
+          loading: { select: { city: true, state: true } },
+          unloading: { select: { city: true, state: true } },
+        },
+      },
+    },
+  });
+
+  if (trip?.indent) {
+    const indent = trip.indent;
+    const { deriveTripPodQueueState } = await import("../pod-upload-eligibility");
+    const podState = deriveTripPodQueueState(trip.pods ?? []);
+    return {
+      id: indent.id,
+      indentNumber: indent.indentNumber,
+      lrNumber: trip.lrNumber,
+      client: indent.client.name,
+      pickup: `${indent.loading?.city ?? "—"}, ${indent.loading?.state ?? ""}`.trim(),
+      delivery: `${indent.unloading?.city ?? "—"}, ${indent.unloading?.state ?? ""}`.trim(),
+      vehicle: trip.vehicle.registrationNumber,
+      cargo: indent.consignment?.cargoTypeCode ?? null,
+      status: indent.status,
+      tripId: trip.id,
+      tripStatus: trip.status,
+      podState,
+      podReceivedAt: trip.podReceivedAt,
+      pings: mapPings(trip.pings),
+    };
+  }
+
+  // Legacy: single-vehicle indent with driver on header only
   const indent = await prisma.indent.findFirst({
     where: {
       driverId,
       status: { notIn: ["CANCELLED", "COMPLETED", "POD_RECEIVED", "POD_PENDING", "DELIVERED"] },
-      trips: { none: { status: { in: ["DELIVERED", "CLOSED", "INVOICED", "CANCELLED"] } } },
     },
     orderBy: { updatedAt: "desc" },
     include: {
       client: { select: { name: true } },
       vehicle: { select: { registrationNumber: true } },
-      consignment: { select: { cargoTypeCode: true, pickupAt: true, deliveryAt: true } },
+      consignment: { select: { cargoTypeCode: true } },
       loading: { select: { city: true, state: true } },
       unloading: { select: { city: true, state: true } },
-      trips: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, status: true } },
-      trackingPings: { orderBy: { recordedAt: "desc" }, take: 5, select: { id: true, lat: true, lng: true, note: true, recordedAt: true } },
+      trips: {
+        where: { driverId },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: {
+          id: true,
+          lrNumber: true,
+          status: true,
+          podReceivedAt: true,
+          pings: {
+            where: { driverId },
+            orderBy: { recordedAt: "desc" },
+            take: 5,
+            select: { id: true, lat: true, lng: true, note: true, recordedAt: true },
+          },
+        },
+      },
     },
   });
 
   if (!indent) return null;
-
-  const trip = indent.trips[0] ?? null;
+  const legacyTrip = indent.trips[0] ?? null;
 
   return {
     id: indent.id,
     indentNumber: indent.indentNumber,
+    lrNumber: legacyTrip?.lrNumber ?? indent.indentNumber,
     client: indent.client.name,
     pickup: `${indent.loading?.city ?? "—"}, ${indent.loading?.state ?? ""}`.trim(),
     delivery: `${indent.unloading?.city ?? "—"}, ${indent.unloading?.state ?? ""}`.trim(),
     vehicle: indent.vehicle?.registrationNumber ?? null,
     cargo: indent.consignment?.cargoTypeCode ?? null,
     status: indent.status,
-    tripId: trip?.id ?? null,
-    tripStatus: trip?.status ?? null,
-    pings: indent.trackingPings.map((p) => ({
-      id: p.id,
-      lat: p.lat,
-      lng: p.lng,
-      note: p.note,
-      createdAt: p.recordedAt.toISOString(),
-    })),
+    tripId: legacyTrip?.id ?? null,
+    tripStatus: legacyTrip?.status ?? null,
+    podReceivedAt: legacyTrip?.podReceivedAt ?? null,
+    pings: legacyTrip ? mapPings(legacyTrip.pings) : [],
   };
 }

@@ -22,6 +22,7 @@ export default async function BalancePaymentsPage() {
   const tasks = await listBalancePaymentTasks(undefined, user);
 
   const canProcess = await userCan(user, "payment.process");
+  const canApprove = await userCan(user, "payment.approve");
 
   const pending = tasks.filter((t) =>
     ["PENDING_REVIEW", "APPROVED", "PROCESSING", "PARTIALLY_PAID", "SLA_BREACHED"].includes(t.status)
@@ -47,7 +48,12 @@ export default async function BalancePaymentsPage() {
           <CardTitle>Balance Payment Tasks ({tasks.length})</CardTitle>
         </CardHeader>
         <CardContent>
-          <BalancePaymentsTable tasks={tasks} canProcess={canProcess} currentUserId={user.id} />
+          <BalancePaymentsTable
+            tasks={tasks}
+            canProcess={canProcess}
+            canApprove={canApprove}
+            currentUserId={user.id}
+          />
         </CardContent>
       </Card>
     </div>

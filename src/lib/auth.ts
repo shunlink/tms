@@ -6,6 +6,11 @@ import { rateLimit } from "./ratelimit";
 import { normalizeDl } from "./otp";
 import { verifyDriverOtpSecure } from "./services/otp.service";
 import type { PortalAccessJwtPayload } from "./superadmin/portal-access-session.service";
+import {
+  LOGIN_PORTAL_MISMATCH_MESSAGE,
+  type LoginPortal,
+  roleMatchesLoginPortal,
+} from "./login-portal";
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
@@ -17,6 +22,7 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email / DL / Phone", type: "text" },
         password: { label: "Password / OTP", type: "password" },
         driverLogin: { label: "Driver Login", type: "text" },
+        loginPortal: { label: "Login Portal", type: "text" },
       },
       async authorize(credentials) {
         const identifier = (credentials?.email ?? "").trim().toLowerCase();
@@ -62,6 +68,11 @@ export const authOptions: NextAuthOptions = {
             return null;
           }
 
+          const loginPortal = credentials?.loginPortal as LoginPortal | undefined;
+          if (loginPortal && !roleMatchesLoginPortal(user.role, loginPortal)) {
+            throw new Error(LOGIN_PORTAL_MISMATCH_MESSAGE);
+          }
+
           await prisma.user.update({
             where: { id: user.id },
             data: { lastLoginAt: new Date() },
@@ -87,6 +98,11 @@ export const authOptions: NextAuthOptions = {
 
         const valid = await bcrypt.compare(password, user.password);
         if (!valid) return null;
+
+        const loginPortal = credentials?.loginPortal as LoginPortal | undefined;
+        if (loginPortal && !roleMatchesLoginPortal(user.role, loginPortal)) {
+          throw new Error(LOGIN_PORTAL_MISMATCH_MESSAGE);
+        }
 
         await prisma.user.update({
           where: { id: user.id },

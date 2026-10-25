@@ -35,17 +35,16 @@ export default async function ReceivablesPage({ searchParams }: { searchParams: 
     <div>
       <PageHeader
         title="Customer Receivables"
-        description="Outstanding client invoices, ageing, and collection actions"
+        description="Outstanding balances by invoice age; Total Overdue is past the payment due date (not cash collected in a period)."
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
         <StatCard icon={IndianRupee} value={formatINR(summary.total)} label="Total Receivables" />
-        <StatCard icon={Calendar} value={formatINR(summary.buckets.current)} label="Current" />
-        <StatCard icon={Clock} value={formatINR(summary.buckets.d1_30)} label="1–30 Days" className="text-amber-700" />
-        <StatCard icon={Clock} value={formatINR(summary.buckets.d31_60)} label="31–60 Days" className="text-orange-700" />
-        <StatCard icon={Clock} value={formatINR(summary.buckets.d61_90)} label="61–90 Days" className="text-red-600" />
-        <StatCard icon={AlertTriangle} value={formatINR(summary.buckets.d90plus)} label="90+ Days" className="text-red-700" />
-        <StatCard icon={FileText} value={formatINR(summary.totalOverdue)} label="Total Overdue" className="text-red-600" />
+        <StatCard icon={Calendar} value={formatINR(summary.buckets.d0_30)} label="0–30 days outstanding" />
+        <StatCard icon={Clock} value={formatINR(summary.buckets.d31_60)} label="31–60 days outstanding" className="text-amber-700" />
+        <StatCard icon={Clock} value={formatINR(summary.buckets.d61_90)} label="61–90 days outstanding" className="text-orange-700" />
+        <StatCard icon={AlertTriangle} value={formatINR(summary.buckets.d90plus)} label="90+ days outstanding" className="text-red-700" />
+        <StatCard icon={FileText} value={formatINR(summary.totalOverdue)} label="Total Overdue (past due)" className="text-red-600" />
       </div>
 
       <Card className="mb-6">

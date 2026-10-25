@@ -109,25 +109,22 @@ export default function FinanceDashboard({ data }: { data: FinanceDashboardData 
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-1">Total outstanding (excl. GST in margin)</p>
-            <p className="text-2xl font-bold mb-4">{formatINR(m.receivables.total)}</p>
+            <p className="text-2xl font-bold mb-1">{formatINR(m.receivables.total)}</p>
+            <p className="text-xs text-muted-foreground mb-4">Ageing by days since invoice issue</p>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-lg border p-3">
-                <p className="text-muted-foreground">Current</p>
-                <p className="font-semibold">{formatINR(m.receivables.buckets.current)}</p>
-              </div>
-              <div className="rounded-lg border p-3">
-                <p className="text-muted-foreground">1–30 days overdue</p>
-                <p className="font-semibold text-amber-600">{formatINR(m.receivables.buckets.d1_30)}</p>
+                <p className="text-muted-foreground">0–30 days</p>
+                <p className="font-semibold">{formatINR(m.receivables.buckets.d0_30)}</p>
               </div>
               <div className="rounded-lg border p-3">
                 <p className="text-muted-foreground">31–60 days</p>
-                <p className="font-semibold text-orange-600">{formatINR(m.receivables.buckets.d31_60)}</p>
+                <p className="font-semibold text-amber-600">{formatINR(m.receivables.buckets.d31_60)}</p>
               </div>
               <div className="rounded-lg border p-3">
                 <p className="text-muted-foreground">61–90 days</p>
-                <p className="font-semibold text-red-600">{formatINR(m.receivables.buckets.d61_90)}</p>
+                <p className="font-semibold text-orange-600">{formatINR(m.receivables.buckets.d61_90)}</p>
               </div>
-              <div className="rounded-lg border p-3 col-span-2">
+              <div className="rounded-lg border p-3">
                 <p className="text-muted-foreground">90+ days</p>
                 <p className="font-semibold text-red-700">{formatINR(m.receivables.buckets.d90plus)}</p>
               </div>

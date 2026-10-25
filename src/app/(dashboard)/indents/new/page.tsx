@@ -20,7 +20,7 @@ export default async function NewIndentPage({
 
   if (prefill?.alreadyConverted && prefill.indentId) {
     return (
-      <div className="max-w-4xl">
+      <div className="w-full max-w-4xl mx-auto">
         <h1 className="text-2xl font-bold text-slate-900 mb-2">Requirement already converted</h1>
         <p className="text-slate-500 mb-4">
           {prefill.reqNumber} has already been converted to an indent.
@@ -36,7 +36,7 @@ export default async function NewIndentPage({
   const lockClientName = prefill?.clientName ?? undefined;
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full max-w-4xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">
           {prefill ? `New Indent from ${prefill.reqNumber}` : "New Indent"}

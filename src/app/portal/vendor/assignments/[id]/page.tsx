@@ -40,7 +40,7 @@ export default async function VendorAssignmentDetailPage({
   });
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="w-full max-w-4xl mx-auto space-y-6">
       <div>
         <Link
           href="/portal/vendor/trips"

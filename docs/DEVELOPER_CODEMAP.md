@@ -276,7 +276,7 @@ For any route, open the matching `route.ts` — it lists the imported service fu
 | `authoritative-vendor-payable.service.ts` | Source of truth for trip vendor balances |
 | `vendor-payment.service.ts` | Vendor payment processing |
 | `vendor-balance-payment.service.ts` | Balance payment tasks after POD |
-| `trip-advance.service.ts` | Advance requests, negotiation, 85% cap, transit gate |
+| `trip-advance.service.ts` | Advance requests, negotiation, 85% cap, pre-delivered request window |
 | `advance.service.ts` | Advance helpers / shared advance logic |
 | `advance-voucher.service.ts` | Advance voucher PDF/data |
 | `balance-voucher.service.ts` | Balance voucher generation |
@@ -337,7 +337,7 @@ For any route, open the matching `route.ts` — it lists the imported service fu
 | Change who can call an API | Handler: `authorize(auth, "permission.key")`; portal roles: `src/middleware.ts` `apiAllowed()` |
 | Change indent status rules | `src/lib/indent-states.ts` + `indent.service.ts` |
 | Change POD workflow | `pod.service.ts`, `src/lib/pod-states.ts`, `api/pods/*`, `api/trips/[id]/documents` |
-| Change advance / transit gate | `trip-advance.service.ts`, docs in [ARCHITECTURE.md](./ARCHITECTURE.md) |
+| Change advance eligibility / balance path | `trip-advance.service.ts`, `advance-trip-window.ts`, [ARCHITECTURE.md](./ARCHITECTURE.md) |
 | Client portal page data | Page under `portal/client/` + `queries.ts` |
 | New Bidding integration endpoint | `src/app/api/integration/bidding/` + `bidding-integration.service.ts` |
 | DB schema | `prisma/schema.prisma` → `npm run db:migrate` |

@@ -22,6 +22,8 @@ const createSchema = z.object({
   clientId: z.string().optional().nullable(),
   indentId: z.string().optional().nullable(),
   tripId: z.string().optional().nullable(),
+  indentPodId: z.string().optional().nullable(),
+  vendorDeductionReason: z.enum(["SHORTAGE", "DAMAGE", "OTHER"]).optional().nullable(),
   clientInvoiceId: z.string().optional().nullable(),
   tripChargeId: z.string().optional().nullable(),
   businessPurpose: z.string(),

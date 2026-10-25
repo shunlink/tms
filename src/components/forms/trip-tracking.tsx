@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import LiveTrackingView from "./live-tracking-view";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type Ping = { id: string; lat: number; lng: number; note: string | null; createdAt: string; source?: string; accuracyMeters?: number | null };
 
 const LIVE_TRIP_STATUSES = new Set(["DISPATCHED", "IN_TRANSIT"]);
@@ -18,6 +21,7 @@ export default function TripTracking({
   tripStatus: string;
   pings: Ping[];
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [form, setForm] = useState({ lat: "", lng: "", note: "" });
   const [busy, setBusy] = useState(false);
@@ -42,9 +46,9 @@ export default function TripTracking({
       body: JSON.stringify({ ...form, source: "GPS" }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to add ping");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to add ping" });
       return;
     }
     setForm({ lat: "", lng: "", note: "" });

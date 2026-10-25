@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { formatINR, formatDate } from "@/lib/utils";
 import type { ClientReceivableSummary } from "@/lib/services/receivables.service";
 
+import { readJsonBody, resolveApiError } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 export default function ClientReceivableSummaryDialog({
   clientId,
   clientName,
@@ -27,13 +29,13 @@ export default function ClientReceivableSummaryDialog({
     setError("");
     fetch(`/api/receivables/client/${clientId}`)
       .then(async (res) => {
+        const data = await readJsonBody(res);
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || "Failed to load client summary");
+          throw new Error(resolveApiError(res, data, "Failed to load client summary").message);
         }
-        return res.json();
+        return data;
       })
-      .then((data) => setSummary(data))
+      .then((data) => setSummary(data as ClientReceivableSummary))
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => setLoading(false));
   }, [open, clientId]);

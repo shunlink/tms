@@ -20,7 +20,8 @@ bill clients, and pay vendors.
 ## Quick Start
 
 ```bash
-docker compose up -d db    # start PostgreSQL locally (or use your own Postgres)
+# Optional: copy docker-compose.example.yml → docker-compose.yml for local Docker
+docker compose -f docker-compose.example.yml up -d db
 npm install
 npm run db:generate        # generate Prisma client
 npm run db:migrate:deploy  # apply migrations to PostgreSQL
@@ -43,8 +44,9 @@ npm run dev                # http://localhost:3000
 ### Database
 The app uses **PostgreSQL**. Set `DATABASE_URL` in `.env` to your connection string
 (default: `postgresql://tms:tms@localhost:5432/tms?schema=public`), then run
-`npm run db:migrate:deploy`. `docker compose up -d db` spins up a local Postgres
-for development. Enum values are stored as strings for simplicity.
+`npm run db:migrate:deploy`. Use `docker-compose.example.yml` for local Postgres
+(see `scripts/package-deploy.ps1` for VPS zip deploy — server `docker-compose.yml` is not bundled).
+Enum values are stored as strings for simplicity.
 
 ## Modules
 | Module | Route |
@@ -78,6 +80,12 @@ for development. Enum values are stored as strings for simplicity.
 - **CSV exports** — `/api/export/{clients|vendors|vehicles|drivers|trips|invoices|payments}`
 - **Pluggable providers** — notifications (`console`/`whatsapp_cloud`) in `src/lib/notify.ts`;
   storage (`local`/`s3`) in `src/lib/storage.ts`
+- **LR PDF generation** — on **Create LR** (trip from indent), a 4-copy A4 lorry receipt PDF is
+  rendered with Puppeteer (`src/lib/pdf/render-html-to-pdf.ts`). Set **`CHROME_PATH`** to the full
+  path of Chrome or Edge (e.g. `C:\Program Files\Google\Chrome\Application\chrome.exe` on Windows).
+  Trip creation still succeeds if the browser is missing; ops can **Regenerate** from the trip page.
+- **Client tax invoice PDF** — BuckleTrack-style bulk GST invoice (multi-LR per document) via
+  **Download PDF** on `/invoices/[id]` or `GET /api/invoices/[id]/pdf` (same `CHROME_PATH` requirement).
 - **Automated tests** — Vitest unit tests for core logic (`npm test`)
 
 ## Notifications & Processing
@@ -93,16 +101,19 @@ for the Meta Cloud API.
 
 ### WhatsApp (Meta Cloud API)
 Vendors are notified when an indent is **released to vendors**. The message carries
-the full load detail (route, vehicle, weight, cargo, dates, advance paid) plus the
-exact reply syntax, so a vendor can bid without opening the portal:
+load detail (route, vehicle, weight, cargo, dates, advance paid) and a **Submit my quote**
+button that opens a **login-free quote page** (`/quote/{token}`) unique to each vendor.
+Vendors can also submit on **Open Indents** (`/portal/vendor/indents`) after sign-in; both
+paths create `VendorQuote` (channel `WHATSAPP` or `PORTAL`). WhatsApp text replies are not
+accepted for new quotes—inbound messages receive a link to the quote page.
 
-```
-Your rate = total freight you will charge for this load (INR).
-Reply:  quote IND-2026-0001 42000
-```
+Set `PUBLIC_BASE_URL` (or `NEXTAUTH_URL`) to your public https app URL so CTA links work.
 
-Quotes sent back on WhatsApp land in the same `VendorQuote` flow as the portal, and
-the vendor receives an acknowledgement. Winning vendors get an allocation message.
+**Approved template (`WHATSAPP_BID_TEMPLATE_NAME`):** add a URL button in Meta whose
+target uses one dynamic segment. By default the app sends the path+query
+(`/quote/{token}`) as button parameter `{{1}}` with a static host in the template. Set
+`WHATSAPP_BID_TEMPLATE_URL_MODE=full` to pass the entire https quote-page URL as `{{1}}`
+instead.
 
 | Piece | Location |
 |-------|----------|

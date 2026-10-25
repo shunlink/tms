@@ -93,8 +93,10 @@ export type CreateNoteInput = {
   clientId?: string | null;
   indentId?: string | null;
   tripId?: string | null;
+  indentPodId?: string | null;
   clientInvoiceId?: string | null;
   tripChargeId?: string | null;
+  vendorDeductionReason?: string | null;
   businessPurpose: BusinessPurpose | string;
   payableEffect?: string;
   reason?: string | null;
@@ -170,6 +172,13 @@ async function validateCounterparty(input: CreateNoteInput) {
     });
     if (existing) throw new Error("An active note already exists for this trip charge");
   }
+  if (
+    input.counterpartyType === "VENDOR" &&
+    input.businessPurpose === "VENDOR_FREIGHT_REDUCTION" &&
+    !input.vendorDeductionReason
+  ) {
+    throw new Error("Deduction reason is required for vendor freight reduction (Shortage, Damage, or Other)");
+  }
 }
 
 export async function createFinancialNoteDraft(input: CreateNoteInput, actor?: SessionUser | null) {
@@ -198,8 +207,10 @@ export async function createFinancialNoteDraft(input: CreateNoteInput, actor?: S
         clientId: input.clientId ?? null,
         indentId: input.indentId ?? null,
         tripId: input.tripId ?? null,
+        indentPodId: input.indentPodId ?? null,
         clientInvoiceId: input.clientInvoiceId ?? null,
         tripChargeId: input.tripChargeId ?? null,
+        vendorDeductionReason: input.vendorDeductionReason ?? null,
         businessPurpose: input.businessPurpose,
         payableEffect,
         reason: input.reason ?? null,
@@ -356,11 +367,18 @@ export async function submitFinancialNoteForApproval(id: string, actor?: Session
 }
 
 export async function approveFinancialNote(id: string, actor?: SessionUser | null) {
-  const note = await prisma.financialNote.findUnique({ where: { id } });
+  const note = await prisma.financialNote.findUnique({
+    where: { id },
+    include: { createdBy: { select: { id: true, role: true } } },
+  });
   if (!note) throw new Error("Note not found");
   const policy = getFinancialNotePolicy();
-  if (policy.prohibitSelfApproval && note.createdById && actor?.id === note.createdById) {
+  const isSelf = Boolean(note.createdById && actor?.id === note.createdById);
+  if (policy.prohibitSelfApproval && isSelf && actor?.role !== "SUPER_ADMIN") {
     throw new Error("You cannot approve a note you created");
+  }
+  if (!isSelf && note.createdBy?.role !== "SUPER_ADMIN" && actor?.role !== "SUPER_ADMIN") {
+    throw new Error("Only Super Admin can approve notes created by finance users");
   }
   assertNoteTransition(note.status, "APPROVED");
 
@@ -549,7 +567,13 @@ export async function issueFinancialNote(id: string, actor?: SessionUser | null)
   if (!note) throw new Error("Note not found");
 
   const policy = getFinancialNotePolicy();
-  if (policy.separateIssuerFromApprover && note.approvedById && actor?.id === note.approvedById) {
+  const issuerIsApprover =
+    Boolean(note.approvedById && actor?.id && actor.id === note.approvedById);
+  if (
+    policy.separateIssuerFromApprover &&
+    issuerIsApprover &&
+    actor?.role !== "SUPER_ADMIN"
+  ) {
     throw new Error("Issuer must be different from approver");
   }
   if (note.status === "PENDING_APPROVAL") {
@@ -571,6 +595,23 @@ export async function issueFinancialNote(id: string, actor?: SessionUser | null)
   const accountingDate = note.accountingDate ?? new Date();
 
   await ensureChartOfAccounts();
+
+  if (
+    note.payableEffect === "APPLY_TO_SUBLEDGER" &&
+    note.counterpartyType === "VENDOR" &&
+    note.tripId
+  ) {
+    const { syncVendorTripPayableFromTrip } = await import("./authoritative-vendor-payable.service");
+    const payable = await syncVendorTripPayableFromTrip(note.tripId, {
+      recordAdjustment: false,
+      reason: "Ensure vendor trip payable before financial note issuance",
+    });
+    if (!payable) {
+      throw new Error(
+        "Vendor trip payable could not be created for this trip — confirm the trip exists and vendor freight is set"
+      );
+    }
+  }
 
   const issued = await prisma.$transaction(async (tx) => {
     const locked = await tx.financialNote.findUnique({ where: { id } });

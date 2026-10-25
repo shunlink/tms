@@ -1,8 +1,9 @@
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import DataTable, { type DataColumn } from "@/components/data-table";
 import PageHeader from "@/components/page-header";
 import { formatInrMinor } from "@/components/accounting/money-cells";
-import { buildVendorStatement } from "@/lib/accounting/vendor-subledger.service";
+import { buildVendorStatement, type VendorStatementView } from "@/lib/accounting/vendor-subledger.service";
 import { requirePagePermission } from "@/lib/page-auth";
 import { notFound } from "next/navigation";
 
@@ -18,11 +19,12 @@ const columns: DataColumn[] = [
   { key: "balance", header: "Balance" },
 ];
 
-type Params = { params: { vendorId: string } };
+type Params = { params: { vendorId: string }; searchParams?: { view?: string } };
 
-export default async function VendorStatementPage({ params }: Params) {
+export default async function VendorStatementPage({ params, searchParams }: Params) {
   await requirePagePermission("accounting.subledger.view");
-  const statement = await buildVendorStatement({ vendorId: params.vendorId });
+  const view: VendorStatementView = searchParams?.view === "all" ? "all" : "operational";
+  const statement = await buildVendorStatement({ vendorId: params.vendorId, view });
   if (!statement) notFound();
 
   const rows = statement.lines.map((l) => ({
@@ -45,15 +47,33 @@ export default async function VendorStatementPage({ params }: Params) {
         </CardHeader>
         <CardContent className="text-sm space-y-1">
           <p>Opening: {formatInrMinor(statement.openingBalanceMinor)}</p>
-          <p>Closing (operational subledger): {formatInrMinor(statement.closingBalanceMinor)}</p>
-          <p>Operational outstanding: {formatInrMinor(statement.operationalOutstandingPayableMinor)}</p>
+          <p>Closing ({view === "all" ? "operational + GL lines" : "operational"}): {formatInrMinor(statement.closingBalanceMinor)}</p>
+          <p>Operational outstanding (authoritative): {formatInrMinor(statement.operationalOutstandingPayableMinor)}</p>
           <p>GL payables (2110): {formatInrMinor(statement.glPayablesBalanceMinor)}</p>
           <p>GL advances (2150): {formatInrMinor(statement.glAdvancesBalanceMinor)}</p>
+          <p className="text-xs text-muted-foreground pt-2">
+            Default view shows trip payables, adjustments, and payments only — not duplicate GL journal lines.
+            {view === "operational" ? (
+              <>
+                {" "}
+                <Link className="text-blue-600 underline" href={`/accounting/subledgers/vendors/${params.vendorId}?view=all`}>
+                  Show GL mirror lines
+                </Link>
+              </>
+            ) : (
+              <>
+                {" "}
+                <Link className="text-blue-600 underline" href={`/accounting/subledgers/vendors/${params.vendorId}`}>
+                  Hide GL mirror lines
+                </Link>
+              </>
+            )}
+          </p>
           <a
-            className="text-blue-600 underline text-xs"
-            href={`/api/accounting/subledgers/vendors/${params.vendorId}/statement?format=csv`}
+            className="text-blue-600 underline text-xs block mt-1"
+            href={`/api/accounting/subledgers/vendors/${params.vendorId}/statement?format=csv&view=${view}`}
           >
-            Export CSV
+            Export Excel (CSV)
           </a>
         </CardContent>
       </Card>

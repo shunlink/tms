@@ -9,11 +9,14 @@ import TripPayments from "@/components/forms/trip-payments";
 import TripTracking from "@/components/forms/trip-tracking";
 import StatusBadge from "@/components/status-badge";
 import { getTripDetail } from "@/lib/queries";
-import { isTripAdvanceClearedForTransit, listAdvanceRequests } from "@/lib/services/trip-advance.service";
+import { listAdvanceRequests } from "@/lib/services/trip-advance.service";
 import { getBalancePaymentTaskByTripId } from "@/lib/services/vendor-balance-payment.service";
 import { getSessionUser } from "@/lib/auth";
 import { hasPermission } from "@/lib/services/permission.service";
 import { formatINR, formatDate } from "@/lib/utils";
+import TripLrPanel from "@/components/trips/trip-lr-panel";
+import { getTripLrDocument } from "@/lib/services/lr-document.service";
+import { resolveTripPodUploadGate } from "@/lib/pod-upload-eligibility";
 
 export const dynamic = "force-dynamic";
 
@@ -31,11 +34,15 @@ export default async function TripDetailPage({
       ((await hasPermission(user.id, "payment.view")) ||
         (await hasPermission(user.id, "invoice.view"))));
   const advanceRequests = await listAdvanceRequests({ tripId: params.id, source: "SHUNLINK" });
-  const advanceClearedForTransit = await isTripAdvanceClearedForTransit(params.id);
   const balanceTask = await getBalancePaymentTaskByTripId(params.id, user);
+  const lrDoc = await getTripLrDocument(params.id);
+  const canEditTrip =
+    user?.role === "SUPER_ADMIN" ||
+    (user?.id != null && (await hasPermission(user.id, "trip.edit")));
+  const podUploadGate = resolveTripPodUploadGate(trip.status, trip.podState);
 
   return (
-    <div className="max-w-5xl">
+    <div className="w-full max-w-5xl mx-auto">
       <Link href="/trips" className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-4">
         <ArrowLeft className="h-4 w-4" /> Back to Trips
       </Link>
@@ -66,13 +73,7 @@ export default async function TripDetailPage({
           <CardTitle>Trip Workflow</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <TripStatusActions
-            tripId={trip.id}
-            status={trip.status}
-            vendorAllocated={Boolean(trip.vendor)}
-            advanceClearedForTransit={advanceClearedForTransit}
-            podState={trip.podState}
-          />
+          <TripStatusActions tripId={trip.id} status={trip.status} podState={trip.podState} />
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm border-t pt-4">
             <div>
               <p className="text-slate-500">Created</p>
@@ -161,6 +162,13 @@ export default async function TripDetailPage({
         </Card>
       )}
 
+      <TripLrPanel
+        tripId={trip.id}
+        lrUrl={lrDoc.ok ? lrDoc.url ?? null : null}
+        generatedAt={lrDoc.ok ? lrDoc.generatedAt ?? null : null}
+        canRegenerate={canEditTrip}
+      />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         <Card>
           <CardHeader>
@@ -201,7 +209,8 @@ export default async function TripDetailPage({
             <p className="text-slate-600">{trip.vehicle.type.replace(/_/g, " ")}</p>
             {trip.driver ? (
               <>
-                <p className="text-slate-600 pt-1">{trip.driver.name}</p>
+                <p className="text-slate-600 pt-1 font-medium">{trip.driver.name}</p>
+                <p className="text-slate-500 font-mono text-xs">{trip.driver.dlNumber}</p>
                 <p className="text-slate-500">{trip.driver.phone}</p>
               </>
             ) : (
@@ -216,17 +225,35 @@ export default async function TripDetailPage({
           <CardTitle>Freight & Margin</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-3 gap-4 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 text-sm">
             <div>
-              <p className="text-slate-500">Client Rate</p>
+              <p className="text-slate-500">Freight (client)</p>
               <p className="text-lg font-semibold text-slate-900">{formatINR(trip.clientRate)}</p>
             </div>
             <div>
-              <p className="text-slate-500">Vendor Rate</p>
+              <p className="text-slate-500">Loading (client)</p>
+              <p className="text-lg font-semibold text-slate-900">
+                {formatINR(trip.clientLoadingCharge ?? 0)}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-500">Unloading (client)</p>
+              <p className="text-lg font-semibold text-slate-900">
+                {formatINR(trip.clientUnloadingCharge ?? 0)}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-500">Total billable</p>
+              <p className="text-lg font-semibold text-slate-900">
+                {formatINR(trip.clientBillableTotal ?? trip.clientRate)}
+              </p>
+            </div>
+            <div>
+              <p className="text-slate-500">Vendor rate</p>
               <p className="text-lg font-semibold text-slate-900">{formatINR(trip.vendorRate)}</p>
             </div>
             <div>
-              <p className="text-slate-500">Margin</p>
+              <p className="text-slate-500">Margin (billable − buy)</p>
               <p className="text-lg font-semibold text-green-600">{formatINR(trip.margin)}</p>
             </div>
           </div>
@@ -253,14 +280,18 @@ export default async function TripDetailPage({
             <div className="space-y-6">
               <div>
                 <h3 className="text-sm font-medium text-slate-900 mb-2">Proof of Delivery</h3>
-                <PodUpload tripId={trip.id} />
+                <PodUpload
+                  tripId={trip.id}
+                  uploadEnabled={podUploadGate.allowed}
+                  lockedMessage={podUploadGate.message}
+                />
               </div>
               <div>
                 <h3 className="text-sm font-medium text-slate-900 mb-2">Other documents</h3>
                 <DocumentUpload
                   tripId={trip.id}
-                  documents={trip.documents.filter((d) => d.type !== "POD")}
-                  allowedTypes={["LR", "EWAY_BILL", "DELIVERY_CHALLAN", "GATE_PASS", "INVOICE", "OTHER"]}
+                  documents={trip.documents.filter((d) => d.type !== "POD" && d.type !== "LR")}
+                  allowedTypes={["EWAY_BILL", "DELIVERY_CHALLAN", "GATE_PASS", "INVOICE", "OTHER"]}
                 />
               </div>
             </div>

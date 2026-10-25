@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import { getAuthContext, type AuthContext } from "./auth-context";
 import { formatPrismaError, logQueryError } from "./prisma-errors";
 import { hasPermission, type PermissionKey } from "./services/permission.service";
-import { handleThrownError, type ApiErrorCode } from "./api-errors";
+import {
+  forbiddenErrorBody,
+  handleThrownError,
+  notFoundErrorBody,
+  unauthorizedErrorBody,
+  type ApiErrorCode,
+} from "./api-errors";
 import { isInternalRole as checkInternalRole } from "./teams";
 import { impersonationBlocksPermission } from "./superadmin/sensitive-actions";
 
@@ -72,16 +78,16 @@ export function badRequest(
   );
 }
 
-export function unauthorized() {
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export function unauthorized(message?: string) {
+  return NextResponse.json(unauthorizedErrorBody(message), { status: 401 });
 }
 
-export function forbidden(message = "Forbidden") {
-  return NextResponse.json({ error: message }, { status: 403 });
+export function forbidden(message?: string) {
+  return NextResponse.json(forbiddenErrorBody(message), { status: 403 });
 }
 
-export function notFound(message = "Not found") {
-  return NextResponse.json({ error: message }, { status: 404 });
+export function notFound(message?: string) {
+  return NextResponse.json(notFoundErrorBody(message), { status: 404 });
 }
 
 export function serviceUnavailable(message: string) {

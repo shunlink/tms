@@ -2,7 +2,8 @@
 
 **Version:** 2.0 (production redesign)  
 **Status:** Draft — pending your answers on open questions  
-**Prisma file:** `prisma/schema.saas.prisma`
+**Prisma file:** `prisma/schema.saas.prisma`  
+**SaaS product guide:** [SAAS_PLATFORM_GUIDE.md](./SAAS_PLATFORM_GUIDE.md) (architecture, auth, workflows, plans)
 
 ---
 

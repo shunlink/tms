@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import StatusBadge from "@/components/status-badge";
 import { useToast } from "@/components/toast";
-import { showApiError, showWarning } from "@/lib/toast-utils";
+import { showWarning } from "@/lib/toast-utils";
 import { maxAdvanceForVendorRate } from "@/lib/advance-limits";
 import { formatINR, formatDate } from "@/lib/utils";
 import { IndianRupee } from "lucide-react";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 type AdvanceRequest = {
   id: string;
   requestNumber: string;
@@ -53,10 +54,14 @@ export default function TripAdvancePanel({
   tripId,
   vendorRate,
   initialRequest,
+  advanceWindowOpen = true,
+  advanceWindowClosedReason = null,
 }: {
   tripId: string;
   vendorRate: number;
   initialRequest: AdvanceRequest | null;
+  advanceWindowOpen?: boolean;
+  advanceWindowClosedReason?: string | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -73,7 +78,8 @@ export default function TripAdvancePanel({
     setRequest(initialRequest);
   }, [initialRequest]);
 
-  const canRequestNew = !request || REOPEN_STATUSES.has(request.status);
+  const canRequestNew =
+    advanceWindowOpen && (!request || REOPEN_STATUSES.has(request.status));
   const showActiveRequest = request && !canRequestNew;
   const showNegotiation = request?.status === "NEGOTIATED" && request.negotiatedAmount != null;
   const isUnderFinanceReview = request?.status === "PENDING_REVIEW" || request?.status === "SLA_BREACHED";
@@ -105,14 +111,13 @@ export default function TripAdvancePanel({
       body: JSON.stringify({ source: "SHUNLINK", requestedAmount: value }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      showApiError(toast, data, "Failed to submit advance request");
-      setError("");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to submit advance request" });
       return;
     }
-    const data = await res.json();
-    setRequest(data.request ?? data);
+    const body = data as { request?: AdvanceRequest };
+    setRequest(body.request ?? (data as AdvanceRequest));
     setMode("choose");
     router.refresh();
   }
@@ -126,13 +131,13 @@ export default function TripAdvancePanel({
       body: JSON.stringify({ source: "EXTERNAL", externalProvider: provider }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      showApiError(toast, data, "Failed to record external provider choice");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to record external provider choice" });
       return;
     }
-    const data = await res.json();
-    setRequest(data.request ?? data);
+    const body = data as { request?: AdvanceRequest };
+    setRequest(body.request ?? (data as AdvanceRequest));
     setMode("choose");
     router.refresh();
   }
@@ -147,13 +152,13 @@ export default function TripAdvancePanel({
       body: JSON.stringify({ action: "accept_negotiation", requestId: request.id }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      showApiError(toast, data, "Failed to accept negotiated amount");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to accept negotiated amount" });
       return;
     }
-    const data = await res.json();
-    setRequest(data.request ?? data);
+    const body = data as { request?: AdvanceRequest };
+    setRequest(body.request ?? (data as AdvanceRequest));
     router.refresh();
   }
 
@@ -276,12 +281,26 @@ export default function TripAdvancePanel({
               </div>
             )}
           </div>
+        ) : !advanceWindowOpen && !showActiveRequest ? (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 space-y-2">
+            <p className="font-medium">Advance request window closed</p>
+            <p>{advanceWindowClosedReason ?? "This trip has been marked delivered."}</p>
+            <p className="text-xs text-slate-600">
+              If you did not take an advance during the trip, your full balance freight will be paid after POD
+              verification.
+            </p>
+            <Link href="/portal/vendor/payments">
+              <Button size="sm" variant="outline">View payments</Button>
+            </Link>
+          </div>
         ) : canRequestNew && !isAdvanceInFlight ? (
           <>
             {mode === "choose" && (
               <div className="space-y-3">
                 <p className="text-sm text-slate-600">
-                  Request an advance against this trip. Your freight: {formatINR(vendorRate)} · Max advance (85%): {formatINR(maxAdvance)}
+                  Optional: request an advance anytime while this trip is not yet delivered. You do not need an
+                  advance to run the load. Your freight: {formatINR(vendorRate)} · Max advance (85%):{" "}
+                  {formatINR(maxAdvance)}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Button size="sm" onClick={() => setMode("shunlink")}>Request from ShunLink</Button>

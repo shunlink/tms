@@ -15,6 +15,8 @@ type PlacementItem = {
   deadlineAt: string | Date | null;
   placementStatus: string | null;
   status: string;
+  placementProgress?: string;
+  vehicleQuantity?: number;
 };
 
 export default function PlacementQueueGrid({

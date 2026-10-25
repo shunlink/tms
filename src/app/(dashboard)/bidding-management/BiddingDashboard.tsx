@@ -11,6 +11,8 @@ import { useAuctionBidFeed } from "@/hooks/use-auction-bid-feed";
 import AuctionLiveMonitor from "@/components/bidding/auction-live-monitor";
 import { RefreshCw, Radio } from "lucide-react";
 
+import { readJsonBody, reportApiFailure, resolveApiError } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 type RequirementRow = {
   id: string;
   clientName: string;
@@ -242,6 +244,7 @@ function extractListPayload(data: unknown): Record<string, unknown>[] {
 }
 
 export default function BiddingDashboard() {
+  const toast = useToast();
   const [rows, setRows] = useState<RequirementRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState("");
@@ -267,7 +270,7 @@ export default function BiddingDashboard() {
     setListError("");
     try {
       const res = await fetch("/api/bidding-proxy/admin/requirements/active");
-      const data = await res.json().catch(() => ({}));
+      const data = await readJsonBody(res);
       if (!res.ok) {
         const hint =
           res.status === 503
@@ -275,11 +278,9 @@ export default function BiddingDashboard() {
             : res.status >= 500
               ? "The Bidding service returned an error or TMS could not reach it."
               : undefined;
-        const msg = formatApiError(
-          data,
-          hint ? `Failed to load requirements. ${hint}` : "Failed to load requirements"
-        );
-        setListError(msg);
+        const fallback = hint ? `Failed to load requirements. ${hint}` : "Failed to load requirements";
+        const err = resolveApiError(res, data, fallback);
+        setListError(err.message);
         setRows([]);
         return;
       }
@@ -305,11 +306,9 @@ export default function BiddingDashboard() {
     setDetailLoading(true);
     try {
       const res = await fetch(`/api/bidding-proxy/admin/requirements/${encodeURIComponent(row.id)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data && typeof data === "object") {
-          setDetail(data as Record<string, unknown>);
-        }
+      const data = await readJsonBody(res);
+      if (res.ok && data && typeof data === "object") {
+        setDetail(data as Record<string, unknown>);
       }
     } catch {
       // keep list row snapshot
@@ -340,9 +339,9 @@ export default function BiddingDashboard() {
       body: body !== undefined ? JSON.stringify(body) : "{}",
     });
     setActionBusy(false);
-    const data = await res.json().catch(() => ({}));
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      setActionError(actionErrorMessage(data, res.status, "Request failed"));
+      reportApiFailure(res, data, { toast, setError: setActionError, fallback: "Request failed" });
       return false;
     }
     await loadList();

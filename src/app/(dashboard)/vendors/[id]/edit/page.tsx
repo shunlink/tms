@@ -1,10 +1,12 @@
 import { notFound } from "next/navigation";
 import VendorForm from "@/components/forms/vendor-form";
 import { getVendorDetail } from "@/lib/queries";
+import { requirePagePermission } from "@/lib/page-auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function EditVendorPage({ params }: { params: { id: string } }) {
+  await requirePagePermission("vendor.edit");
   const v = await getVendorDetail(params.id);
   if (!v) notFound();
 
@@ -31,17 +33,19 @@ export default async function EditVendorPage({ params }: { params: { id: string 
     accountHolder: v.accountHolder ?? "",
     upiId: v.upiId ?? "",
     paymentTerms: v.paymentTerms != null ? String(v.paymentTerms) : "",
+    paymentTermsType: v.paymentTermsType ?? "",
     notes: v.notes ?? "",
   };
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full max-w-4xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">Edit Vendor</h1>
         <p className="text-slate-500">{v.name}</p>
       </div>
       <VendorForm
         initial={initial}
+        initialDeliveryZones={v.deliveryZones ?? []}
         vendorId={v.id}
         gstVerificationMeta={{
           verificationStatus: v.gstVerificationStatus,

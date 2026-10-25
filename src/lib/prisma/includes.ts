@@ -37,11 +37,28 @@ export const indentFullInclude = {
         include: {
           vendor: { select: { id: true, name: true, phone: true } },
           vehicle: { select: { id: true, registrationNumber: true } },
-          driver: { select: { id: true, name: true, phone: true, dlNumber: true } },
+          driver: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              dlNumber: true,
+              deviceType: true,
+              otpVerified: true,
+            },
+          },
           allocatedBy: { select: { id: true, name: true, email: true } },
         },
       },
-      trip: { select: { id: true, lrNumber: true } },
+      trip: {
+        select: {
+          id: true,
+          lrNumber: true,
+          status: true,
+          vehicleId: true,
+          driverId: true,
+        },
+      },
     },
   },
   trips: {
@@ -55,7 +72,6 @@ export const indentFullInclude = {
       },
     },
     orderBy: { createdAt: "desc" as const },
-    take: 1,
   },
   quotes: {
     orderBy: { quotedRate: "asc" as const },

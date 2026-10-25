@@ -102,7 +102,12 @@ export async function syncTripFromIndent(indentId: string) {
   if (nextStatus === "DELIVERED" && !trip.deliveredAt) data.deliveredAt = now;
   if (nextStatus === "POD_RECEIVED" && !trip.podReceivedAt) data.podReceivedAt = now;
 
-  return prisma.trip.update({ where: { id: trip.id }, data });
+  const updated = await prisma.trip.update({ where: { id: trip.id }, data });
+  if (nextStatus === "DISPATCHED" || nextStatus === "IN_TRANSIT") {
+    const { ensureTripRouteGeocoded } = await import("@/lib/services/trip-route.service");
+    await ensureTripRouteGeocoded(trip.id);
+  }
+  return updated;
 }
 
 /** Advance the parent indent when the trip moves ahead (driver/staff trip updates). Forward-only. */

@@ -176,7 +176,13 @@ export async function reconcileImportantEvents() {
     );
   const indentIds = Array.from(new Set(open.map((e) => e.indentId).filter(Boolean) as string[]));
 
-  const podTypes = ["POD_PENDING", "POD_REJECTED", "POD_SLA_BREACHED", "POD_VERIFIED"];
+  const podTypes = [
+    "POD_PENDING",
+    "POD_REJECTED",
+    "POD_SLA_BREACHED",
+    "POD_VERIFIED",
+    "POD_VENDOR_DEBIT_NOTE_REQUIRED",
+  ];
   const [indents, quotes, advances, pods, invoiceTasks, balanceTasks, tripsWithIndent] =
     await Promise.all([
       indentIds.length
@@ -313,7 +319,8 @@ export async function reconcileImportantEvents() {
         break;
       }
       case "POD_REJECTED":
-      case "POD_SLA_BREACHED": {
+      case "POD_SLA_BREACHED":
+      case "POD_VENDOR_DEBIT_NOTE_REQUIRED": {
         const pod = rel ? podById.get(rel) : undefined;
         if (pod) {
           done =

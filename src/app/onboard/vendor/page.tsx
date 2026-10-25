@@ -38,6 +38,7 @@ export default async function OnboardVendorPage() {
     accountHolder: v.accountHolder ?? "",
     upiId: v.upiId ?? "",
     paymentTerms: v.paymentTerms != null ? String(v.paymentTerms) : "",
+    paymentTermsType: v.paymentTermsType ?? "",
     notes: v.notes ?? "",
   };
 
@@ -48,6 +49,7 @@ export default async function OnboardVendorPage() {
       onboardingStatus={v.onboardingStatus}
       onboardingRemarks={v.onboardingRemarks}
       initial={initial}
+      deliveryZones={v.deliveryZones ?? []}
       documents={v.documents}
       gstVerificationMeta={{
         verificationStatus: v.gstVerificationStatus,

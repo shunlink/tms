@@ -48,7 +48,7 @@ flowchart TB
 | Domain | Service | Notes |
 |--------|---------|-------|
 | POD | `pod.service.ts` | Dual image required; Finance verifies |
-| Advance | `trip-advance.service.ts` | 85% vendorRate cap; request-only gate for transit |
+| Advance | `trip-advance.service.ts` | 85% vendorRate cap; optional during trip (before delivered); balance pays remainder after POD verify |
 | Email | `notify.ts`, `email/resend.ts` | BullMQ queue + worker |
 | SLA | `sla-escalation.service.ts` | 24h tasks; digest via cron |
 

@@ -6,8 +6,12 @@ export const CLIENT_ONBOARDING_DOCS: DocTypeConfig[] = [
   { type: "MSME", hint: "MSME / Udyam certificate (if applicable)" },
   { type: "BANK_PROOF", hint: "Cancelled cheque or bank statement" },
   { type: "CIN", hint: "Certificate of incorporation" },
-  { type: "AGREEMENT", hint: "Signed agreement with ShunLink" },
 ];
+
+export const CLIENT_ONBOARDING_AGREEMENT_DOC: DocTypeConfig = {
+  type: "AGREEMENT",
+  hint: "Signed client agreement (PDF or image)",
+};
 
 export const VENDOR_ONBOARDING_DOCS: DocTypeConfig[] = [
   { type: "GST", required: true, hint: "GST registration certificate" },

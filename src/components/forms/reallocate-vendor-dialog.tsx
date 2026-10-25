@@ -4,6 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type VendorOption = { id: string; name: string };
 
 export default function ReallocateVendorDialog({
@@ -19,6 +22,7 @@ export default function ReallocateVendorDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [vendorId, setVendorId] = useState("");
   const [vendorRate, setVendorRate] = useState("");
@@ -45,9 +49,9 @@ export default function ReallocateVendorDialog({
       }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Reallocation failed");
+      reportApiFailure(res, data, { toast, setError, fallback: "Reallocation failed" });
       return;
     }
     onClose();

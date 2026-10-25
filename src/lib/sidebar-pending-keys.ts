@@ -10,6 +10,7 @@ export type SidebarPendingCountKey =
   | "indents"
   | "placement"
   | "onboarding"
+  | "onboardingRequests"
   | "requirements"
   | "trips"
   | "pods"
@@ -35,6 +36,7 @@ export const PENDING_COUNT_PERMISSIONS: Record<SidebarPendingCountKey, Permissio
   indents: "indent.view",
   placement: "placement.view",
   onboarding: "users.manage",
+  onboardingRequests: "onboarding.ops",
   requirements: "requirement.view",
   trips: "trip.view",
   pods: "pod.view",

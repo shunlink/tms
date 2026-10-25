@@ -5,6 +5,8 @@ import { MapPin, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 type Ping = {
   id: string;
   lat: number;
@@ -33,7 +35,16 @@ function timeAgo(iso: string) {
   return `${Math.round(hrs / 24)}d ago`;
 }
 
-function mapEmbedUrl(lat: number, lng: number) {
+type MapsUiConfig = {
+  provider: string;
+  googleMapsApiKey: string | null;
+  mapboxAccessToken: string | null;
+};
+
+function mapEmbedUrl(lat: number, lng: number, cfg: MapsUiConfig | null) {
+  if (cfg?.provider === "google" && cfg.googleMapsApiKey) {
+    return `https://www.google.com/maps/embed/v1/view?key=${encodeURIComponent(cfg.googleMapsApiKey)}&center=${lat},${lng}&zoom=14`;
+  }
   const pad = 0.02;
   const bbox = `${lng - pad},${lat - pad},${lng + pad},${lat + pad}`;
   return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat}%2C${lng}`;
@@ -54,14 +65,26 @@ export default function LiveTrackingView({
   const [history, setHistory] = useState<Ping[]>(initialPing ? [initialPing] : []);
   const [address, setAddress] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [mapsConfig, setMapsConfig] = useState<MapsUiConfig | null>(null);
+
+  useEffect(() => {
+    fetch("/api/maps/config")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setMapsConfig(d as MapsUiConfig))
+      .catch(() => null);
+  }, []);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
       const res = await fetch(fetchUrl);
-      if (!res.ok) return;
-      const data = await res.json();
-      const pings: Ping[] = Array.isArray(data) ? data : data.data ?? [];
+      const data = await readJsonBody(res);
+      if (!res.ok) {
+        reportApiFailure(res, data, { silent: true });
+        return;
+      }
+      const body = data as Ping[] | { data?: Ping[] };
+      const pings: Ping[] = Array.isArray(body) ? body : body.data ?? [];
       if (pings.length > 0) {
         setLatest(pings[0]);
         if (showHistory) setHistory(pings);
@@ -98,7 +121,7 @@ export default function LiveTrackingView({
       <div className="overflow-hidden rounded-lg border">
         <iframe
           title="Driver location map"
-          src={mapEmbedUrl(latest.lat, latest.lng)}
+          src={mapEmbedUrl(latest.lat, latest.lng, mapsConfig)}
           className="w-full h-64 border-0"
           loading="lazy"
         />
@@ -170,7 +193,9 @@ export default function LiveTrackingView({
                 className="flex items-center justify-between text-sm text-blue-600 hover:underline"
               >
                 <span>{p.note ?? `${p.lat.toFixed(3)}, ${p.lng.toFixed(3)}`}</span>
-                <span className="text-xs text-slate-400">{at ? timeAgo(at) : ""}</span>
+                <span className="text-xs text-slate-400 shrink-0 text-right">
+                  {at ? `${formatDate(at)} · ${timeAgo(at)}` : ""}
+                </span>
               </a>
             );
           })}

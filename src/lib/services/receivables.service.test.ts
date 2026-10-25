@@ -18,7 +18,13 @@ const ISSUE = new Date("2026-09-01");
 const DUE_FUTURE = new Date("2026-12-01");
 const DUE_PAST = new Date("2026-08-01");
 
-function ageingRow(status: string, total: number, paid: number, dueDate: Date | null = DUE_FUTURE) {
+function ageingRow(
+  status: string,
+  total: number,
+  paid: number,
+  dueDate: Date | null = DUE_FUTURE,
+  finalizedAt: Date = ISSUE
+) {
   return {
     clientName: "Client",
     invoiceNumber: `INV-${status}`,
@@ -27,6 +33,7 @@ function ageingRow(status: string, total: number, paid: number, dueDate: Date | 
     status,
     dueDate,
     issueDate: ISSUE,
+    finalizedAt,
   };
 }
 
@@ -43,7 +50,8 @@ function receivableRow(overrides: Partial<ReceivableRow> & { id: string }): Rece
     paidAmount: overrides.paidAmount ?? 0,
     outstanding: overrides.outstanding ?? 50000,
     daysOverdue: overrides.daysOverdue ?? 0,
-    ageingBucket: overrides.ageingBucket ?? "current",
+    daysSinceIssue: overrides.daysSinceIssue ?? 10,
+    ageingBucket: overrides.ageingBucket ?? "d0_30",
     displayStatus: overrides.displayStatus ?? "UNPAID",
     storedStatus: overrides.storedStatus ?? "UNPAID",
   };
@@ -89,18 +97,18 @@ describe("buildOutstandingAgeing exclusions", () => {
 });
 
 describe("buildReceivablesSummary ageing buckets", () => {
-  it("maps rows into five buckets and total overdue", () => {
+  it("maps outstanding by days since issue and overdue by due date", () => {
     const summary = buildReceivablesSummary(
       [
-        ageingRow("UNPAID", 10000, 0, DUE_FUTURE),
-        ageingRow("OVERDUE", 20000, 0, new Date("2026-09-20")),
-        ageingRow("OVERDUE", 30000, 0, new Date("2026-06-01")),
+        ageingRow("UNPAID", 10000, 0, DUE_FUTURE, new Date("2026-09-25")),
+        ageingRow("OVERDUE", 20000, 0, new Date("2026-09-20"), new Date("2026-08-01")),
+        ageingRow("OVERDUE", 30000, 0, new Date("2026-06-01"), new Date("2026-06-01")),
       ],
       NOW
     );
     expect(summary.total).toBe(60000);
-    expect(summary.buckets.current).toBe(10000);
-    expect(summary.buckets.d1_30).toBe(20000);
+    expect(summary.buckets.d0_30).toBe(10000);
+    expect(summary.buckets.d61_90).toBe(20000);
     expect(summary.buckets.d90plus).toBe(30000);
     expect(summary.totalOverdue).toBe(50000);
   });
@@ -120,7 +128,7 @@ describe("parseReceivablesFilters", () => {
     });
     expect(filters.clientId).toBe("c1");
     expect(filters.status).toBe("OVERDUE");
-    expect(filters.ageingBucket).toBe("d1_30");
+    expect(filters.ageingBucket).toBe("d0_30");
     expect(filters.tripLr).toBe("LR-99");
     expect(filters.minOutstanding).toBe(1000);
     expect(filters.maxOutstanding).toBe(50000);
@@ -134,14 +142,14 @@ describe("applyReceivableComputedFilters", () => {
     receivableRow({
       id: "1",
       displayStatus: "UNPAID",
-      ageingBucket: "current",
+      ageingBucket: "d0_30",
       outstanding: 10000,
       daysOverdue: 0,
     }),
     receivableRow({
       id: "2",
       displayStatus: "OVERDUE",
-      ageingBucket: "d1_30",
+      ageingBucket: "d0_30",
       outstanding: 25000,
       daysOverdue: 15,
       clientName: "Beta",
@@ -161,8 +169,8 @@ describe("applyReceivableComputedFilters", () => {
   });
 
   it("filters by ageing bucket", () => {
-    const filtered = applyReceivableComputedFilters(rows, { ageingBucket: "d1_30" });
-    expect(filtered.map((r) => r.id)).toEqual(["2"]);
+    const filtered = applyReceivableComputedFilters(rows, { ageingBucket: "d0_30" });
+    expect(filtered.map((r) => r.id)).toEqual(["1", "2"]);
   });
 
   it("filters any overdue bucket", () => {

@@ -2,6 +2,7 @@ import { requireAuth, ok, created, badRequest, forbidden, unauthorized, serverEr
 import { logAudit } from "@/lib/audit";
 import { listDocuments, uploadDocument, ALLOWED_DOCUMENT_TYPES, type DocumentEntityType } from "@/lib/services/document.service";
 import { validateUploadedFile } from "@/lib/document-validation";
+import { denyUnapprovedClientMutation } from "@/lib/client-portal-mutation-guard";
 import { canSelfServiceEditPortalProfile } from "@/lib/portal-access";
 import { getOnboardingStatus } from "@/lib/services/onboarding.service";
 
@@ -40,6 +41,10 @@ export async function POST(req: Request) {
   const user = auth.user;
   const o = ownerOf(user);
   if (!o) return forbidden("No onboarding record linked to this account");
+  if (o.type === "CLIENT") {
+    const viewOnlyDenied = await denyUnapprovedClientMutation(auth);
+    if (viewOnlyDenied) return viewOnlyDenied;
+  }
   if (o.type === "CLIENT" || o.type === "VENDOR") {
     const status = await getOnboardingStatus(o.type, o.id);
     if (!canSelfServiceEditPortalProfile(status)) {

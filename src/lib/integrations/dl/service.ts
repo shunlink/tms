@@ -30,11 +30,18 @@ export async function applyDlVerificationToDriver(
   data: NormalizedDrivingLicence,
   actor?: SessionUser | null
 ) {
+  const existing = await prisma.driver.findUnique({
+    where: { id: driverId },
+    select: { name: true },
+  });
+  const preserveEnteredName =
+    data.provider === "mock" && Boolean(existing?.name?.trim());
+
   await prisma.driver.update({
     where: { id: driverId },
     data: {
       dlNumber: data.dlNumber,
-      name: data.name ?? undefined,
+      ...(preserveEnteredName ? {} : data.name ? { name: data.name } : {}),
       dlExpiry: parseDate(data.expiryDate ?? data.validity),
       dateOfBirth: parseDate(data.dateOfBirth),
       dlIssueDate: parseDate(data.issueDate),

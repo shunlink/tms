@@ -3,8 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { PermissionAction } from "@/components/permission-action";
 import { formatINR } from "@/lib/utils";
 
+import { readJsonBody, reportApiFailure, resolveApiError } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 export type GatewayTransfer = {
   id: string;
   paymentNumber: string;
@@ -28,19 +31,25 @@ export default function GatewayPaySection({
   contextId,
   maxAmount,
   canProcess,
+  canApprove = false,
   currentUserId,
   activeTransfers,
   disabled,
+  onWorkflowComplete,
 }: {
   vendorId: string;
   contextType: "balance" | "advance";
   contextId: string;
   maxAmount: number;
   canProcess: boolean;
+  canApprove?: boolean;
   currentUserId?: string | null;
   activeTransfers: GatewayTransfer[];
   disabled?: boolean;
+  /** Close parent detail dialog after a successful approve & pay (no auto-advance to next item). */
+  onWorkflowComplete?: () => void;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [gatewayOn, setGatewayOn] = useState(false);
   const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>([]);
@@ -55,8 +64,11 @@ export default function GatewayPaySection({
 
   const loadBeneficiaries = useCallback(async () => {
     const res = await fetch(`/api/vendors/${vendorId}/beneficiaries`);
-    if (!res.ok) return;
-    const data = await res.json();
+    const data = await readJsonBody(res);
+    if (!res.ok) {
+      reportApiFailure(res, data, { silent: true });
+      return;
+    }
     const list = (Array.isArray(data) ? data : []) as Beneficiary[];
     setBeneficiaries(list);
     const verified = list.find((b) => b.verificationStatus === "VERIFIED");
@@ -85,17 +97,25 @@ export default function GatewayPaySection({
     const id = pending.id;
     const timer = setInterval(async () => {
       const res = await fetch(`/api/outbound-payments/${id}/refresh`, { method: "POST" });
-      if (!res.ok) return;
-      const j = await res.json();
-      const p = j.data ?? j;
-      setTransfers((prev) => prev.map((t) => (t.id === id ? { ...t, status: p.status, providerTransferRef: p.providerTransferRef } : t)));
+      const j = await readJsonBody(res);
+      if (!res.ok) {
+        reportApiFailure(res, j, { silent: true });
+        return;
+      }
+      const p = (j as { data?: GatewayTransfer }).data ?? (j as GatewayTransfer);
+      setTransfers((prev) =>
+        prev.map((t) =>
+          t.id === id ? { ...t, status: p.status, providerTransferRef: p.providerTransferRef } : t
+        )
+      );
       if (p.status === "SUCCEEDED") {
         clearInterval(timer);
+        onWorkflowComplete?.();
         router.refresh();
       }
     }, 2500);
     return () => clearInterval(timer);
-  }, [pending?.id, pending?.status, router]);
+  }, [pending?.id, pending?.status, router, onWorkflowComplete]);
 
   async function addBeneficiary() {
     setError("");
@@ -111,17 +131,18 @@ export default function GatewayPaySection({
         isDefault: true,
       }),
     });
-    const created = await res.json().catch(() => ({}));
+    const created = await readJsonBody(res);
     if (!res.ok) {
       setBusy(false);
-      setError(created.error || "Failed to add bank account");
+      reportApiFailure(res, created, { toast, setError, fallback: "Failed to add bank account" });
       return;
     }
-    const b = created.data ?? created;
+    const b = ((created as { data?: { id: string } }).data ?? created) as { id: string };
     const verifyRes = await fetch(`/api/vendors/${vendorId}/beneficiaries/${b.id}/verify`, { method: "POST" });
     setBusy(false);
+    const verifyData = await readJsonBody(verifyRes);
     if (!verifyRes.ok) {
-      setError("Account saved but verification failed");
+      reportApiFailure(verifyRes, verifyData, { toast, setError, fallback: "Account saved but verification failed" });
       return;
     }
     await loadBeneficiaries();
@@ -145,13 +166,14 @@ export default function GatewayPaySection({
         amount: Number(amount),
       }),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJsonBody(res);
     setBusy(false);
     if (!res.ok) {
-      setError(data.error || "Could not start bank transfer");
+      reportApiFailure(res, data, { toast, setError, fallback: "Could not start bank transfer" });
       return;
     }
-    const transfer = data.gatewayPayment ?? data.data?.gatewayPayment;
+    const body = data as { gatewayPayment?: GatewayTransfer; data?: { gatewayPayment?: GatewayTransfer } };
+    const transfer = body.gatewayPayment ?? body.data?.gatewayPayment;
     if (transfer) {
       setTransfers((prev) => [transfer, ...prev]);
     }
@@ -170,16 +192,18 @@ export default function GatewayPaySection({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "gateway_approve_execute", paymentId }),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJsonBody(res);
     setBusy(false);
     if (!res.ok) {
-      setError(data.error || "Approval or transfer failed");
+      reportApiFailure(res, data, { toast, setError, fallback: "Approval or transfer failed" });
       return;
     }
-    const transfer = data.gatewayPayment ?? data.data?.gatewayPayment;
+    const body = data as { gatewayPayment?: GatewayTransfer; data?: { gatewayPayment?: GatewayTransfer } };
+    const transfer = body.gatewayPayment ?? body.data?.gatewayPayment;
     if (transfer) {
       setTransfers((prev) => prev.map((t) => (t.id === paymentId ? transfer : t)));
     }
+    onWorkflowComplete?.();
     router.refresh();
   }
 
@@ -193,12 +217,10 @@ export default function GatewayPaySection({
   }
 
   const verified = beneficiaries.filter((b) => b.verificationStatus === "VERIFIED");
-  const canApprovePending =
-    canProcess &&
-    pending?.status === "PENDING_APPROVAL" &&
-    pending.createdById &&
-    currentUserId &&
-    pending.createdById !== currentUserId;
+  const showApprovePending = pending?.status === "PENDING_APPROVAL";
+  const makerCheckerOk =
+    Boolean(pending?.createdById && currentUserId && pending.createdById !== currentUserId);
+  const canApprovePending = canApprove && showApprovePending && makerCheckerOk;
 
   return (
     <div className="border rounded-md p-3 space-y-3 bg-emerald-50/50 border-emerald-200">
@@ -221,10 +243,22 @@ export default function GatewayPaySection({
         </div>
       )}
 
-      {pending?.status === "PENDING_APPROVAL" && canApprovePending && (
-        <Button size="sm" disabled={busy} onClick={() => approveAndPay(pending.id)}>
+      {showApprovePending && (
+        <PermissionAction
+          size="sm"
+          allowed={canApprovePending}
+          disabled={busy}
+          deniedMessage={
+            !canApprove
+              ? "You are not allowed to perform this action"
+              : !makerCheckerOk
+                ? "You cannot approve a payment you initiated"
+                : "You are not allowed to perform this action"
+          }
+          onClick={() => approveAndPay(pending!.id)}
+        >
           Approve &amp; transfer
-        </Button>
+        </PermissionAction>
       )}
 
       {pending && ["PROCESSING", "REQUIRES_REVIEW"].includes(pending.status) && (

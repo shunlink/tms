@@ -4,6 +4,7 @@ import CameraCapture from "@/components/forms/camera-capture";
 import PodUpload from "@/components/forms/pod-upload";
 import { getSessionUser } from "@/lib/auth";
 import { getTripForCapture } from "@/lib/queries";
+import { resolveTripPodUploadGate } from "@/lib/pod-upload-eligibility";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,11 @@ export default async function CapturePage({
   const trip = await getTripForCapture(user, tripId);
   if (!trip) notFound();
 
+  const podUploadGate =
+    type === "POD"
+      ? resolveTripPodUploadGate(trip.status, trip.podState ?? null)
+      : { allowed: true, message: "" };
+
   return (
     <div className="min-h-screen bg-slate-100">
       <div className="max-w-md mx-auto px-4 py-8">
@@ -37,7 +43,12 @@ export default async function CapturePage({
             </p>
           </div>
           {type === "POD" ? (
-            <PodUpload tripId={trip.id} alwaysCamera />
+            <PodUpload
+              tripId={trip.id}
+              alwaysCamera
+              uploadEnabled={podUploadGate.allowed}
+              lockedMessage={podUploadGate.message}
+            />
           ) : (
             <CameraCapture tripId={trip.id} docType={type} alwaysCamera />
           )}

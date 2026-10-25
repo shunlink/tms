@@ -10,6 +10,7 @@ export type SlaEscalationResult = {
   badPod: number;
   invoice: number;
   balancePayment: number;
+  onboardingAssignment: number;
   total: number;
 };
 
@@ -19,6 +20,7 @@ const EMPTY_RESULT: SlaEscalationResult = {
   badPod: 0,
   invoice: 0,
   balancePayment: 0,
+  onboardingAssignment: 0,
   total: 0,
 };
 
@@ -74,6 +76,9 @@ export async function runSlaEscalations(types?: SlaType[]): Promise<SlaEscalatio
     let invoice = 0;
     let balancePayment = 0;
 
+    const { escalateOverdueClientOnboardingAssignments } = await import("./onboarding.service");
+    const onboardingAssignment = await escalateOverdueClientOnboardingAssignments();
+
     for (const type of toRun) {
       const count = await TYPE_RUNNERS[type]();
       switch (type) {
@@ -102,7 +107,8 @@ export async function runSlaEscalations(types?: SlaType[]): Promise<SlaEscalatio
       badPod,
       invoice,
       balancePayment,
-      total: advance + badPod + invoice + balancePayment,
+      onboardingAssignment,
+      total: advance + badPod + invoice + balancePayment + onboardingAssignment,
     };
   } finally {
     await releaseLock();

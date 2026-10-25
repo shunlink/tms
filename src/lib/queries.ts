@@ -24,14 +24,23 @@ import {
   tripStartedCount,
   TRIP_ACTIVE_STATUSES,
   TRIP_DELIVERED_GROUP,
+  TRIP_IN_TRANSIT_STATUSES,
 } from "./dashboard-metrics";
+import {
+  computeTripCustomerRevenue,
+  computeTripCustomerSettlement,
+  resolveTripInvoiceBilling,
+} from "./finance-reconciliation";
+import { NON_PAYABLE_INVOICE_STATUSES } from "./invoice-payment";
 import {
   getOnboardingCase,
   listOnboardingQueue as fetchOnboardingQueue,
   type OnboardingEntityType,
 } from "./services/onboarding.service";
+import { filterEligibleVendorIds } from "./vendor-onboarding-eligibility";
 
-const n = (d: { toNumber(): number } | null | undefined) => (d ? d.toNumber() : 0);
+const n = (d: { toNumber(): number } | number | null | undefined) =>
+  d == null ? 0 : typeof d === "number" ? d : d.toNumber();
 
 /** Read with safe fallback on DB / schema errors */
 async function safeRead<T>(label: string, fallback: T, fn: () => Promise<T>): Promise<T> {
@@ -39,6 +48,28 @@ async function safeRead<T>(label: string, fallback: T, fn: () => Promise<T>): Pr
 }
 
 const vehicleSelect = { registrationNumber: true, vehicleTypeCode: true } as const;
+
+const driverTripSelect = {
+  name: true,
+  phone: true,
+  dlNumber: true,
+  users: { select: { name: true }, take: 1 },
+} as const;
+
+function tripDriverDisplay(
+  driver: {
+    name: string;
+    phone: string;
+    dlNumber: string;
+    users?: { name: string | null }[];
+  } | null
+) {
+  if (!driver) return null;
+  const portalName = driver.users?.[0]?.name?.trim();
+  const name =
+    driver.name.trim().toUpperCase() === "MOCK DRIVER" && portalName ? portalName : driver.name;
+  return { name, phone: driver.phone, dlNumber: driver.dlNumber };
+}
 
 function mapDocs(docs: Awaited<ReturnType<typeof listDocuments>>) {
   return docs.map((d) => ({
@@ -99,7 +130,6 @@ export async function getDashboard() {
         invoiceOutstanding,
         vendorPayables,
         monthRevenueAgg,
-        monthMarginAgg,
         recentTrips,
         docExpiryVehicles,
         docExpiryDrivers,
@@ -124,11 +154,12 @@ export async function getDashboard() {
         computeOutstandingVendorPayables(),
         prisma.trip.aggregate({
           where: { createdAt: { gte: monthStart } },
-          _sum: { clientRate: true },
-        }),
-        prisma.trip.aggregate({
-          where: { createdAt: { gte: monthStart } },
-          _sum: { margin: true },
+          _sum: {
+            clientRate: true,
+            clientLoadingCharge: true,
+            clientUnloadingCharge: true,
+            vendorRate: true,
+          },
         }),
         prisma.trip.findMany({
           orderBy: { createdAt: "desc" },
@@ -178,8 +209,11 @@ export async function getDashboard() {
 
       const pendingInvoiceAmount =
         n(invoiceOutstanding._sum.totalAmount) - n(invoiceOutstanding._sum.paidAmount);
-      const monthlyRevenue = n(monthRevenueAgg._sum.clientRate);
-      const monthlyMargin = n(monthMarginAgg._sum.margin);
+      const monthlyRevenue =
+        n(monthRevenueAgg._sum.clientRate) +
+        n(monthRevenueAgg._sum.clientLoadingCharge) +
+        n(monthRevenueAgg._sum.clientUnloadingCharge);
+      const monthlyMargin = monthlyRevenue - n(monthRevenueAgg._sum.vendorRate);
       const docExpiries = docExpiryVehicles + docExpiryDrivers;
 
       const bookingBuckets = buildBookingBuckets(tripStatus);
@@ -424,7 +458,7 @@ export async function getFormOptions() {
         orderBy: { name: "asc" },
       }),
       prisma.vendor.findMany({
-        where: { isActive: true },
+        where: { isActive: true, deletedAt: null },
         select: { id: true, name: true },
         orderBy: { name: "asc" },
       }),
@@ -439,9 +473,10 @@ export async function getFormOptions() {
         orderBy: { name: "asc" },
       }),
     ]);
+    const eligibleVendorIds = await filterEligibleVendorIds(vendors.map((v) => v.id));
     return {
       clients,
-      vendors,
+      vendors: vendors.filter((v) => eligibleVendorIds.has(v.id)),
       vehicles: vehicles.map((v) => vehicleDisplay(v)),
       drivers,
     };
@@ -510,12 +545,9 @@ export async function getBillableTrips() {
         t.indent?.cargo?.description ??
         null;
       const amount = n(t.clientRate);
-      const lineDefaults = {
+      const lineBase = {
         tripId: t.id,
-        amount,
         gstRate,
-        gstAmount: Math.round(amount * gstRate * 100) / 100,
-        description: cargo,
         lrNumber: t.lrNumber,
         routeFrom: origin,
         routeTo: destination,
@@ -523,6 +555,41 @@ export async function getBillableTrips() {
         vehicleReg: t.vehicle.registrationNumber,
         indentNumber: t.indent?.indentNumber ?? null,
       };
+      type BillableLineKind = "FREIGHT" | "LOADING" | "UNLOADING";
+      type BillableLine = typeof lineBase & {
+        lineKind: BillableLineKind;
+        amount: number;
+        gstAmount: number;
+        description: string | null;
+      };
+      const lineDefaults: BillableLine = {
+        ...lineBase,
+        lineKind: "FREIGHT",
+        amount,
+        gstAmount: Math.round(amount * gstRate * 100) / 100,
+        description: cargo,
+      };
+      const invoiceLines: BillableLine[] = [lineDefaults];
+      const loadingAmt = n(t.clientLoadingCharge);
+      if (loadingAmt > 0) {
+        invoiceLines.push({
+          ...lineBase,
+          lineKind: "LOADING",
+          amount: loadingAmt,
+          gstAmount: Math.round(loadingAmt * gstRate * 100) / 100,
+          description: `Loading charges — ${t.lrNumber}`,
+        });
+      }
+      const unloadingAmt = n(t.clientUnloadingCharge);
+      if (unloadingAmt > 0) {
+        invoiceLines.push({
+          ...lineBase,
+          lineKind: "UNLOADING",
+          amount: unloadingAmt,
+          gstAmount: Math.round(unloadingAmt * gstRate * 100) / 100,
+          description: `Unloading charges — ${t.lrNumber}`,
+        });
+      }
       const task = t.invoiceTask;
       const now = Date.now();
       const slaBreached =
@@ -531,6 +598,7 @@ export async function getBillableTrips() {
 
       return {
         id: t.id,
+        indentId: t.indentId,
         lrNumber: t.lrNumber,
         clientId: t.client.id,
         client: t.client.name,
@@ -549,7 +617,16 @@ export async function getBillableTrips() {
           : null,
         billing: billingDefaults,
         line: lineDefaults,
+        lines: invoiceLines,
       };
+    });
+  });
+}
+
+export async function countBillableTripsForIndent(indentId: string) {
+  return safeRead("countBillableTripsForIndent", 0, async () => {
+    return prisma.trip.count({
+      where: { indentId, status: "CLOSED", invoiceLines: { none: {} } },
     });
   });
 }
@@ -572,8 +649,14 @@ export async function getTripDetail(id: string) {
         client: { include: { addresses: { include: { address: true } } } },
         vendor: { include: { commercial: { include: { bankAccount: true } } } },
         vehicle: true,
-        driver: true,
-        indent: { include: { requirement: { select: { reqNumber: true } } } },
+        driver: { select: driverTripSelect },
+        indent: {
+          include: {
+            requirement: { select: { reqNumber: true } },
+            loading: { select: { city: true, state: true, scheduledAt: true } },
+            unloading: { select: { city: true, state: true, scheduledAt: true } },
+          },
+        },
         vendorPayments: { orderBy: { createdAt: "desc" } },
         invoiceLines: { include: { invoice: { select: { id: true, invoiceNumber: true } } } },
         pings: { orderBy: { recordedAt: "desc" }, take: 20 },
@@ -582,15 +665,8 @@ export async function getTripDetail(id: string) {
     });
     if (!t) return null;
     const documents = await listDocuments("TRIP", id);
-    const podState: "VERIFIED" | "PENDING_VERIFICATION" | "BAD_POD" | null = t.pods.some(
-      (p) => p.status === "VERIFIED"
-    )
-      ? "VERIFIED"
-      : t.pods.some((p) => p.status === "PENDING_VERIFICATION")
-        ? "PENDING_VERIFICATION"
-        : t.pods.some((p) => p.status === "BAD_POD" && p.resolutionStatus !== "CORRECTED")
-          ? "BAD_POD"
-          : null;
+    const { deriveTripPodQueueState } = await import("./pod-upload-eligibility");
+    const podState = deriveTripPodQueueState(t.pods);
     const billing = primaryAddress(t.client.addresses, "BILLING");
     const bank = t.vendor.commercial?.bankAccount;
     const invoice = t.invoiceLines[0]?.invoice ?? null;
@@ -603,10 +679,35 @@ export async function getTripDetail(id: string) {
       remarks: t.remarks,
       status: t.status,
       clientRate: n(t.clientRate),
+      clientLoadingCharge: n(t.clientLoadingCharge),
+      clientUnloadingCharge: n(t.clientUnloadingCharge),
+      clientBillableTotal: computeTripCustomerRevenue({
+        clientRate: n(t.clientRate),
+        clientLoadingCharge: n(t.clientLoadingCharge),
+        clientUnloadingCharge: n(t.clientUnloadingCharge),
+      }),
       vendorRate: n(t.vendorRate),
-      margin: n(t.margin),
+      margin:
+        Math.round(
+          (computeTripCustomerRevenue({
+            clientRate: n(t.clientRate),
+            clientLoadingCharge: n(t.clientLoadingCharge),
+            clientUnloadingCharge: n(t.clientUnloadingCharge),
+          }) -
+            n(t.vendorRate)) *
+            100
+        ) / 100,
       createdAt: t.createdAt,
       dispatchedAt: t.dispatchedAt,
+      originLat: t.originLat,
+      originLng: t.originLng,
+      destLat: t.destLat,
+      destLng: t.destLng,
+      currentLat: t.currentLat,
+      currentLng: t.currentLng,
+      lastPingAt: t.lastPingAt,
+      expectedEndAt: t.expectedEndAt,
+      routeGeocodedAt: t.routeGeocodedAt,
       deliveredAt: t.deliveredAt,
       podReceivedAt: t.podReceivedAt,
       podVerifiedAt: t.podVerifiedAt,
@@ -629,7 +730,7 @@ export async function getTripDetail(id: string) {
         bankIfsc: bank?.ifsc ?? null,
       },
       vehicle: vehicleDisplay(t.vehicle),
-      driver: t.driver ? { name: t.driver.name, phone: t.driver.phone, dlNumber: t.driver.dlNumber } : null,
+      driver: tripDriverDisplay(t.driver),
       requirementNumber: t.indent?.requirement?.reqNumber ?? null,
       invoice: invoice ? { id: invoice.id, invoiceNumber: invoice.invoiceNumber } : null,
       documents: mapDocs(documents),
@@ -649,6 +750,7 @@ export async function getTripDetail(id: string) {
         id: p.id,
         lat: p.lat,
         lng: p.lng,
+        source: p.source,
         note: p.note,
         createdAt: p.recordedAt.toISOString(),
       })),
@@ -705,12 +807,15 @@ export async function getInvoiceDetail(id: string) {
         email: useSnapshot && inv.billingEmail ? inv.billingEmail : inv.client.email,
       },
       trips: inv.lines.map((line) => ({
-        id: line.trip.id,
+        id: line.id,
+        tripId: line.trip.id,
+        lineKind: line.lineKind,
         lrNumber: line.lrNumber ?? line.trip.lrNumber,
         route:
           line.routeFrom && line.routeTo
             ? `${line.routeFrom} → ${line.routeTo}`
             : `${line.trip.routeFrom} → ${line.trip.routeTo}`,
+        description: line.description,
         clientRate: n(line.amount),
         cargoSummary: line.cargoSummary,
         vehicleReg: line.vehicleReg,
@@ -744,10 +849,13 @@ export async function getClientPortalOverview(clientId: string) {
       await import("./client-trip-sync");
     await backfillPaidInvoiceTripStatuses();
 
-    const [client, active, delivered, recentTrips, invoices] = await Promise.all([
+    const [client, active, inTransit, delivered, recentTrips, invoices] = await Promise.all([
       prisma.client.findFirst({ where: { id: clientId } }),
       prisma.trip.count({
         where: { clientId, status: { in: [...TRIP_ACTIVE_STATUSES] } },
+      }),
+      prisma.trip.count({
+        where: { clientId, status: { in: [...TRIP_IN_TRANSIT_STATUSES] } },
       }),
       prisma.trip.count({
         where: { clientId, status: { in: [...TRIP_DELIVERED_GROUP] } },
@@ -780,6 +888,7 @@ export async function getClientPortalOverview(clientId: string) {
     return {
       clientName: client?.name ?? "Client",
       active,
+      inTransit,
       delivered,
       outstanding,
       recentTrips: recentTrips.map((t) => ({
@@ -817,17 +926,57 @@ export async function getClientTrips(clientId: string) {
         pings: { orderBy: { recordedAt: "desc" }, take: 1 },
         invoiceLines: {
           where: { invoice: { status: { notIn: CLIENT_HIDDEN_INVOICE_STATUSES } } },
-          orderBy: { invoice: { createdAt: "desc" } },
-          take: 1,
-          include: {
-            invoice: { select: { id: true, invoiceNumber: true, status: true, paidAmount: true, totalAmount: true } },
+          select: {
+            amount: true,
+            invoice: {
+              select: {
+                id: true,
+                invoiceNumber: true,
+                status: true,
+                paidAmount: true,
+                totalAmount: true,
+                issueDate: true,
+                createdAt: true,
+              },
+            },
           },
         },
       },
     });
     return trips.map((t) => {
-      const invoiceLine = t.invoiceLines[0];
-      const invoice = invoiceLine?.invoice;
+      const billing = resolveTripInvoiceBilling(
+        t.invoiceLines.map((line) => ({
+          amount: n(line.amount),
+          invoice: line.invoice
+            ? {
+                id: line.invoice.id,
+                status: line.invoice.status,
+                totalAmount: n(line.invoice.totalAmount),
+                paidAmount: n(line.invoice.paidAmount),
+                issueDate: line.invoice.issueDate,
+                createdAt: line.invoice.createdAt,
+              }
+            : null,
+        })),
+        (status) => !NON_PAYABLE_INVOICE_STATUSES.includes(status)
+      );
+      const invoice = billing.invoice;
+      const invoiceLine = invoice
+        ? t.invoiceLines.find((l) => l.invoice?.id === invoice.id)?.invoice
+        : null;
+      const billableTotal = computeTripCustomerRevenue({
+        clientRate: n(t.clientRate),
+        clientLoadingCharge: n(t.clientLoadingCharge),
+        clientUnloadingCharge: n(t.clientUnloadingCharge),
+      });
+      const settlement = computeTripCustomerSettlement({
+        lineAmount: billing.tripLineAmount,
+        invoiceTotal: invoice ? n(invoice.totalAmount) : null,
+        invoicePaid: invoice ? n(invoice.paidAmount) : null,
+        invoicePayable: billing.invoicePayable,
+        tripClientPayments: 0,
+        expectedBillableTotal: billing.invoicePayable || invoice ? undefined : billableTotal,
+      });
       return {
         id: t.id,
         lrNumber: t.lrNumber,
@@ -836,13 +985,14 @@ export async function getClientTrips(clientId: string) {
         vehicle: t.vehicle.registrationNumber,
         status: t.status,
         displayStatus: resolveClientTripDisplayStatus(t.status, t.invoiceLines),
-        invoice: invoice
+        invoice: invoice && invoiceLine
           ? {
               id: invoice.id,
-              invoiceNumber: invoice.invoiceNumber,
+              invoiceNumber: invoiceLine.invoiceNumber,
               status: invoice.status,
-              paidAmount: n(invoice.paidAmount),
-              totalAmount: n(invoice.totalAmount),
+              paidAmount: settlement.collected,
+              totalAmount: billing.invoicePayable ? settlement.invoiceAmount : billableTotal,
+              outstanding: settlement.outstanding,
             }
           : null,
         lastPing: t.pings[0]
@@ -850,6 +1000,55 @@ export async function getClientTrips(clientId: string) {
           : null,
       };
     });
+  });
+}
+
+export async function getClientTripDetail(clientId: string, tripId: string) {
+  return safeRead("getClientTripDetail", null, async () => {
+    const { resolveClientTripDisplayStatus, CLIENT_HIDDEN_INVOICE_STATUSES } =
+      await import("./client-trip-sync");
+
+    const t = await prisma.trip.findFirst({
+      where: { id: tripId, clientId },
+      include: {
+        vendor: { select: { name: true } },
+        vehicle: { select: vehicleSelect },
+        pings: { orderBy: { recordedAt: "desc" }, take: 1 },
+        invoiceLines: {
+          where: { invoice: { status: { notIn: CLIENT_HIDDEN_INVOICE_STATUSES } } },
+          orderBy: { invoice: { createdAt: "desc" } },
+          take: 1,
+          include: {
+            invoice: { select: { id: true, invoiceNumber: true, status: true } },
+          },
+        },
+      },
+    });
+    if (!t) return null;
+
+    const latestPing = t.pings[0];
+    return {
+      id: t.id,
+      lrNumber: t.lrNumber,
+      route: `${t.routeFrom} → ${t.routeTo}`,
+      vendor: t.vendor.name,
+      vehicle: t.vehicle.registrationNumber,
+      vehicleType: t.vehicle.vehicleTypeCode,
+      status: t.status,
+      displayStatus: resolveClientTripDisplayStatus(t.status, t.invoiceLines),
+      invoice: t.invoiceLines[0]?.invoice ?? null,
+      latestPing: latestPing
+        ? {
+            id: latestPing.id,
+            lat: latestPing.lat,
+            lng: latestPing.lng,
+            note: latestPing.note,
+            source: latestPing.source,
+            accuracyMeters: latestPing.accuracyMeters,
+            recordedAt: latestPing.recordedAt.toISOString(),
+          }
+        : null,
+    };
   });
 }
 
@@ -1072,6 +1271,7 @@ export async function getVendorTrips(vendorId: string) {
       id: t.id,
       kind: "trip" as const,
       indentId: t.indentId,
+      indentNumber: t.indent?.indentNumber ?? null,
       lrNumber: t.lrNumber,
       route: `${t.routeFrom} → ${t.routeTo}`,
       client: t.client.name,
@@ -1120,8 +1320,10 @@ export async function getVendorTripDetail(vendorId: string, tripId: string) {
       include: {
         client: { select: { name: true } },
         vehicle: { select: vehicleSelect },
-        driver: { select: { name: true, phone: true } },
+        driver: { select: driverTripSelect },
         indent: { select: { status: true, placementStatus: true } },
+        pings: { orderBy: { recordedAt: "desc" }, take: 1 },
+        pods: { select: { status: true, resolutionStatus: true } },
       },
     });
     if (!t) return null;
@@ -1133,14 +1335,19 @@ export async function getVendorTripDetail(vendorId: string, tripId: string) {
         include: {
           client: { select: { name: true } },
           vehicle: { select: vehicleSelect },
-          driver: { select: { name: true, phone: true } },
+          driver: { select: driverTripSelect },
           indent: { select: { status: true, placementStatus: true } },
+          pings: { orderBy: { recordedAt: "desc" }, take: 1 },
+          pods: { select: { status: true, resolutionStatus: true } },
         },
       });
       if (!t) return null;
     }
 
     const documents = await listDocuments("TRIP", tripId);
+    const latestPing = t.pings?.[0];
+    const { deriveTripPodQueueState } = await import("./pod-upload-eligibility");
+    const podState = deriveTripPodQueueState(t.pods ?? []);
     return {
       id: t.id,
       lrNumber: t.lrNumber,
@@ -1148,7 +1355,7 @@ export async function getVendorTripDetail(vendorId: string, tripId: string) {
       client: t.client.name,
       vehicle: t.vehicle.registrationNumber,
       vehicleType: t.vehicle.vehicleTypeCode,
-      driver: t.driver ? { name: t.driver.name, phone: t.driver.phone } : null,
+      driver: tripDriverDisplay(t.driver),
       vendorRate: n(t.vendorRate),
       status: resolveVendorDisplayStatus({
         tripStatus: t.status,
@@ -1157,8 +1364,20 @@ export async function getVendorTripDetail(vendorId: string, tripId: string) {
         kind: "trip",
       }),
       rawStatus: t.status,
+      podState,
       podReceivedAt: t.podReceivedAt,
       documents: mapDocs(documents),
+      latestPing: latestPing
+        ? {
+            id: latestPing.id,
+            lat: latestPing.lat,
+            lng: latestPing.lng,
+            note: latestPing.note,
+            source: latestPing.source,
+            accuracyMeters: latestPing.accuracyMeters,
+            recordedAt: latestPing.recordedAt.toISOString(),
+          }
+        : null,
     };
   });
 }
@@ -1356,7 +1575,14 @@ export async function matchVendorsForRequirement(requirementId: string): Promise
 export async function getLaneRates() {
   return safeRead("getLaneRates", [], async () => {
     const trips = await prisma.trip.findMany({
-      select: { routeFrom: true, routeTo: true, clientRate: true, vendorRate: true, margin: true },
+      select: {
+        routeFrom: true,
+        routeTo: true,
+        clientRate: true,
+        clientLoadingCharge: true,
+        clientUnloadingCharge: true,
+        vendorRate: true,
+      },
     });
     const map = new Map<
       string,
@@ -1364,9 +1590,13 @@ export async function getLaneRates() {
     >();
     for (const t of trips) {
       const key = `${t.routeFrom}→${t.routeTo}`;
-      const cr = n(t.clientRate);
+      const cr = computeTripCustomerRevenue({
+        clientRate: n(t.clientRate),
+        clientLoadingCharge: n(t.clientLoadingCharge),
+        clientUnloadingCharge: n(t.clientUnloadingCharge),
+      });
       const vr = n(t.vendorRate);
-      const mg = n(t.margin);
+      const mg = cr - vr;
       const cur = map.get(key);
       if (cur) {
         cur.count++;
@@ -1405,15 +1635,31 @@ export async function getClientProfitability() {
   return safeRead("getClientProfitability", [], async () => {
     const clients = await prisma.client.findMany({
       include: {
-        trips: { select: { clientRate: true, vendorRate: true, margin: true } },
+        trips: {
+          select: {
+            clientRate: true,
+            clientLoadingCharge: true,
+            clientUnloadingCharge: true,
+            vendorRate: true,
+          },
+        },
         invoices: { select: { totalAmount: true, paidAmount: true, status: true } },
       },
     });
     return clients
       .map((c) => {
-        const revenue = c.trips.reduce((s, t) => s + n(t.clientRate), 0);
+        const revenue = c.trips.reduce(
+          (s, t) =>
+            s +
+            computeTripCustomerRevenue({
+              clientRate: n(t.clientRate),
+              clientLoadingCharge: n(t.clientLoadingCharge),
+              clientUnloadingCharge: n(t.clientUnloadingCharge),
+            }),
+          0
+        );
         const cost = c.trips.reduce((s, t) => s + n(t.vendorRate), 0);
-        const margin = revenue - cost;
+        const margin = Math.round((revenue - cost) * 100) / 100;
         const outstanding = c.invoices
           .filter((i) => ["SENT", "UNPAID", "PARTIALLY_PAID", "OVERDUE"].includes(i.status))
           .reduce((s, i) => s + (n(i.totalAmount) - n(i.paidAmount)), 0);
@@ -1435,7 +1681,15 @@ export async function getVendorScorecard() {
   return safeRead("getVendorScorecard", [], async () => {
     const vendors = await prisma.vendor.findMany({
       include: {
-        trips: { select: { status: true, clientRate: true, vendorRate: true } },
+        trips: {
+          select: {
+            status: true,
+            clientRate: true,
+            clientLoadingCharge: true,
+            clientUnloadingCharge: true,
+            vendorRate: true,
+          },
+        },
         payments: { select: { netPayable: true, status: true } },
       },
     });
@@ -1445,7 +1699,14 @@ export async function getVendorScorecard() {
         const active = v.trips.filter((t) =>
           TRIP_ACTIVE_STATUSES.includes(t.status as typeof TRIP_ACTIVE_STATUSES[number])
         ).length;
-        const margin = v.trips.reduce((s, t) => s + (n(t.clientRate) - n(t.vendorRate)), 0);
+        const margin = v.trips.reduce((s, t) => {
+          const revenue = computeTripCustomerRevenue({
+            clientRate: n(t.clientRate),
+            clientLoadingCharge: n(t.clientLoadingCharge),
+            clientUnloadingCharge: n(t.clientUnloadingCharge),
+          });
+          return s + (revenue - n(t.vendorRate));
+        }, 0);
         const pendingPay = v.payments
           .filter((p) => p.status !== "PAID")
           .reduce((s, p) => s + n(p.netPayable), 0);
@@ -1467,12 +1728,14 @@ export async function getVendorScorecard() {
 
 export async function getOutstandingAgeing() {
   return safeRead("getOutstandingAgeing", EMPTY_AGEING, async () => {
-    const { buildOutstandingAgeing, OUTSTANDING_INVOICE_STATUSES } = await import("./receivables");
+    const { buildReportOutstandingAgeing, OUTSTANDING_INVOICE_STATUSES } = await import(
+      "./receivables"
+    );
     const invoices = await prisma.clientInvoice.findMany({
       where: { status: { in: [...OUTSTANDING_INVOICE_STATUSES] } },
       include: { client: { select: { name: true } } },
     });
-    const result = buildOutstandingAgeing(
+    const result = buildReportOutstandingAgeing(
       invoices.map((inv) => ({
         clientName: inv.client.name,
         invoiceNumber: inv.invoiceNumber,
@@ -1481,6 +1744,7 @@ export async function getOutstandingAgeing() {
         status: inv.status,
         dueDate: inv.dueDate,
         issueDate: inv.issueDate,
+        finalizedAt: inv.finalizedAt,
       }))
     );
     const rowSum = result.rows.reduce((s, r) => s + r.balance, 0);
@@ -1525,8 +1789,10 @@ export async function getUsers() {
     return users.map((u) => ({
       id: u.id,
       email: u.email,
+      phone: u.phone,
       name: u.name,
       role: u.role,
+      accessMode: u.accessMode,
       teamId: u.teamId,
       teamName: u.team?.name ?? null,
       teamCode: u.team?.code ?? null,
@@ -1723,6 +1989,8 @@ export async function getClientDetail(id: string) {
       pan: c.pan,
       cin: c.cin,
       msme: c.msme,
+      businessType: c.businessType,
+      onboardingPreference: c.onboardingPreference,
       gstVerificationStatus: c.gstVerificationStatus,
       gstVerifiedAt: c.gstVerifiedAt,
       gstVerificationProvider: c.gstVerificationProvider,
@@ -1763,6 +2031,7 @@ export async function getVendorDetail(id: string) {
       include: {
         commercial: { include: { bankAccount: true } },
         addresses: { include: { address: true } },
+        deliveryZones: { select: { zone: true }, orderBy: { zone: "asc" } },
         vehicles: { select: { id: true, registrationNumber: true, vehicleTypeCode: true } },
         _count: { select: { trips: true, payments: true } },
       },
@@ -1799,6 +2068,7 @@ export async function getVendorDetail(id: string) {
       state: addr?.state ?? null,
       pincode: addr?.pincode ?? null,
       paymentTerms: v.commercial?.paymentTermsDays ?? null,
+      paymentTermsType: v.commercial?.paymentTermsType ?? null,
       bankName: bank?.bankName ?? null,
       bankAccount: bank?.accountNumber ?? null,
       bankIfsc: bank?.ifsc ?? null,
@@ -1806,6 +2076,7 @@ export async function getVendorDetail(id: string) {
       accountHolder: bank?.accountHolder ?? null,
       upiId: bank?.upiId ?? null,
       tdsApplicable: v.commercial?.tdsApplicable ?? false,
+      deliveryZones: v.deliveryZones.map((z) => z.zone),
       vehicles: v.vehicles.map((vh) => vehicleDisplay(vh)),
       ...onboarding,
       counts: v._count,
@@ -1920,6 +2191,7 @@ export async function getOnboardingQueue() {
         onboardingStatus: i.status,
         onboardingRemarks: i.remarks,
         createdAt: i.submittedAt ?? new Date(),
+        createdByLabel: i.createdByLabel ?? null,
       }));
     const vendors = items
       .filter((i) => i.type === "vendor")
@@ -2020,16 +2292,21 @@ export async function getTripForCapture(
         routeTo: true,
         vendorId: true,
         driverId: true,
+        status: true,
+        pods: { select: { status: true, resolutionStatus: true } },
       },
     });
     if (!t) return null;
     if (user.role === "VENDOR" && t.vendorId !== user.vendorId) return null;
     if (user.role === "DRIVER" && t.driverId !== user.driverId) return null;
     if (user.role === "CLIENT") return null;
+    const { deriveTripPodQueueState } = await import("./pod-upload-eligibility");
     return {
       id: t.id,
       lrNumber: t.lrNumber,
       route: `${t.routeFrom} → ${t.routeTo}`,
+      status: t.status,
+      podState: deriveTripPodQueueState(t.pods ?? []),
     };
   });
 }

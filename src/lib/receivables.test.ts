@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildOutstandingAgeing,
   buildReceivablesSummary,
+  buildReportOutstandingAgeing,
   deriveReceivableDisplayStatus,
   invoiceAgeingDays,
+  invoiceBalanceAgeDays,
   isOutstandingInvoiceStatus,
   splitDetailedAgeingBuckets,
 } from "./receivables";
@@ -101,6 +103,36 @@ describe("buildReceivablesSummary", () => {
 describe("deriveReceivableDisplayStatus", () => {
   it("marks overdue from due date not stored status", () => {
     expect(deriveReceivableDisplayStatus(50000, 0, DUE_PAST, ISSUE, NOW)).toBe("OVERDUE");
+  });
+});
+
+describe("buildReportOutstandingAgeing", () => {
+  it("buckets unpaid invoices by days since finalize, not payment due date", () => {
+    const result = buildReportOutstandingAgeing(
+      [
+        {
+          ...row("UNPAID", 100_000, 0, DUE_FUTURE),
+          invoiceNumber: "INV-A",
+          finalizedAt: new Date("2026-09-25"),
+        },
+        {
+          ...row("UNPAID", 200_000, 0, DUE_FUTURE),
+          invoiceNumber: "INV-B",
+          finalizedAt: new Date("2026-08-01"),
+        },
+        {
+          ...row("UNPAID", 80_031, 0, DUE_FUTURE),
+          invoiceNumber: "INV-C",
+          finalizedAt: new Date("2026-06-01"),
+        },
+      ],
+      NOW
+    );
+    expect(result.total).toBe(380_031);
+    expect(result.buckets.d0_30).toBe(100_000);
+    expect(result.buckets.d61_90).toBe(200_000);
+    expect(result.buckets.d90plus).toBe(80_031);
+    expect(invoiceBalanceAgeDays(ISSUE, new Date("2026-09-25"), NOW)).toBeLessThanOrEqual(30);
   });
 });
 

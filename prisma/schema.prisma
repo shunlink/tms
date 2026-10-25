@@ -34,6 +34,8 @@ model User {
   name     String?
   password String
   role     String  @default("OPERATIONS") // SUPER_ADMIN | ADMIN | SALES | OPERATIONS | FINANCE | VENDOR_TEAM | CLIENT | VENDOR | DRIVER
+  /// INHERIT_ROLE = permissions from User.role template; CUSTOM_ROLES = union of assigned AccessRole bundles
+  accessMode String @default("INHERIT_ROLE")
   isActive Boolean @default(true)
 
   // Internal employee fields (null for portal users)
@@ -60,6 +62,7 @@ model User {
   updatedAt   DateTime @updatedAt
 
   userPermissions UserPermission[]
+  accessRoles     UserAccessRole[]
   auditLogs       AuditLog[]       @relation("AuditActor")
 
   // Audit-trail relations (who created/recorded/allocated/reviewed/uploaded/verified/acknowledged)
@@ -67,6 +70,8 @@ model User {
   recordedIndentPayments IndentPayment[]
   allocatedIndents       IndentAllocation[]
   reviewedOnboardingCases OnboardingCase[]
+  submittedOnboardingCases OnboardingCase[] @relation("OnboardingSubmitter")
+  assignedOnboardingCases OnboardingCase[] @relation("OnboardingAssignee")
   uploadedFiles          StoredFile[]
   verifiedVehicles       VehicleCompliance[]
   uploadedPods           IndentPod[]
@@ -75,6 +80,7 @@ model User {
   acknowledgedEvents     ImportantEvent[] @relation("EventAcknowledger")
   resolvedEvents         ImportantEvent[] @relation("EventResolver")
   indentReleaseCities    IndentReleaseCity[]
+  indentReleaseZones     IndentReleaseZone[]
   advanceRequestsCreated AdvanceRequest[] @relation("AdvanceRequestCreator")
   advanceRequestsNegotiated AdvanceRequest[] @relation("AdvanceRequestNegotiator")
   advanceRequestsApproved AdvanceRequest[] @relation("AdvanceRequestApprover")
@@ -158,8 +164,44 @@ model Permission {
   label  String
   module String
 
-  rolePermissions RolePermission[]
-  userPermissions UserPermission[]
+  rolePermissions       RolePermission[]
+  userPermissions       UserPermission[]
+  accessRolePermissions AccessRolePermission[]
+}
+
+/// Named permission bundle (HashTMS-style access role) assignable per user.
+model AccessRole {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  permissions AccessRolePermission[]
+  users       UserAccessRole[]
+}
+
+model AccessRolePermission {
+  accessRoleId String
+  permissionId String
+  accessRole   AccessRole @relation(fields: [accessRoleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([accessRoleId, permissionId])
+}
+
+model UserAccessRole {
+  userId       String
+  accessRoleId String
+  sortOrder    Int    @default(0)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessRole   AccessRole @relation(fields: [accessRoleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, accessRoleId])
+  @@index([accessRoleId])
 }
 
 model RolePermission {
@@ -229,18 +271,29 @@ model OnboardingCase {
   entityType  String // CLIENT | VENDOR | DRIVER | VEHICLE
   entityId    String
 
-  status       String    @default("PENDING") // PENDING | SUBMITTED | APPROVED | REJECTED
+  status       String    @default("PENDING") // PENDING | PARTIAL_SUBMISSION | ASSIGNED_TO_EMPLOYEE | PENDING_APPROVAL | APPROVED | REJECTED | (legacy: PENDING_OPS_ONBOARDING, SUBMITTED)
   remarks      String?
   submittedAt  DateTime?
+  submittedById String?
+  submittedBy   User?     @relation("OnboardingSubmitter", fields: [submittedById], references: [id], onDelete: SetNull)
   reviewedAt   DateTime?
   reviewedById String?
   reviewedBy   User?     @relation(fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  assignedEmployeeId String?
+  assignedEmployee   User?     @relation("OnboardingAssignee", fields: [assignedEmployeeId], references: [id], onDelete: SetNull)
+  assignedAt         DateTime?
+  isSlaEscalated     Boolean   @default(false)
+  agreementUrl       String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([entityType, entityId])
   @@index([status])
+  @@index([entityType, status])
+  @@index([assignedEmployeeId])
+  @@index([entityType, status, isSlaEscalated])
 }
 
 model StoredFile {
@@ -311,6 +364,7 @@ model LookupCatalog {
 model Client {
   id        String  @id @default(cuid())
   name      String
+  /// Mirrors `name` for billing/GST; not collected separately in client onboarding.
   legalName String?
   code      String? // internal client code
   industry  String?
@@ -326,6 +380,9 @@ model Client {
   pan   String?
   cin   String?
   msme  String?
+
+  businessType         String? // PRIVATE_LIMITED | PROPRIETORSHIP | PARTNERSHIP | LLP | PUBLIC_LIMITED | OTHER
+  onboardingPreference String? // SELF | SHUNLINK
 
   // External GST verification (Surepass / provider)
   gstVerificationStatus   String?   // PENDING | VERIFIED | FAILED
@@ -433,6 +490,7 @@ model Vendor {
   assignedIndents Indent[]
   whatsappQuoteSessions WhatsAppQuoteSession[]
   vendorReleases      IndentVendorRelease[]
+  deliveryZones       VendorDeliveryZone[]
   beneficiaries       VendorBeneficiary[]
   outboundPayments    OutboundPayment[]
   journalLines        JournalLine[]
@@ -457,6 +515,8 @@ model VendorCommercial {
   vendorId String @id
   vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
+  /// CREDIT = pay on agreed due date; ADHOC = immediate / per-trip settlement (future payment flows).
+  paymentTermsType String?
   paymentTermsDays Int?
   tdsApplicable    Boolean @default(false)
   bankAccountId    String?
@@ -737,6 +797,7 @@ model Indent {
   vendorPayments      VendorPayment[]
   whatsappQuoteSessions WhatsAppQuoteSession[]
   releaseCities         IndentReleaseCity[]
+  releaseZones          IndentReleaseZone[]
   vendorReleases        IndentVendorRelease[]
   outboundPayments      OutboundPayment[]
   journalLines          JournalLine[]
@@ -907,6 +968,9 @@ model IndentLine {
   vehicleTypeCode String?
   bodyTypeCode    String?
 
+  placementStatus     String    @default("PLACEMENT_PENDING") // PLACEMENT_PENDING | VEHICLE_REACHED | PLACEMENT_FAILED
+  placementReachedAt  DateTime?
+
   allocations IndentAllocation[]
   tripId     String? @unique
   trip       Trip?   @relation(fields: [tripId], references: [id], onDelete: SetNull)
@@ -916,6 +980,7 @@ model IndentLine {
 
   @@unique([indentId, lineNumber])
   @@index([indentId])
+  @@index([indentId, placementStatus])
 }
 
 model VendorQuote {
@@ -1041,6 +1106,8 @@ model IndentPod {
   previousPod   IndentPod?  @relation("PodHistory", fields: [previousPodId], references: [id], onDelete: SetNull)
   successors    IndentPod[] @relation("PodHistory")
 
+  financialNotes FinancialNote[]
+
   @@index([indentId])
   @@index([status])
   @@index([tripId])
@@ -1111,6 +1178,10 @@ model Trip {
   vendorRate Decimal
   margin     Decimal
 
+  /// Client billable loading/unloading captured at POD verify or mark-good (₹).
+  clientLoadingCharge   Decimal @default(0)
+  clientUnloadingCharge Decimal @default(0)
+
   trackingMode String? @default("GPS") // GPS | CELL (derived from driver deviceType)
 
   status          String    @default("PENDING")
@@ -1122,6 +1193,19 @@ model Trip {
   podVerifiedBy   User?     @relation("TripPodVerifier", fields: [podVerifiedById], references: [id], onDelete: SetNull)
   tripClosedAt    DateTime?
   driverArrivedAt DateTime?
+
+  // Denormalized latest driver position for live map / ETA (updated on each ingest).
+  currentLat  Float?
+  currentLng  Float?
+  lastPingAt  DateTime?
+
+  // Geocoded once at dispatch (from indent addresses / route text) for map + ETA.
+  originLat       Float?
+  originLng       Float?
+  destLat         Float?
+  destLng         Float?
+  expectedEndAt   DateTime?
+  routeGeocodedAt DateTime?
 
   remarks   String?
   createdAt DateTime @default(now())
@@ -1170,6 +1254,20 @@ model TrackingPing {
   @@index([indentId, recordedAt])
   @@index([tripId, recordedAt])
   @@index([driverId])
+}
+
+/// OpenCelliD (or compatible) cell-tower coordinates — populated by ingest script (Phase 5).
+model CellTower {
+  id     String @id @default(cuid())
+  mcc    Int
+  mnc    Int
+  lac    Int
+  cellId BigInt
+  lat    Float
+  lng    Float
+
+  @@unique([mcc, mnc, lac, cellId])
+  @@index([mcc, mnc, lac, cellId])
 }
 
 // =============================================================================
@@ -1274,7 +1372,10 @@ model ClientInvoiceLine {
   vehicleReg   String?
   indentNumber String?
 
-  @@unique([invoiceId, tripId])
+  /// FREIGHT | LOADING | UNLOADING — multiple lines per trip allowed.
+  lineKind String @default("FREIGHT")
+
+  @@unique([invoiceId, tripId, lineKind])
   @@index([tripId])
 }
 
@@ -1572,6 +1673,8 @@ model AdvanceRequest {
   escalatedById   String?
   escalatedBy     User? @relation("AdvanceRequestEscalator", fields: [escalatedById], references: [id], onDelete: SetNull)
 
+  bulkRequestGroupId String?
+
   remarks            String?
   negotiationRemarks String?
   processingRemarks  String?
@@ -1603,6 +1706,7 @@ model AdvanceRequest {
   @@index([status])
   @@index([deadlineAt])
   @@index([source, status])
+  @@index([bulkRequestGroupId])
 }
 
 /// Audit trail for advance request state changes.
@@ -1643,6 +1747,31 @@ model IndentReleaseCity {
   @@index([indentId])
 }
 
+/// Delivery zones used when releasing an indent (admin filter; append-only per zone).
+model IndentReleaseZone {
+  id           String   @id @default(cuid())
+  indentId     String
+  indent       Indent   @relation(fields: [indentId], references: [id], onDelete: Cascade)
+  zone         String // NORTH | SOUTH | EAST | WEST
+  releasedAt   DateTime @default(now())
+  releasedById String?
+  releasedBy   User?    @relation(fields: [releasedById], references: [id], onDelete: SetNull)
+
+  @@unique([indentId, zone])
+  @@index([indentId])
+}
+
+/// Regions where a vendor delivers (onboarding / profile).
+model VendorDeliveryZone {
+  id       String @id @default(cuid())
+  vendorId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  zone     String // NORTH | SOUTH | EAST | WEST | ALL
+
+  @@unique([vendorId, zone])
+  @@index([vendorId])
+}
+
 /// Vendors who received an indent release (portal + WhatsApp).
 model IndentVendorRelease {
   id         String   @id @default(cuid())
@@ -1666,6 +1795,10 @@ model WhatsAppQuoteSession {
   indentId String
   indent   Indent @relation(fields: [indentId], references: [id], onDelete: Cascade)
   status   String @default("OPEN") // OPEN | AWAITING_AMOUNT | CLOSED
+
+  /// Opaque bearer token for login-free quote page (/quote/{accessToken}).
+  accessToken          String?   @unique
+  accessTokenExpiresAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -2190,8 +2323,13 @@ model FinancialNote {
   indent          Indent? @relation(fields: [indentId], references: [id], onDelete: SetNull)
   tripId          String?
   trip            Trip? @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  indentPodId     String?
+  indentPod       IndentPod? @relation(fields: [indentPodId], references: [id], onDelete: SetNull)
   clientInvoiceId String?
   clientInvoice   ClientInvoice? @relation(fields: [clientInvoiceId], references: [id], onDelete: SetNull)
+
+  /// SHORTAGE | DAMAGE | OTHER — required for vendor freight reduction from bad POD.
+  vendorDeductionReason String?
 
   /// When set, links operational charge — payable may already include this amount.
   tripChargeId String? @unique
@@ -2265,6 +2403,7 @@ model FinancialNote {
   @@index([vendorId, status])
   @@index([clientId, status])
   @@index([tripId])
+  @@index([indentPodId])
   @@index([clientInvoiceId])
   @@index([accountingDate])
 }
@@ -2503,4 +2642,32 @@ model GatewaySettlementLine {
   @@unique([importId, stableRowKey])
   @@index([providerTransferRef])
   @@index([outboundPaymentId])
+}
+
+// =============================================================================
+// COMPANY / ORG SETTINGS (single-tenant)
+// =============================================================================
+
+/// Singleton row (id = "default") — letterhead, tax IDs, and bank details for LR/invoices/vouchers.
+model CompanySettings {
+  id                   String   @id @default("default")
+  companyName          String   @default("")
+  logoPath             String   @default("brand/logo-light.svg")
+  registeredAddress    String   @default("")
+  gstin                String   @default("")
+  pan                  String   @default("")
+  defaultFreightGstPercent Decimal @default(18)
+  accountsEmail        String   @default("")
+  contactPhone         String   @default("")
+  stateLabel           String   @default("")
+  bankName             String   @default("")
+  bankAccountNumber    String   @default("")
+  bankBranch           String   @default("")
+  bankIfsc             String   @default("")
+  lrPrefix             String?
+  invoicePrefix        String?
+  requirementPrefix    String?
+  complianceAlertsJson Json?
+  updatedById          String?
+  updatedAt            DateTime @updatedAt
 }

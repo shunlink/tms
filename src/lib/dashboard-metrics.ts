@@ -25,6 +25,9 @@ export type MetricBucket = {
 /** Active trips — not yet delivered. */
 export const TRIP_ACTIVE_STATUSES: TripStatus[] = ["PENDING", "DISPATCHED", "IN_TRANSIT"];
 
+/** Client portal — vehicles currently moving (distinct from pending/dispatched). */
+export const TRIP_IN_TRANSIT_STATUSES: TripStatus[] = ["IN_TRANSIT"];
+
 /** Delivered or post-delivery (portal "Delivered" grouping). */
 export const TRIP_DELIVERED_GROUP: TripStatus[] = [
   "DELIVERED",

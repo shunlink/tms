@@ -2,7 +2,12 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Printer } from "lucide-react";
 import InvoiceDocument from "@/components/invoice-document";
+import InvoicePdfDownload from "@/components/invoices/invoice-pdf-download";
 import PrintButton from "@/components/print-button";
+import {
+  buildInvoicePrintHtml,
+  loadInvoicePrintSnapshot,
+} from "@/lib/services/invoice-document.service";
 import { getSessionUser } from "@/lib/auth";
 import { getInvoiceDetail } from "@/lib/queries";
 import { CLIENT_HIDDEN_INVOICE_STATUSES } from "@/lib/client-trip-sync";
@@ -21,9 +26,12 @@ export default async function ClientInvoiceDetailPage({
   if (!inv || inv.client.id !== user.clientId || CLIENT_HIDDEN_INVOICE_STATUSES.includes(inv.status)) {
     notFound();
   }
+  const snapshot = await loadInvoicePrintSnapshot(params.id);
+  if (!snapshot) notFound();
+  const printHtml = await buildInvoicePrintHtml(params.id);
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6 w-full max-w-5xl mx-auto">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 print:hidden">
         <div>
@@ -39,14 +47,15 @@ export default async function ClientInvoiceDetailPage({
           </h1>
         </div>
 
-        <div className="print:hidden">
+        <div className="print:hidden flex flex-wrap gap-2">
+          <InvoicePdfDownload invoiceId={inv.id} invoiceNumber={inv.invoiceNumber} />
           <PrintButton />
         </div>
       </div>
 
       {/* Invoice Document Wrapper */}
       <div className="bg-white rounded-2xl border border-gray-200/80 p-4 sm:p-8 shadow-2xs">
-        <InvoiceDocument inv={inv} />
+        <InvoiceDocument html={printHtml} snapshot={snapshot} payments={inv.payments} />
       </div>
     </div>
   );

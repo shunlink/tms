@@ -1,6 +1,6 @@
 import { prisma } from "../prisma";
 import { putObject } from "../storage";
-import { companyProfile } from "../company";
+import { getCompanyProfile, type CompanyProfile } from "../company";
 import { nextNumber } from "../sequence";
 import { formatINR, formatDate } from "../utils";
 
@@ -42,7 +42,7 @@ function n(v: { toNumber(): number } | number | null | undefined): number {
   return typeof v === "number" ? v : v.toNumber();
 }
 
-export function buildBalanceVoucherHtml(data: BalanceVoucherData) {
+export function buildBalanceVoucherHtml(data: BalanceVoucherData, company: CompanyProfile) {
   const route = `${data.routeFrom} → ${data.routeTo}`;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -69,9 +69,10 @@ export function buildBalanceVoucherHtml(data: BalanceVoucherData) {
 <body>
   <div class="header">
     <div>
-      <h1>${escapeHtml(companyProfile.name)}</h1>
-      <p class="muted">${escapeHtml(companyProfile.address)}</p>
-      <p class="muted">GSTIN: ${escapeHtml(companyProfile.gstin)} · PAN: ${escapeHtml(companyProfile.pan)}</p>
+      <h1>${escapeHtml(company.name)}</h1>
+      <p class="muted">${escapeHtml(company.address)}</p>
+      <p class="muted">GSTIN: ${escapeHtml(company.gstin)} · PAN: ${escapeHtml(company.pan)}</p>
+      <p class="muted">${escapeHtml(company.phone)} · ${escapeHtml(company.email)}</p>
     </div>
     <div style="text-align:right">
       <h2>VENDOR PAYMENT VOUCHER</h2>
@@ -109,7 +110,7 @@ export function buildBalanceVoucherHtml(data: BalanceVoucherData) {
   </div>
 
   <div class="footer">
-    This is a system-generated vendor payment advice from ${escapeHtml(companyProfile.name)}.
+    This is a system-generated vendor payment advice from ${escapeHtml(company.name)}.
     Please retain this document for your records.
   </div>
 </body>
@@ -171,7 +172,8 @@ export async function generateAndStoreBalanceVoucher(
     status: n(task.paidAmount) >= n(task.balanceAmount) ? "PAID" : "PARTIALLY_PAID",
   };
 
-  const html = buildBalanceVoucherHtml(voucherData);
+  const company = await getCompanyProfile();
+  const html = buildBalanceVoucherHtml(voucherData, company);
   const key = `balance-voucher/${taskId}/${voucherNumber}.html`;
   const { url } = await putObject(key, Buffer.from(html, "utf-8"));
 

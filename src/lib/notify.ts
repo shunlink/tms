@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { normalizePhone } from "./phone";
 
+import { readJsonBody } from "@/lib/api-client";
 export type SendResult = {
   ok: boolean;
   provider: string;
@@ -56,14 +57,36 @@ type WhatsAppPayload =
       buttons: Array<{ id: string; title: string }>;
     }
   | {
+      type: "cta_url";
+      body: string;
+      displayText: string;
+      url: string;
+    }
+  | {
       type: "template";
       templateName: string;
       languageCode: string;
       bodyParameters: string[];
+      buttonUrlParameter?: string | null;
     };
 
 function buildWhatsAppRequestBody(to: string, payload: WhatsAppPayload) {
   if (payload.type === "template") {
+    const components: Array<Record<string, unknown>> = [];
+    if (payload.bodyParameters.length) {
+      components.push({
+        type: "body",
+        parameters: payload.bodyParameters.map((text) => ({ type: "text", text })),
+      });
+    }
+    if (payload.buttonUrlParameter) {
+      components.push({
+        type: "button",
+        sub_type: "url",
+        index: "0",
+        parameters: [{ type: "text", text: payload.buttonUrlParameter }],
+      });
+    }
     return {
       messaging_product: "whatsapp",
       to,
@@ -71,14 +94,26 @@ function buildWhatsAppRequestBody(to: string, payload: WhatsAppPayload) {
       template: {
         name: payload.templateName,
         language: { code: payload.languageCode },
-        components: payload.bodyParameters.length
-          ? [
-              {
-                type: "body",
-                parameters: payload.bodyParameters.map((text) => ({ type: "text", text })),
-              },
-            ]
-          : undefined,
+        components: components.length ? components : undefined,
+      },
+    };
+  }
+
+  if (payload.type === "cta_url") {
+    return {
+      messaging_product: "whatsapp",
+      to,
+      type: "interactive",
+      interactive: {
+        type: "cta_url",
+        body: { text: payload.body },
+        action: {
+          name: "cta_url",
+          parameters: {
+            display_text: payload.displayText,
+            url: payload.url,
+          },
+        },
       },
     };
   }
@@ -140,7 +175,7 @@ async function sendWhatsAppCloud(toRaw: string, payload: WhatsAppPayload): Promi
       body: JSON.stringify(buildWhatsAppRequestBody(to, payload)),
     });
 
-    const responsePayload = (await res.json().catch(() => null)) as MetaErrorPayload | null;
+    const responsePayload = (await readJsonBody(res)) as MetaErrorPayload | null;
 
     if (!res.ok) {
       const err = responsePayload?.error;
@@ -225,12 +260,37 @@ export async function sendInteractiveMessage(msg: {
   return { ok: true, provider: "console", detail: "logged by console provider" };
 }
 
+export async function sendCtaUrlMessage(msg: {
+  channel: string;
+  to: string;
+  body: string;
+  displayText: string;
+  url: string;
+}): Promise<SendResult> {
+  const provider = activeProvider();
+
+  if (provider === "whatsapp_cloud") {
+    return sendWhatsAppCloud(msg.to, {
+      type: "cta_url",
+      body: msg.body,
+      displayText: msg.displayText,
+      url: msg.url,
+    });
+  }
+
+  console.log(
+    `[notify:${msg.channel}:cta_url] -> ${msg.to} :: ${msg.displayText} => ${msg.url}`
+  );
+  return { ok: true, provider: "console", detail: "logged by console provider" };
+}
+
 export async function sendTemplateMessage(msg: {
   channel: string;
   to: string;
   templateName: string;
   languageCode?: string;
   bodyParameters?: string[];
+  buttonUrlParameter?: string | null;
 }): Promise<SendResult> {
   const provider = activeProvider();
 
@@ -240,6 +300,7 @@ export async function sendTemplateMessage(msg: {
       templateName: msg.templateName,
       languageCode: msg.languageCode ?? process.env.WHATSAPP_BID_TEMPLATE_LANGUAGE ?? "en",
       bodyParameters: msg.bodyParameters ?? [],
+      buttonUrlParameter: msg.buttonUrlParameter ?? null,
     });
   }
 
@@ -258,9 +319,11 @@ type OutboundMessage = {
   entityType?: string | null;
   entityId?: string | null;
   buttons?: Array<{ id: string; title: string }>;
+  ctaUrl?: { url: string; displayText: string } | null;
   templateName?: string | null;
   templateLanguage?: string | null;
   templateParameters?: string[];
+  templateButtonUrlParameter?: string | null;
 };
 
 async function dispatchOutbound(msg: OutboundMessage) {
@@ -271,6 +334,16 @@ async function dispatchOutbound(msg: OutboundMessage) {
       templateName: msg.templateName,
       languageCode: msg.templateLanguage ?? undefined,
       bodyParameters: msg.templateParameters,
+      buttonUrlParameter: msg.templateButtonUrlParameter ?? null,
+    });
+  }
+  if (msg.ctaUrl) {
+    return sendCtaUrlMessage({
+      channel: msg.channel,
+      to: msg.to,
+      body: msg.body,
+      displayText: msg.ctaUrl.displayText,
+      url: msg.ctaUrl.url,
     });
   }
   if (msg.buttons?.length) {

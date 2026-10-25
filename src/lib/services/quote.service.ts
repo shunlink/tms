@@ -102,6 +102,11 @@ export async function submitVendorQuote(
       relatedEntityId: quote.id,
     });
 
+    if (input.channel === "PORTAL" || input.channel === "WHATSAPP") {
+      const { closeQuoteSession } = await import("./whatsapp-quote-session.service");
+      await closeQuoteSession(vendorId, indentId);
+    }
+
     return {
       id: quote.id,
       quotedRate: quote.quotedRate.toNumber(),

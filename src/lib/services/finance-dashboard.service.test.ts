@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { parseFinanceDashboardFilters } from "./finance-dashboard.service";
-import { buildOutstandingAgeing, splitDetailedAgeingBuckets } from "../receivables";
+import { buildReportOutstandingAgeing } from "../receivables";
 
 const NOW = new Date("2026-10-05").getTime();
 
-describe("splitDetailedAgeingBuckets", () => {
-  it("splits ageing rows into five buckets including 90+", () => {
-    const ageing = buildOutstandingAgeing(
+describe("buildReportOutstandingAgeing (finance dashboard)", () => {
+  it("buckets receivables by days since issue/finalize", () => {
+    const ageing = buildReportOutstandingAgeing(
       [
         {
           clientName: "A",
@@ -16,6 +16,7 @@ describe("splitDetailedAgeingBuckets", () => {
           status: "UNPAID",
           dueDate: new Date("2026-12-01"),
           issueDate: new Date("2026-09-01"),
+          finalizedAt: new Date("2026-09-25"),
         },
         {
           clientName: "B",
@@ -25,6 +26,7 @@ describe("splitDetailedAgeingBuckets", () => {
           status: "OVERDUE",
           dueDate: new Date("2026-09-20"),
           issueDate: new Date("2026-09-01"),
+          finalizedAt: new Date("2026-08-01"),
         },
         {
           clientName: "C",
@@ -34,17 +36,16 @@ describe("splitDetailedAgeingBuckets", () => {
           status: "OVERDUE",
           dueDate: new Date("2026-06-01"),
           issueDate: new Date("2026-05-01"),
+          finalizedAt: new Date("2026-06-01"),
         },
       ],
       NOW
     );
-    const buckets = splitDetailedAgeingBuckets(ageing.rows);
-    expect(buckets.current).toBe(10000);
-    expect(buckets.d1_30).toBe(20000);
+    const buckets = ageing.buckets;
+    expect(buckets.d0_30).toBe(10000);
+    expect(buckets.d61_90).toBe(20000);
     expect(buckets.d90plus).toBe(30000);
-    expect(
-      buckets.current + buckets.d1_30 + buckets.d31_60 + buckets.d61_90 + buckets.d90plus
-    ).toBe(ageing.total);
+    expect(buckets.d0_30 + buckets.d31_60 + buckets.d61_90 + buckets.d90plus).toBe(ageing.total);
   });
 });
 

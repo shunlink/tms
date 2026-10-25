@@ -291,9 +291,20 @@ export async function getOperationsDashboard(user: SessionUser): Promise<Operati
     placement: placementPending,
     tripsAwaitingPod,
     indentsReadyToClose,
+    onboardingRequests,
   } = queues;
 
   add(task("pod-verifications", plural(podsPendingVerification, "POD Verification"), podsPendingVerification, "/pods?view=pending", "pod.view", granted));
+  add(
+    task(
+      "onboarding-requests",
+      plural(onboardingRequests, "Client Onboarding Request", "Client Onboarding Requests"),
+      onboardingRequests,
+      "/onboarding-requests",
+      "onboarding.ops",
+      granted
+    )
+  );
   add(task("bad-pods", plural(badPods, "Bad POD Awaiting Correction", "Bad PODs Awaiting Correction"), badPods, "/pods?view=bad", "pod.view", granted));
   add(task("pod-escalations", plural(podEscalations, "POD Escalation"), podEscalations, "/pods?view=bad", "pod.view", granted));
   add(task("placement", plural(placementPending, "Placement Pending"), placementPending, "/placement", "placement.view", granted));

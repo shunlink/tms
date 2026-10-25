@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { SidebarCountsResponse } from "@/lib/services/sidebar-pending-counts.service";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 const REFRESH_EVENT = "sidebar-counts-refresh";
 const COUNTS_ENDPOINT = "/api/sidebar/pending-counts";
 
@@ -42,9 +43,13 @@ export function useSidebarPendingCounts() {
   const refresh = useCallback(async () => {
     try {
       const res = await fetch(COUNTS_ENDPOINT, { cache: "no-store" });
-      if (!res.ok) return;
-      const data = (await res.json()) as SidebarCountsResponse;
-      setCounts(data ?? {});
+      const data = await readJsonBody(res);
+      if (!res.ok) {
+        reportApiFailure(res, data, { silent: true });
+        return;
+      }
+      const counts = data as SidebarCountsResponse;
+      setCounts(counts ?? {});
       setLoaded(true);
     } catch {
       /* non-fatal */

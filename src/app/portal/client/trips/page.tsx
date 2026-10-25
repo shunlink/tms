@@ -14,6 +14,8 @@ import {
 import { getSessionUser } from "@/lib/auth";
 import { getClientTrips } from "@/lib/queries";
 import { formatINR } from "@/lib/utils";
+import PortalPage from "@/components/portal/portal-page";
+import PortalTableExport from "@/components/portal/portal-table-export";
 
 export const dynamic = "force-dynamic";
 
@@ -31,8 +33,29 @@ export default async function ClientTripsPage() {
     ["DELIVERED", "SETTLED"].includes(t.displayStatus)
   ).length;
 
+  const shipmentExportColumns = [
+    { key: "lrNumber", header: "LR / Shipment ID" },
+    { key: "route", header: "Route" },
+    { key: "vehicle", header: "Vehicle" },
+    { key: "vendor", header: "Vendor" },
+    { key: "invoiceNumber", header: "Invoice" },
+    { key: "invoicePaid", header: "Invoice Paid" },
+    { key: "invoiceTotal", header: "Invoice Total" },
+    { key: "status", header: "Status" },
+  ];
+  const shipmentExportRows = trips.map((t) => ({
+    lrNumber: t.lrNumber || `TRP-${t.id.slice(-6)}`,
+    route: t.route,
+    vehicle: t.vehicle,
+    vendor: t.vendor,
+    invoiceNumber: t.invoice?.invoiceNumber ?? "",
+    invoicePaid: t.invoice ? formatINR(t.invoice.paidAmount) : "",
+    invoiceTotal: t.invoice ? formatINR(t.invoice.totalAmount) : "",
+    status: t.displayStatus,
+  }));
+
   return (
-    <div className="space-y-6">
+    <PortalPage>
       {/* =========================================================================
           PAGE HEADER
           ========================================================================= */}
@@ -48,7 +71,8 @@ export default async function ClientTripsPage() {
         <div className="flex items-center gap-3">
           <Link
             href="/portal/client/requirements/new"
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-xs sm:text-sm shadow-xs transition-colors"
+            data-portal-mutate
+            className="inline-flex items-center justify-center gap-2 min-h-[44px] px-4 py-2.5 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-xs sm:text-sm shadow-xs transition-colors w-full sm:w-auto"
           >
             <Plus className="h-4 w-4" />
             <span>New Requirement</span>
@@ -59,7 +83,7 @@ export default async function ClientTripsPage() {
       {/* =========================================================================
           METRICS CARDS
           ========================================================================= */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         <div className="bg-white rounded-2xl border border-gray-200/80 p-5 flex items-center justify-between shadow-2xs">
           <div className="flex items-center gap-3.5">
             <div className="h-11 w-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
@@ -110,6 +134,7 @@ export default async function ClientTripsPage() {
               Complete movement history and live vehicle tracking
             </p>
           </div>
+          <PortalTableExport fileName="client-shipments" columns={shipmentExportColumns} rows={shipmentExportRows} />
         </div>
 
         {trips.length === 0 ? (
@@ -123,6 +148,7 @@ export default async function ClientTripsPage() {
             </p>
             <Link
               href="/portal/client/requirements/new"
+            data-portal-mutate
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-xs shadow-2xs transition-colors"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -157,9 +183,14 @@ export default async function ClientTripsPage() {
                   return (
                     <tr key={t.id} className="hover:bg-gray-50/60 transition-colors">
                       {/* LR / Trip ID */}
-                      <td className="py-3.5 px-5 sm:px-6 font-semibold text-gray-900 flex items-center gap-2">
-                        <Truck className="h-4 w-4 text-gray-400 shrink-0" />
-                        <span>{t.lrNumber || `TRP-${t.id.slice(-6)}`}</span>
+                      <td className="py-3.5 px-5 sm:px-6 font-semibold text-gray-900">
+                        <Link
+                          href={`/portal/client/trips/${t.id}`}
+                          className="flex items-center gap-2 hover:text-blue-700 transition-colors"
+                        >
+                          <Truck className="h-4 w-4 text-gray-400 shrink-0" />
+                          <span>{t.lrNumber || `TRP-${t.id.slice(-6)}`}</span>
+                        </Link>
                       </td>
 
                       {/* Route */}
@@ -197,19 +228,13 @@ export default async function ClientTripsPage() {
 
                       {/* Live Location */}
                       <td className="py-3.5 px-3">
-                        {t.lastPing ? (
-                          <a
-                            href={`https://www.openstreetmap.org/?mlat=${t.lastPing.lat}&mlon=${t.lastPing.lng}#map=9/${t.lastPing.lat}/${t.lastPing.lng}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/80 text-[11px] font-medium transition-colors"
-                          >
-                            <MapPin className="h-3 w-3 shrink-0" />
-                            <span>{t.lastPing.note ?? "View Location"}</span>
-                          </a>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
+                        <Link
+                          href={`/portal/client/trips/${t.id}`}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/80 text-[11px] font-medium transition-colors"
+                        >
+                          <MapPin className="h-3 w-3 shrink-0" />
+                          <span>{t.lastPing ? "Track live" : "View shipment"}</span>
+                        </Link>
                       </td>
 
                       {/* Status */}
@@ -228,6 +253,6 @@ export default async function ClientTripsPage() {
           </div>
         )}
       </div>
-    </div>
+    </PortalPage>
   );
 }

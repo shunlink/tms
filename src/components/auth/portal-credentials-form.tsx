@@ -7,10 +7,14 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Eye, EyeOff, Lock, Mail } from "lucide-react";
 import ForgotPasswordPanel from "@/components/forms/forgot-password-panel";
 import { useToast } from "@/components/toast";
-import { homePathForRole } from "@/lib/auth-home";
+import { LOGIN_PORTAL_MISMATCH_MESSAGE } from "@/lib/login-portal";
+import type { LoginPortal } from "@/lib/login-portal";
 import { cn } from "@/lib/utils";
+import { resolvePostLoginPath } from "@/lib/vendor-quote-portal-url";
+import { useSearchParams } from "next/navigation";
 
 type PortalCredentialsFormProps = {
+  loginPortal: LoginPortal;
   emailPlaceholder?: string;
   emailLabel?: string;
   supportFooter?: React.ReactNode;
@@ -20,13 +24,23 @@ type PortalCredentialsFormProps = {
 const inputWrap =
   "flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 min-h-[52px] focus-within:ring-2 focus-within:ring-[#F5D33C]/40 focus-within:border-[#F5D33C]/60 transition-shadow";
 
+function loginErrorMessage(error: string | undefined) {
+  if (!error || error === "CredentialsSignin") return "Invalid email or password";
+  if (error.includes(LOGIN_PORTAL_MISMATCH_MESSAGE) || error.includes("authorized")) {
+    return LOGIN_PORTAL_MISMATCH_MESSAGE;
+  }
+  return error;
+}
+
 export default function PortalCredentialsForm({
+  loginPortal,
   emailPlaceholder = "you@company.com or 9876543210",
   emailLabel = "Email or Phone",
   supportFooter,
   noticeFooter,
 }: PortalCredentialsFormProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const toast = useToast();
   const [mode, setMode] = useState<"signin" | "forgot">("signin");
   const [email, setEmail] = useState("");
@@ -39,19 +53,29 @@ export default function PortalCredentialsForm({
     e.preventDefault();
     setError("");
     setLoading(true);
-    const res = await signIn("credentials", { email, password, redirect: false });
+    const res = await signIn("credentials", {
+      email,
+      password,
+      loginPortal,
+      redirect: false,
+    });
     setLoading(false);
     if (res?.error) {
-      const msg = res.error === "CredentialsSignin" ? "Invalid email or password" : res.error;
+      const msg = loginErrorMessage(res.error);
       setError(msg);
       toast.push({ title: msg, variant: "error" });
       return;
     }
-    const sessionRes = await fetch("/api/auth/session");
-    const session = await sessionRes.json();
+    const destRes = await fetch("/api/auth/post-login-destination");
+    const dest = await destRes.json().catch(() => ({}));
+    const fallback = typeof dest.path === "string" ? dest.path : "/";
+    const path = resolvePostLoginPath(
+      searchParams.get("next"),
+      searchParams.get("callbackUrl"),
+      fallback
+    );
     toast.push({ title: "Signed in successfully", variant: "success" });
-    const home = homePathForRole(session?.user?.role as string | undefined);
-    router.push(home);
+    router.push(path);
     router.refresh();
   }
 

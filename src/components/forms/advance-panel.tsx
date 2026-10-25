@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { formatINR, formatDate } from "@/lib/utils";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 export default function AdvancePanel({
   indentId,
   indentStatus,
@@ -26,6 +29,7 @@ export default function AdvancePanel({
   advancePaidAt?: string | Date | null;
   canConfirm: boolean;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [amount, setAmount] = useState("");
   const [busy, setBusy] = useState(false);
@@ -54,9 +58,9 @@ export default function AdvancePanel({
       body: JSON.stringify({ action: "confirm", amount: value }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to confirm advance");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to confirm advance" });
       return;
     }
     router.refresh();

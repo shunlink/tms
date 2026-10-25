@@ -1,10 +1,16 @@
+import { clientOnboardEntryPath } from "./client-onboarding";
+import { ONBOARDING_CASE_STATUS } from "./onboarding-case-status";
+
 export type OnboardingGate = {
   onboardingStatus: string;
   onboardingRemarks?: string | null;
+  onboardingPreference?: string | null;
 };
 
 export function shouldCompleteOnboarding(status: string) {
-  return status === "PENDING" || status === "REJECTED";
+  return (
+    status === ONBOARDING_CASE_STATUS.PENDING || status === ONBOARDING_CASE_STATUS.REJECTED
+  );
 }
 
 export function onboardPathForRole(role: string) {
@@ -13,11 +19,13 @@ export function onboardPathForRole(role: string) {
   return "/login";
 }
 
-export function portalHomeForRole(role?: string, onboardingStatus?: string) {
+export function portalHomeForRole(
+  role?: string,
+  onboardingStatus?: string,
+  onboardingPreference?: string | null
+) {
   if (role === "CLIENT") {
-    if (!onboardingStatus || onboardingStatus === "PENDING") return "/onboard/client";
-    if (onboardingStatus === "APPROVED") return "/portal/client";
-    return "/portal/client/profile";
+    return clientOnboardEntryPath(onboardingStatus ?? ONBOARDING_CASE_STATUS.PENDING);
   }
   if (role === "VENDOR") {
     if (!onboardingStatus || onboardingStatus === "PENDING") return "/onboard/vendor";
@@ -35,17 +43,41 @@ export function profilePathForRole(role: string) {
   return "/login";
 }
 
+/** Client may change portal data only when approved or while completing onboarding. */
+export function canClientPerformPortalMutations(status: string) {
+  if (status === ONBOARDING_CASE_STATUS.APPROVED) return true;
+  if (
+    status === ONBOARDING_CASE_STATUS.PENDING ||
+    status === ONBOARDING_CASE_STATUS.REJECTED
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Browse portal after submit, but no create/edit/delete until admin approval. */
+export function isClientPortalViewOnly(status: string) {
+  return !canClientPerformPortalMutations(status);
+}
+
+/** @deprecated Use isClientPortalViewOnly */
 export function isProfileOnlyStatus(status: string) {
-  return status === "SUBMITTED" || status === "REJECTED";
+  return isClientPortalViewOnly(status);
 }
 
 /** Portal profile/doc edits allowed only during onboarding (not after submit/approval). */
 export function canSelfServiceEditPortalProfile(status: string) {
-  return status === "PENDING" || status === "REJECTED";
+  return (
+    status === ONBOARDING_CASE_STATUS.PENDING || status === ONBOARDING_CASE_STATUS.REJECTED
+  );
+}
+
+export function isOnboardingFormReadOnly(status: string) {
+  return !canSelfServiceEditPortalProfile(status);
 }
 
 /** Profile fields collected at signup; locked during onboarding until approved. */
-export const SIGNUP_LOCKED_PROFILE_FIELDS = ["name", "contactName", "phone", "email"] as const;
+export const SIGNUP_LOCKED_PROFILE_FIELDS = ["name", "phone", "email"] as const;
 
 export function stripSignupLockedProfileFields<T extends Record<string, unknown>>(
   data: T,

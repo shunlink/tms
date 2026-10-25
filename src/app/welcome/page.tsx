@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getSessionUser } from "@/lib/auth";
+import { redirectIfAuthenticated } from "@/lib/auth-redirect";
 import {
   Truck,
   Building2,
@@ -16,13 +18,16 @@ export const metadata = {
   description: "Access your dedicated workspace to continue on ShunLink TMS",
 };
 
-export default function WelcomePage({
+export default async function WelcomePage({
   searchParams,
 }: {
   searchParams: { ref?: string; role?: string };
 }) {
   if (searchParams.role === "client") redirect("/signup/client");
   if (searchParams.role === "vendor") redirect("/signup/vendor");
+
+  const user = await getSessionUser();
+  await redirectIfAuthenticated(user);
 
   return (
     <div className="min-h-screen grid grid-cols-1 lg:grid-cols-2 bg-[#F8FAFC]">
@@ -41,7 +46,7 @@ export default function WelcomePage({
         {/* Top: Logo & Category Header */}
         <div className="relative z-10">
           <div className="mb-8">
-            <BrandLogo variant="dark" size="lg" href="/" />
+            <BrandLogo variant="dark" size="lg" href="/welcome" />
           </div>
 
           <div className="flex items-center gap-2 mb-3">

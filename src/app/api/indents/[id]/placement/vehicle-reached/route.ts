@@ -12,7 +12,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (!parsed.success) return badRequest(parsed.error);
 
     if (parsed.data.action === "vehicle_reached") {
-      const indent = await markVehicleReached(params.id, auth!.user);
+      const indent = await markVehicleReached(params.id, auth!.user, parsed.data.indentLineId);
       if (!indent) return notFound("Indent not found");
       return ok(indent);
     }

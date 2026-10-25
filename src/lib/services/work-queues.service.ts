@@ -114,8 +114,15 @@ export const workQueueWhere = {
   } satisfies Prisma.IndentWhereInput,
 
   onboarding: {
-    status: { in: ["SUBMITTED", "PENDING"] },
     entityType: { not: "DRIVER" },
+    OR: [{ status: "PENDING_APPROVAL" }, { status: "SUBMITTED" }],
+  } satisfies Prisma.OnboardingCaseWhereInput,
+
+  onboardingRequests: {
+    entityType: "CLIENT",
+    status: {
+      in: ["PARTIAL_SUBMISSION", "ASSIGNED_TO_EMPLOYEE", "PENDING_OPS_ONBOARDING"],
+    },
   } satisfies Prisma.OnboardingCaseWhereInput,
 
   openRequirements: { status: "OPEN" } satisfies Prisma.RequirementWhereInput,
@@ -179,6 +186,7 @@ export async function countWorkQueues() {
     tripsAwaitingPod,
     indentsReadyToClose,
     onboarding,
+    onboardingRequests,
     openRequirements,
   ] = await Promise.all([
     prisma.advanceRequest.count({ where: workQueueWhere.financeAdvances }),
@@ -195,6 +203,7 @@ export async function countWorkQueues() {
     prisma.trip.count({ where: workQueueWhere.tripsAwaitingPod }),
     prisma.indent.count({ where: workQueueWhere.indentsReadyToClose }),
     prisma.onboardingCase.count({ where: workQueueWhere.onboarding }),
+    prisma.onboardingCase.count({ where: workQueueWhere.onboardingRequests }),
     prisma.requirement.count({ where: workQueueWhere.openRequirements }),
   ]);
 
@@ -213,6 +222,7 @@ export async function countWorkQueues() {
     tripsAwaitingPod,
     indentsReadyToClose,
     onboarding,
+    onboardingRequests,
     openRequirements,
     /** Everything the Vendor Payments nav item routes to (advance + balance queues + ledger). */
     vendorPayoutWork: financeAdvances + balancePayments + vendorLedgerPending,

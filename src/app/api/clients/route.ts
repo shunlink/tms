@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, authorize, ok, created, badRequest, serverError, safeOk } from "@/lib/api";
 import { clientSchema, validate } from "@/lib/validation";
 import { logAudit } from "@/lib/audit";
+import { createClientProfile } from "@/lib/services/profile.service";
 
 export async function GET(req: Request) {
   const auth = await requireAuth();
@@ -40,27 +41,7 @@ export async function POST(req: Request) {
     if (!parsed.success) return badRequest(parsed.error);
     const d = parsed.data;
 
-    const client = await prisma.client.create({
-      data: {
-        name: d.name,
-        legalName: d.legalName,
-        contactName: d.contactName,
-        phone: d.phone,
-        altPhone: d.altPhone,
-        email: d.email,
-        accountsEmail: d.accountsEmail,
-        gstin: d.gstin,
-        pan: d.pan,
-        cin: d.cin,
-        msme: d.msme,
-        industry: d.industry,
-        website: d.website,
-        notes: d.notes,
-        ...(d.creditLimit != null || d.paymentTerms != null || d.securityDeposit != null
-          ? { commercial: { create: { creditLimit: d.creditLimit, paymentTermsDays: d.paymentTerms, securityDeposit: d.securityDeposit } } }
-          : {}),
-      },
-    });
+    const client = await createClientProfile(d);
     await logAudit({ user: auth!.user, action: "client.create", entity: "Client", entityId: client.id, meta: { name: client.name } });
     return created(client);
   } catch (e) {

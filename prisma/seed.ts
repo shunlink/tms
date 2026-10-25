@@ -52,6 +52,7 @@ async function resetDatabase() {
   await prisma.indentPayment.deleteMany();
   await prisma.indentVendorRelease.deleteMany();
   await prisma.indentReleaseCity.deleteMany();
+  await prisma.indentReleaseZone.deleteMany();
   await prisma.whatsAppInboundEvent.deleteMany();
   await prisma.whatsAppQuoteSession.deleteMany();
   await prisma.indentEwayBill.deleteMany();
@@ -78,6 +79,7 @@ async function main() {
   await prisma.user.deleteMany();
   await prisma.clientCommercial.deleteMany();
   await prisma.clientAddress.deleteMany();
+  await prisma.vendorDeliveryZone.deleteMany();
   await prisma.vendorCommercial.deleteMany();
   await prisma.vendorAddress.deleteMany();
   await prisma.onboardingCase.deleteMany();
@@ -196,33 +198,10 @@ async function main() {
       jobTitle: "Finance Analyst",
     },
   });
-  console.log("Seeding demo client/vendor/vehicle/driver...");
-  const client = await prisma.client.create({
-    data: { name: "Tata Steel", legalName: "Tata Steel Ltd", gstin: "27AAACT2727Q1ZV", contactName: "Priya Sharma", phone: "9810012345", email: "priya@tatasteel.com" },
-  });
-  await prisma.user.create({
-    data: { email: "client@tata.local", name: "Priya Sharma", password, role: "CLIENT", clientId: client.id, phone: null },
-  });
+  const { seedDemoPartners } = await import("./seed-demo-partners");
+  await seedDemoPartners(prisma, password);
 
-  const vendor = await prisma.vendor.create({
-    data: { name: "Sharma Transport", type: "FLEET_OWNER", contactName: "Rohit Sharma", phone: "9820012345", whatsapp: "919820012345", gstin: "07AABCS1429B1Z1" },
-  });
-  const vendorAddress = await prisma.address.create({
-    data: {
-      line1: "Baner Road",
-      city: "Pune",
-      state: "Maharashtra",
-      pincode: "411045",
-      country: "India",
-    },
-  });
-  await prisma.vendorAddress.create({
-    data: { vendorId: vendor.id, addressId: vendorAddress.id, type: "REGISTERED", isPrimary: true },
-  });
-  await prisma.user.create({
-    data: { email: "vendor@sharma.local", name: "Rohit Sharma", password, role: "VENDOR", vendorId: vendor.id, phone: null },
-  });
-
+  console.log("Seeding demo vehicle/driver...");
   const driver = await prisma.driver.create({
     data: { name: "Ravi Kumar", phone: "9999999999", dlNumber: "MH0123456789", deviceType: "SMARTPHONE", city: "Mumbai", accountStatus: "ACTIVE" },
   });
@@ -244,8 +223,10 @@ async function main() {
   console.log("Sales:       sales@tms.local / admin123");
   console.log("Operations:  ops@tms.local / admin123");
   console.log("Finance:     finance@tms.local / admin123");
-  console.log("Client:      client@tata.local / admin123");
-  console.log("Vendor:      vendor@sharma.local / admin123");
+  console.log("Clients:     client01@demo.local … client10@demo.local / admin123");
+  console.log("             (client10 onboarding PENDING_APPROVAL for queue testing)");
+  console.log("Vendors:     vendor01@demo.local … vendor10@demo.local / admin123");
+  console.log("             (vendor10 onboarding PENDING_APPROVAL for queue testing)");
   console.log("Driver:      DL MH0123456789 (OTP login)");
 }
 

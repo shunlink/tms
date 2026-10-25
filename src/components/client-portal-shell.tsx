@@ -24,12 +24,14 @@ import { portalUserInitial } from "@/lib/portal-theme";
 type ClientPortalShellProps = {
   clientName: string;
   userName: string;
+  viewOnly?: boolean;
   children: React.ReactNode;
 };
 
 export default function ClientPortalShell({
   clientName,
   userName,
+  viewOnly = false,
   children,
 }: ClientPortalShellProps) {
   const pathname = usePathname();
@@ -314,7 +316,11 @@ export default function ClientPortalShell({
         </header>
 
         {/* Content Area (Only right portion scrolls) */}
-        <main className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 lg:p-8">
+        <main
+          className={`flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 lg:p-8${
+            viewOnly ? " client-portal-view-only" : ""
+          }`}
+        >
           <div className="max-w-[1400px] w-full mx-auto">
             {children}
           </div>

@@ -25,7 +25,7 @@ export const AUTH_BRANDING: Record<SignupRole | "LOGIN", AuthBrandConfig> = {
   },
   CLIENT: {
     role: "CLIENT",
-    title: "Client registration",
+    title: "Signup",
     headline: "Ship smarter with ShunLink",
     description:
       "Register your company, raise vehicle requirements, track consignments, and manage invoices — all in one portal.",
@@ -38,7 +38,7 @@ export const AUTH_BRANDING: Record<SignupRole | "LOGIN", AuthBrandConfig> = {
   },
   VENDOR: {
     role: "VENDOR",
-    title: "Vendor / transporter registration",
+    title: "Signup",
     headline: "Win loads. Run trips. Get paid.",
     description:
       "Join our vendor network, quote on open indents, assign your fleet, and upload delivery proof from your portal.",

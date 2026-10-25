@@ -7,6 +7,7 @@ import { listDocuments } from "@/lib/services/document.service";
 import { invalidateDashboardCache } from "@/lib/invalidate-dashboard-cache";
 import { canManuallyTransitionTrip, DRIVER_TRIP_STATUSES } from "@/lib/trip-states";
 import { cancelOpenAdvanceRequestsForTrips, syncIndentFromTrip } from "@/lib/vendor-trip-sync";
+import { ensureTripRouteGeocoded } from "@/lib/services/trip-route.service";
 
 const now = () => new Date();
 
@@ -68,15 +69,6 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       if (!canManuallyTransitionTrip(existing.status, body.status)) {
         return badRequest(`Invalid trip status change: ${existing.status} → ${body.status}`);
       }
-      if (body.status === "IN_TRANSIT" && existing.vendorId) {
-        const { assertTripAdvanceProcessedForTransit } = await import("@/lib/services/trip-advance.service");
-        try {
-          await assertTripAdvanceProcessedForTransit(params.id);
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "Advance payment required before transit";
-          return forbidden(msg);
-        }
-      }
     }
 
     if (user.role === "DRIVER") {
@@ -88,6 +80,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       if (body.status === "DISPATCHED" && !existing.dispatchedAt) data.dispatchedAt = now();
       if (body.status === "DELIVERED" && !existing.deliveredAt) data.deliveredAt = now();
       const trip = await prisma.trip.update({ where: { id: params.id }, data });
+      if (body.status === "DISPATCHED" || body.status === "IN_TRANSIT") {
+        await ensureTripRouteGeocoded(params.id);
+      }
       await syncIndentFromTrip(params.id);
       await invalidateDashboardCache();
       await notifyClientOfTripStatus(params.id, body.status);
@@ -148,8 +143,30 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       const vr = body.vendorRate != null ? Number(body.vendorRate) : existing.vendorRate.toNumber();
       data.margin = cr - vr;
     }
+    if (body.expectedEndAt !== undefined) {
+      data.expectedEndAt = body.expectedEndAt ? new Date(body.expectedEndAt) : null;
+    }
+    if (body.routeFrom !== undefined || body.routeTo !== undefined) {
+      data.routeGeocodedAt = null;
+      if (body.routeFrom !== undefined) {
+        data.originLat = null;
+        data.originLng = null;
+      }
+      if (body.routeTo !== undefined) {
+        data.destLat = null;
+        data.destLng = null;
+      }
+    }
 
     const trip = await prisma.trip.update({ where: { id: params.id }, data });
+    if (
+      data.status === "DISPATCHED" ||
+      data.status === "IN_TRANSIT" ||
+      body.routeFrom !== undefined ||
+      body.routeTo !== undefined
+    ) {
+      await ensureTripRouteGeocoded(params.id);
+    }
     const changedFields = Object.keys(data);
     if (changedFields.length > 0) {
       if (data.status && data.status !== existing.status) {

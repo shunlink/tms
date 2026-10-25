@@ -11,6 +11,12 @@ describe("RBAC role permissions", () => {
     expect(DEFAULT_ROLE_PERMISSIONS.SUPER_ADMIN).toEqual([...PERMISSION_KEYS]);
   });
 
+  it("FINANCE has separate payment approve and process permissions", () => {
+    const finance = new Set(DEFAULT_ROLE_PERMISSIONS.FINANCE);
+    expect(finance.has("payment.approve")).toBe(true);
+    expect(finance.has("payment.process")).toBe(true);
+  });
+
   it("FINANCE can create indents, allocate, and verify POD but cannot edit trips", () => {
     const finance = new Set(DEFAULT_ROLE_PERMISSIONS.FINANCE);
     expect(finance.has("indent.create")).toBe(true);

@@ -22,14 +22,15 @@ import {
   Network,
   TrendingUp,
   Phone,
-  User,
 } from "lucide-react";
 import BrandLogo from "@/components/brand-logo";
 import { useToast } from "@/components/toast";
 import { driverLoginOtpRequestSchema, otpSchema, signupSchema } from "@/lib/validation";
 import { otpErrorMessage, parseApiError } from "@/lib/toast-utils";
 import ForgotPasswordPanel from "@/components/forms/forgot-password-panel";
+import { LOGIN_PORTAL_MISMATCH_MESSAGE } from "@/lib/login-portal";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 type PortalType = "employee" | "transporter" | "client";
 type AuthTab = "login" | "register";
 
@@ -206,7 +207,6 @@ function LoginContent() {
   const [showPassword, setShowPassword] = useState(false);
 
   // Registration fields
-  const [regName, setRegName] = useState("");
   const [regCompanyName, setRegCompanyName] = useState("");
   const [regEmail, setRegEmail] = useState("");
   const [regPhone, setRegPhone] = useState("");
@@ -243,20 +243,29 @@ function LoginContent() {
     return () => clearInterval(t);
   }, [resendCooldown]);
 
-  function switchPortal(target: PortalType) {
-    setPortal(target);
-    setAuthTab("login");
-    setIsDriverMode(false);
-    setIsForgotMode(false);
-    setError("");
+  function loginErrorMessage(error: string | undefined) {
+    if (!error || error === "CredentialsSignin") return "Invalid email or password";
+    if (error.includes(LOGIN_PORTAL_MISMATCH_MESSAGE) || error.includes("authorized")) {
+      return LOGIN_PORTAL_MISMATCH_MESSAGE;
+    }
+    return error;
   }
 
-  function goHome(role: string | undefined) {
-    let home = "/";
-    if (role === "CLIENT") home = "/portal/client";
-    else if (role === "VENDOR") home = "/portal/vendor";
-    else if (role === "DRIVER") home = "/driver";
-    router.push(home);
+  function loginPortalForUi(): "client" | "employee" | "vendor" {
+    if (portal === "client") return "client";
+    if (portal === "employee") return "employee";
+    return "vendor";
+  }
+
+  async function goHomeAfterLogin() {
+    const { resolvePostLoginPath } = await import("@/lib/vendor-quote-portal-url");
+    const next = searchParams.get("next");
+    const callbackUrl = searchParams.get("callbackUrl");
+    const destRes = await fetch("/api/auth/post-login-destination");
+    const dest = await destRes.json().catch(() => ({}));
+    const fallback = typeof dest.path === "string" ? dest.path : "/";
+    const path = resolvePostLoginPath(next, callbackUrl, fallback);
+    router.push(path);
     router.refresh();
   }
 
@@ -264,18 +273,21 @@ function LoginContent() {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const res = await signIn("credentials", { email, password, redirect: false });
+    const res = await signIn("credentials", {
+      email,
+      password,
+      loginPortal: loginPortalForUi(),
+      redirect: false,
+    });
     setLoading(false);
     if (res?.error) {
-      const msg = res.error === "CredentialsSignin" ? "Invalid email or password" : res.error;
+      const msg = loginErrorMessage(res.error);
       setError(msg);
       toast.push({ title: msg, variant: "error" });
       return;
     }
-    const sessionRes = await fetch("/api/auth/session");
-    const session = await sessionRes.json();
     toast.push({ title: "Signed in successfully", variant: "success" });
-    goHome(session?.user?.role as string | undefined);
+    await goHomeAfterLogin();
   }
 
   async function handleRegister(e: React.FormEvent) {
@@ -285,7 +297,6 @@ function LoginContent() {
     const role: "CLIENT" | "VENDOR" = portal === "client" ? "CLIENT" : "VENDOR";
     const payload = {
       role,
-      name: regName,
       companyName: regCompanyName,
       email: regEmail,
       phone: regPhone,
@@ -306,12 +317,10 @@ function LoginContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(parsed.data),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJsonBody(res);
     if (!res.ok) {
       setRegLoading(false);
-      const msg = parseApiError(data, "Registration failed. Please try again.");
-      setError(msg);
-      toast.push({ title: msg, variant: "error" });
+      reportApiFailure(res, data, { toast, setError, fallback: "Registration failed. Please try again." });
       return;
     }
 
@@ -319,6 +328,7 @@ function LoginContent() {
     const signInRes = await signIn("credentials", {
       email: regEmail,
       password: regPassword,
+      loginPortal: role === "CLIENT" ? "client" : "vendor",
       redirect: false,
     });
     setRegLoading(false);
@@ -358,16 +368,11 @@ function LoginContent() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(parsed.data),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJsonBody(res);
     setLoading(false);
-
     if (!res.ok) {
-      const msg = otpErrorMessage(data) || parseApiError(data, "Failed to send OTP");
-      setError(msg);
-      toast.push({ title: msg, variant: "error" });
-      if (typeof data.retryAfter === "number" && data.retryAfter > 0) {
-        setResendCooldown(data.retryAfter);
-      }
+      const err = reportApiFailure(res, data, { toast, setError, fallback: "Failed to send OTP" });
+      if (err.retryAfter && err.retryAfter > 0) setResendCooldown(err.retryAfter);
       return;
     }
 
@@ -393,17 +398,18 @@ function LoginContent() {
       email: dlNumber,
       password: parsed.data,
       driverLogin: "1",
+      loginPortal: "driver",
       redirect: false,
     });
     setLoading(false);
     if (res?.error) {
-      const msg = "Incorrect OTP. Please try again.";
+      const msg = loginErrorMessage(res.error) || "Incorrect OTP. Please try again.";
       setError(msg);
       toast.push({ title: msg, variant: "error" });
       return;
     }
     toast.push({ title: "Signed in successfully", variant: "success" });
-    goHome("DRIVER");
+    await goHomeAfterLogin();
   }
 
   async function handleResend() {
@@ -433,20 +439,19 @@ function LoginContent() {
     displayCardTitle = "Driver Login";
     displayCardSubtitle = "Enter your Driving License & OTP to proceed";
   } else if (authTab === "register") {
+    displayCardTitle = "Signup";
     if (portal === "client") {
-      displayCardTitle = "Register Client";
       displayCardSubtitle = "Create your corporate shipping account";
     } else if (portal === "transporter") {
-      displayCardTitle = "Register Vendor";
       displayCardSubtitle = "Join the verified ShunLink transporter network";
     }
   } else {
-    if (portal === "client") {
-      displayCardTitle = "Client Login";
-      displayCardSubtitle = "Access your ShunLink TMS client workspace";
-    } else if (portal === "transporter") {
-      displayCardTitle = "Vendor Login";
-      displayCardSubtitle = "Access loads, manage trips and grow with ShunLink";
+    if (portal === "client" || portal === "transporter") {
+      displayCardTitle = "Signin";
+      displayCardSubtitle =
+        portal === "client"
+          ? "Access your ShunLink TMS client workspace"
+          : "Access loads, manage trips and grow with ShunLink";
     } else {
       displayCardTitle = "Employee Login";
       displayCardSubtitle = "Access your ShunLink internal workspace";
@@ -540,8 +545,8 @@ function LoginContent() {
           RIGHT PANE (Login / Register Card)
           ========================================================================= */}
       <div className="flex flex-col justify-between p-6 sm:p-10 lg:p-12 xl:p-16 min-h-screen overflow-y-auto">
-        {/* Top Header: Back Link & Portal Switcher */}
-        <div className="flex items-center justify-between gap-4 mb-6">
+        {/* Top Header: Back Link */}
+        <div className="mb-6">
           <Link
             href="/welcome"
             className="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-950 transition-colors"
@@ -549,37 +554,6 @@ function LoginContent() {
             <ArrowLeft className="h-4 w-4" />
             <span>Back to portal selection</span>
           </Link>
-
-          {/* Quick Portal Switcher Pills */}
-          <div className="hidden sm:inline-flex p-1 bg-gray-100 rounded-lg text-xs font-semibold text-gray-600">
-            <button
-              type="button"
-              onClick={() => switchPortal("employee")}
-              className={`px-2.5 py-1 rounded-md transition-all ${
-                portal === "employee" ? "bg-white text-gray-900 shadow-sm" : "hover:text-gray-900"
-              }`}
-            >
-              Employee
-            </button>
-            <button
-              type="button"
-              onClick={() => switchPortal("transporter")}
-              className={`px-2.5 py-1 rounded-md transition-all ${
-                portal === "transporter" ? "bg-white text-gray-900 shadow-sm" : "hover:text-gray-900"
-              }`}
-            >
-              Transporter
-            </button>
-            <button
-              type="button"
-              onClick={() => switchPortal("client")}
-              className={`px-2.5 py-1 rounded-md transition-all ${
-                portal === "client" ? "bg-white text-gray-900 shadow-sm" : "hover:text-gray-900"
-              }`}
-            >
-              Client
-            </button>
-          </div>
         </div>
 
         {/* Center: Main Elevated Card */}
@@ -617,7 +591,7 @@ function LoginContent() {
                       : "text-gray-500 hover:text-gray-900"
                   }`}
                 >
-                  Standard Login
+                  Signin
                 </button>
                 <button
                   type="button"
@@ -631,7 +605,7 @@ function LoginContent() {
                       : "text-gray-500 hover:text-gray-900"
                   }`}
                 >
-                  {portal === "client" ? "Register Client" : "Register Vendor"}
+                  Signup
                 </button>
               </div>
             )}
@@ -661,26 +635,6 @@ function LoginContent() {
             ) : authTab === "register" ? (
               /* ================= REGISTER FORM (Client or Vendor) ================= */
               <form onSubmit={handleRegister} className="space-y-4">
-                {/* Full Name */}
-                <div>
-                  <label className="block text-xs sm:text-sm font-semibold text-gray-800 mb-1.5">
-                    Full Name
-                  </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
-                      <User className="h-4 w-4" />
-                    </div>
-                    <input
-                      type="text"
-                      required
-                      value={regName}
-                      onChange={(e) => setRegName(e.target.value)}
-                      placeholder="As per official records"
-                      className="w-full pl-10 pr-4 py-3 text-sm bg-white border border-gray-200 rounded-xl text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#F5D33C]/30 focus:border-[#F5D33C] transition-all"
-                    />
-                  </div>
-                </div>
-
                 {/* Company / Fleet Name */}
                 <div>
                   <label className="block text-xs sm:text-sm font-semibold text-gray-800 mb-1.5">

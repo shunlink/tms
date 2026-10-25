@@ -6,6 +6,7 @@ import { nextNumber } from "../sequence";
 import type { SessionUser } from "../auth";
 import { completeInvoiceTask } from "./invoice-task.service";
 import { rejectDirectInvoicePaymentFields } from "../invoice-payment";
+import type { ClientInvoiceLineKind } from "../invoice-line-kinds";
 
 const tripInclude = {
   client: {
@@ -54,8 +55,16 @@ function n(v: Prisma.Decimal | number | null | undefined) {
   return typeof v === "number" ? v : Number(v);
 }
 
+function clientInvoiceSendDates(now: Date, paymentTermsDays: number | null | undefined) {
+  const terms = paymentTermsDays ?? 30;
+  const dueDate = new Date(now);
+  dueDate.setDate(dueDate.getDate() + terms);
+  return { issueDate: now, dueDate };
+}
+
 export type InvoiceLineInput = {
   tripId: string;
+  lineKind?: ClientInvoiceLineKind;
   amount?: number;
   gstRate?: number;
   description?: string | null;
@@ -99,11 +108,7 @@ export function buildBillingSnapshot(
   };
 }
 
-/** Build editable line snapshot from trip/indent (does not write to Trip/Indent). */
-export function buildLineSnapshot(
-  trip: Prisma.TripGetPayload<{ include: typeof tripInclude }>,
-  gstRate: number
-) {
+function tripLineMeta(trip: Prisma.TripGetPayload<{ include: typeof tripInclude }>) {
   const indent = trip.indent;
   const origin = indent?.loading?.city ?? trip.routeFrom;
   const destination = indent?.unloading?.city ?? trip.routeTo;
@@ -112,23 +117,95 @@ export function buildLineSnapshot(
     indent?.cargo?.description ??
     indent?.consignment?.cargoTypeCode ??
     null;
-
-  const amount = n(trip.clientRate);
-  const lineGstRate = indent?.clientFreight?.gstRate != null ? n(indent.clientFreight.gstRate) : gstRate;
-
+  const lineGstRate =
+    indent?.clientFreight?.gstRate != null ? n(indent.clientFreight.gstRate) : null;
   return {
-    tripId: trip.id,
-    amount,
-    gstRate: lineGstRate,
-    gstAmount: Math.round(amount * lineGstRate * 100) / 100,
-    description: cargo,
+    origin,
+    destination,
+    cargo,
+    lineGstRate,
     lrNumber: trip.lrNumber,
-    routeFrom: origin,
-    routeTo: destination,
-    cargoSummary: cargo,
     vehicleReg: trip.vehicle.registrationNumber,
     indentNumber: indent?.indentNumber ?? null,
   };
+}
+
+/** Build editable line snapshot from trip/indent (does not write to Trip/Indent). */
+export function buildLineSnapshot(
+  trip: Prisma.TripGetPayload<{ include: typeof tripInclude }>,
+  gstRate: number
+) {
+  const meta = tripLineMeta(trip);
+  const amount = n(trip.clientRate);
+  const lineGstRate = meta.lineGstRate ?? gstRate;
+
+  return {
+    tripId: trip.id,
+    lineKind: "FREIGHT" as ClientInvoiceLineKind,
+    amount,
+    gstRate: lineGstRate,
+    gstAmount: Math.round(amount * lineGstRate * 100) / 100,
+    description: meta.cargo,
+    lrNumber: meta.lrNumber,
+    routeFrom: meta.origin,
+    routeTo: meta.destination,
+    cargoSummary: meta.cargo,
+    vehicleReg: meta.vehicleReg,
+    indentNumber: meta.indentNumber,
+  };
+}
+
+/** Freight + optional loading/unloading lines for client invoice prefill/create. */
+export function buildTripInvoiceLines(
+  trip: Prisma.TripGetPayload<{ include: typeof tripInclude }>,
+  gstRate: number
+) {
+  const meta = tripLineMeta(trip);
+  const lineGstRate = meta.lineGstRate ?? gstRate;
+  const base = {
+    tripId: trip.id,
+    gstRate: lineGstRate,
+    lrNumber: meta.lrNumber,
+    routeFrom: meta.origin,
+    routeTo: meta.destination,
+    cargoSummary: meta.cargo,
+    vehicleReg: meta.vehicleReg,
+    indentNumber: meta.indentNumber,
+  };
+
+  const lines: ReturnType<typeof buildLineSnapshot>[] = [];
+  const freightAmount = n(trip.clientRate);
+  lines.push({
+    ...base,
+    lineKind: "FREIGHT",
+    amount: freightAmount,
+    gstAmount: Math.round(freightAmount * lineGstRate * 100) / 100,
+    description: meta.cargo,
+  });
+
+  const loading = n(trip.clientLoadingCharge);
+  if (loading > 0) {
+    lines.push({
+      ...base,
+      lineKind: "LOADING",
+      amount: loading,
+      gstAmount: Math.round(loading * lineGstRate * 100) / 100,
+      description: `Loading charges — ${meta.lrNumber}`,
+    });
+  }
+
+  const unloading = n(trip.clientUnloadingCharge);
+  if (unloading > 0) {
+    lines.push({
+      ...base,
+      lineKind: "UNLOADING",
+      amount: unloading,
+      gstAmount: Math.round(unloading * lineGstRate * 100) / 100,
+      description: `Unloading charges — ${meta.lrNumber}`,
+    });
+  }
+
+  return lines;
 }
 
 /** Load trips eligible for invoicing (POD verified / CLOSED, no invoice yet). */
@@ -150,7 +227,7 @@ export async function getInvoicePrefill(tripIds: string[], gstRate = 0.18) {
   }
 
   const billing = buildBillingSnapshot(trips[0].client);
-  const lines = trips.map((t) => buildLineSnapshot(t, gstRate));
+  const lines = trips.flatMap((t) => buildTripInvoiceLines(t, gstRate));
 
   return { clientId, billing, lines, trips: trips.map((t) => t.id) };
 }
@@ -173,25 +250,44 @@ export async function createInvoice(input: CreateInvoiceInput, actor?: SessionUs
   const defaultBilling = buildBillingSnapshot(trips[0].client);
   const billing = { ...defaultBilling, ...input.billing };
 
-  const lineMap = new Map((input.lines ?? []).map((l) => [l.tripId, l]));
-  const resolvedLines = trips.map((trip) => {
-    const defaults = buildLineSnapshot(trip, input.gstRate);
-    const overrides: Partial<InvoiceLineInput> = lineMap.get(trip.id) ?? {};
-    const amount = overrides.amount ?? defaults.amount;
-    const gstRate = overrides.gstRate ?? defaults.gstRate;
-    return {
-      tripId: trip.id,
-      amount,
-      gstRate,
-      gstAmount: Math.round(amount * gstRate * 100) / 100,
-      description: overrides.description ?? defaults.description,
-      lrNumber: overrides.lrNumber ?? defaults.lrNumber,
-      routeFrom: overrides.routeFrom ?? defaults.routeFrom,
-      routeTo: overrides.routeTo ?? defaults.routeTo,
-      cargoSummary: overrides.cargoSummary ?? defaults.cargoSummary,
-      vehicleReg: overrides.vehicleReg ?? defaults.vehicleReg,
-      indentNumber: overrides.indentNumber ?? defaults.indentNumber,
-    };
+  const lineByKey = new Map(
+    (input.lines ?? []).map((l) => [`${l.tripId}:${l.lineKind ?? "FREIGHT"}`, l])
+  );
+  const linesByTripOrder = new Map<string, InvoiceLineInput[]>();
+  for (const l of input.lines ?? []) {
+    const list = linesByTripOrder.get(l.tripId) ?? [];
+    list.push(l);
+    linesByTripOrder.set(l.tripId, list);
+  }
+  const resolvedLines = trips.flatMap((trip) => {
+    const defaults = buildTripInvoiceLines(trip, input.gstRate);
+    const orderedInputs = linesByTripOrder.get(trip.id);
+    return defaults.map((def, idx) => {
+      const key = `${trip.id}:${def.lineKind}`;
+      let overrides: Partial<InvoiceLineInput> = lineByKey.get(key) ?? {};
+      if (!lineByKey.has(key) && orderedInputs?.length === defaults.length) {
+        const positional = orderedInputs[idx];
+        if (positional && (!positional.lineKind || positional.lineKind === def.lineKind)) {
+          overrides = positional;
+        }
+      }
+      const amount = overrides.amount ?? def.amount;
+      const gstRate = overrides.gstRate ?? def.gstRate;
+      return {
+        tripId: trip.id,
+        lineKind: def.lineKind,
+        amount,
+        gstRate,
+        gstAmount: Math.round(amount * gstRate * 100) / 100,
+        description: overrides.description ?? def.description,
+        lrNumber: overrides.lrNumber ?? def.lrNumber,
+        routeFrom: overrides.routeFrom ?? def.routeFrom,
+        routeTo: overrides.routeTo ?? def.routeTo,
+        cargoSummary: overrides.cargoSummary ?? def.cargoSummary,
+        vehicleReg: overrides.vehicleReg ?? def.vehicleReg,
+        indentNumber: overrides.indentNumber ?? def.indentNumber,
+      };
+    });
   });
 
   const subTotal = resolvedLines.reduce((s, l) => s + l.amount, 0);
@@ -279,9 +375,15 @@ export async function finalizeInvoice(invoiceId: string, actor?: SessionUser | n
   if (existing.finalizedAt) throw new Error("Invoice is already finalized");
 
   const now = new Date();
+  const sendDates = clientInvoiceSendDates(now, existing.paymentTermsDays);
   const invoice = await prisma.clientInvoice.update({
     where: { id: invoiceId },
-    data: { status: "UNPAID", finalizedAt: now },
+    data: {
+      status: "UNPAID",
+      finalizedAt: now,
+      issueDate: sendDates.issueDate,
+      dueDate: sendDates.dueDate,
+    },
     include: { lines: { include: { trip: { select: { lrNumber: true } } } } },
   });
 
@@ -338,8 +440,14 @@ export async function updateInvoice(
     before.status = existing.status;
     after.status = input.status;
     if (input.status === "SENT" && !existing.finalizedAt) {
-      data.finalizedAt = new Date();
+      const sentAt = new Date();
+      const sendDates = clientInvoiceSendDates(sentAt, existing.paymentTermsDays);
+      data.finalizedAt = sentAt;
+      data.issueDate = sendDates.issueDate;
+      data.dueDate = sendDates.dueDate;
       after.finalizedAt = data.finalizedAt;
+      after.issueDate = data.issueDate;
+      after.dueDate = data.dueDate;
     }
   }
 

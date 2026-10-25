@@ -61,6 +61,7 @@ export async function listIndents(filters?: { status?: string }) {
 }
 
 export async function getIndentById(id: string) {
+  await import("../indent-line-sync").then((m) => m.reconcileIndentLines(id));
   const row = await prisma.indent.findFirst({
     where: { id },
     include: indentFullInclude,
@@ -230,6 +231,56 @@ async function createIndentLines(
   }
 }
 
+async function syncIndentLineQuantity(
+  tx: Prisma.TransactionClient,
+  indentId: string,
+  quantity: number,
+  vehicleTypeCode?: string,
+  bodyTypeCode?: string | null
+) {
+  const qty = Math.max(1, quantity);
+  const indent = await tx.indent.findFirst({
+    where: { id: indentId },
+    include: {
+      consignment: { select: { vehicleTypeCode: true, bodyTypeCode: true } },
+      lines: { orderBy: { lineNumber: "asc" } },
+    },
+  });
+  if (!indent) return;
+
+  const vType = vehicleTypeCode ?? indent.consignment?.vehicleTypeCode ?? "TRUCK_17FT";
+  const bType = bodyTypeCode ?? indent.consignment?.bodyTypeCode ?? null;
+  const lines = indent.lines;
+
+  if (lines.length < qty) {
+    for (let n = lines.length + 1; n <= qty; n++) {
+      await tx.indentLine.create({
+        data: {
+          indentId,
+          lineNumber: n,
+          vehicleTypeCode: vType,
+          bodyTypeCode: bType,
+        },
+      });
+    }
+    return;
+  }
+
+  if (lines.length > qty) {
+    const extras = lines.filter((l) => l.lineNumber > qty);
+    for (const line of extras) {
+      if (line.tripId) {
+        throw new Error("Cannot reduce vehicle count after trips have been created");
+      }
+      if (line.status !== "OPEN" && line.status !== "CANCELLED") {
+        throw new Error("Cannot reduce vehicle count: remove allocated slots first");
+      }
+      await tx.indentAllocation.deleteMany({ where: { indentLineId: line.id } });
+      await tx.indentLine.delete({ where: { id: line.id } });
+    }
+  }
+}
+
 /** Convert a client requirement into an indent draft (requirement data prefilled). */
 export async function createIndentFromRequirement(requirementId: string, createdById?: string | null) {
   const req = await prisma.requirement.findFirst({
@@ -379,6 +430,10 @@ export async function updateIndent(id: string, input: Partial<IndentInput>) {
       await tx.indentConsignment.update({ where: { indentId: id }, data: consignmentPatch });
     }
 
+    if (input.quantity != null) {
+      await syncIndentLineQuantity(tx, id, input.quantity, input.vehicleType, input.bodyType);
+    }
+
     if (input.clientRate != null || input.freightType || input.paymentMode) {
       await tx.indentClientFreight.update({
         where: { indentId: id },
@@ -518,10 +573,11 @@ export async function submitForAdvance(id: string, user?: SessionUser) {
 export async function releaseIndentToVendors(
   id: string,
   cities: string[],
+  zones: string[] = [],
   user?: SessionUser
 ) {
   const { releaseIndentToCities } = await import("./release.service");
-  const result = await releaseIndentToCities(id, cities, user);
+  const result = await releaseIndentToCities(id, cities, zones, user);
   if (!result) return null;
   return getIndentById(id);
 }
@@ -567,8 +623,6 @@ export async function transitionIndent(id: string, to: string, user?: SessionUse
       select: { id: true },
     });
     if (!trip) throw new Error("Create trip before starting transit");
-    const { assertTripAdvanceProcessedForTransit } = await import("./trip-advance.service");
-    await assertTripAdvanceProcessedForTransit(trip.id);
 
     const { checkIndentTripReadiness } = await import("../integrations/trip-readiness");
     const readiness = await checkIndentTripReadiness(id);

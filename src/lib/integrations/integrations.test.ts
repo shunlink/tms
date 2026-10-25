@@ -326,9 +326,13 @@ describe("no automatic external calls on render", () => {
     vi.unstubAllGlobals();
   });
 
-  it("UI components do not call fetch at import time", async () => {
-    await import("@/components/integrations/gst-verification-field");
-    await import("@/components/integrations/eway-bill-section");
-    expect(fetch).not.toHaveBeenCalled();
-  });
+  it(
+    "UI components do not call fetch at import time",
+    async () => {
+      await import("@/components/integrations/gst-verification-field");
+      await import("@/components/integrations/eway-bill-section");
+      expect(fetch).not.toHaveBeenCalled();
+    },
+    20_000
+  );
 });

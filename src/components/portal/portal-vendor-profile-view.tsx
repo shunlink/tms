@@ -6,6 +6,7 @@ import {
   ProfileFieldGrid,
   formatProfileValue,
 } from "@/components/portal/portal-profile-field";
+import { formatDeliveryZones } from "@/lib/delivery-zones";
 
 const VENDOR_TYPE_LABEL: Record<string, string> = {
   FLEET_OWNER: "Fleet owner",
@@ -39,6 +40,7 @@ type VendorProfileData = {
   paymentTerms: number | null;
   tdsApplicable?: boolean;
   notes: string | null;
+  deliveryZones?: string[];
 };
 
 export default function PortalVendorProfileView({ vendor }: { vendor: VendorProfileData }) {
@@ -89,6 +91,10 @@ export default function PortalVendorProfileView({ vendor }: { vendor: VendorProf
           <ProfileField label="City" value={vendor.city} />
           <ProfileField label="State" value={vendor.state} />
           <ProfileField label="Pincode" value={vendor.pincode} />
+          <ProfileField
+            label="Delivery zones"
+            value={formatDeliveryZones(vendor.deliveryZones ?? [])}
+          />
         </ProfileFieldGrid>
       </PortalSectionCard>
 

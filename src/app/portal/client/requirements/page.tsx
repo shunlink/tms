@@ -11,6 +11,8 @@ import {
 import { getSessionUser } from "@/lib/auth";
 import { getClientRequirements } from "@/lib/queries";
 import { formatINR, formatDate } from "@/lib/utils";
+import PortalPage from "@/components/portal/portal-page";
+import PortalTableExport from "@/components/portal/portal-table-export";
 
 export const dynamic = "force-dynamic";
 
@@ -28,8 +30,27 @@ export default async function ClientRequirementsPage() {
     ["FULFILLED", "COMPLETED"].includes(r.status)
   ).length;
 
+  const requirementExportColumns = [
+    { key: "reqNumber", header: "Requirement No." },
+    { key: "route", header: "Route" },
+    { key: "vehicleType", header: "Vehicle Type" },
+    { key: "allocated", header: "Allocated" },
+    { key: "expectedDate", header: "Expected Date" },
+    { key: "clientRate", header: "Target Rate" },
+    { key: "status", header: "Status" },
+  ];
+  const requirementExportRows = requirements.map((r) => ({
+    reqNumber: r.reqNumber,
+    route: r.route,
+    vehicleType: r.vehicleType.replace(/_/g, " "),
+    allocated: `${r.allocated} / ${r.quantity}`,
+    expectedDate: formatDate(r.expectedDate),
+    clientRate: r.clientRate ? formatINR(r.clientRate) : "",
+    status: r.status,
+  }));
+
   return (
-    <div className="space-y-6">
+    <PortalPage>
       {/* =========================================================================
           PAGE HEADER
           ========================================================================= */}
@@ -45,7 +66,8 @@ export default async function ClientRequirementsPage() {
         <div>
           <Link
             href="/portal/client/requirements/new"
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-xs sm:text-sm shadow-xs transition-colors"
+            data-portal-mutate
+            className="inline-flex items-center justify-center gap-2 min-h-[44px] px-4 py-2.5 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-xs sm:text-sm shadow-xs transition-colors w-full sm:w-auto"
           >
             <Plus className="h-4 w-4" />
             <span>Create Requirement</span>
@@ -56,7 +78,7 @@ export default async function ClientRequirementsPage() {
       {/* =========================================================================
           METRICS CARDS
           ========================================================================= */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         <div className="bg-white rounded-2xl border border-gray-200/80 p-5 flex items-center justify-between shadow-2xs">
           <div className="flex items-center gap-3.5">
             <div className="h-11 w-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
@@ -109,6 +131,11 @@ export default async function ClientRequirementsPage() {
               Vehicles requested, supplier allocation progress, and quoted rates
             </p>
           </div>
+          <PortalTableExport
+            fileName="client-requirements"
+            columns={requirementExportColumns}
+            rows={requirementExportRows}
+          />
         </div>
 
         {requirements.length === 0 ? (
@@ -122,6 +149,7 @@ export default async function ClientRequirementsPage() {
             </p>
             <Link
               href="/portal/client/requirements/new"
+            data-portal-mutate
               className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-xs shadow-2xs transition-colors"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -203,6 +231,6 @@ export default async function ClientRequirementsPage() {
           </div>
         )}
       </div>
-    </div>
+    </PortalPage>
   );
 }

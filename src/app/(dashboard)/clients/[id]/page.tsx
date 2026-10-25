@@ -22,7 +22,7 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
   if (!c) notFound();
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full max-w-4xl mx-auto">
       <Link href="/clients" className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-4">
         <ArrowLeft className="h-4 w-4" /> Back to Clients
       </Link>
@@ -48,7 +48,6 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
         <Card>
           <CardHeader><CardTitle>Company</CardTitle></CardHeader>
           <CardContent>
-            <Row label="Legal Name" value={c.legalName} />
             <Row label="Industry" value={c.industry} />
             <Row label="Website" value={c.website} />
             <Row label="GSTIN" value={c.gstin} />

@@ -1,11 +1,14 @@
 import { requireAuth, ok, badRequest, notFound, serverError, unauthorized } from "@/lib/api";
 import { tripAdvanceRequestSchema, validate } from "@/lib/validation";
 import {
+  advanceWindowClosedReason,
   createShunLinkAdvanceRequest,
   getVendorTripAdvanceRequest,
+  isTripAdvanceWindowOpen,
   recordExternalAdvanceIntent,
   vendorAcceptNegotiatedAdvance,
 } from "@/lib/services/trip-advance.service";
+import { prisma } from "@/lib/prisma";
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const auth = await requireAuth();
@@ -14,7 +17,20 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   try {
     const request = await getVendorTripAdvanceRequest(auth.user.vendorId, params.id);
-    return ok({ request });
+    const trip = await prisma.trip.findFirst({
+      where: { id: params.id, vendorId: auth.user.vendorId },
+      select: { status: true },
+    });
+    const windowOpen = trip ? await isTripAdvanceWindowOpen(params.id) : false;
+    const closedReason = trip ? advanceWindowClosedReason(trip.status) : null;
+    const hasLiveRequest = Boolean(
+      request && !["REJECTED", "CANCELLED"].includes(request.status)
+    );
+    return ok({
+      request,
+      canRequestAdvance: windowOpen && !hasLiveRequest,
+      advanceWindowClosedReason: closedReason,
+    });
   } catch (e) {
     return serverError(e);
   }
@@ -69,6 +85,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       msg.includes("not found") ||
       msg.includes("already exists") ||
       msg.includes("cannot be requested") ||
+      msg.includes("before the trip is marked delivered") ||
       msg.includes("must be")
     ) {
       return badRequest(msg);

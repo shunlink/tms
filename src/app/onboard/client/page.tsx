@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import PortalOnboardingClientContent from "@/components/onboarding/portal-onboarding-client-content";
 import { getSessionUser } from "@/lib/auth";
+import { clientOnboardEntryPath } from "@/lib/client-onboarding";
 import { getClientDetail } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -15,9 +16,12 @@ export default async function OnboardClientPage() {
   if (!c) redirect("/login");
   if (c.onboardingStatus === "APPROVED") redirect("/portal/client");
 
+  const target = clientOnboardEntryPath(c.onboardingStatus);
+  if (target !== "/onboard/client") redirect(target);
+
   const initial = {
     name: c.name ?? "",
-    legalName: c.legalName ?? "",
+    businessType: c.businessType ?? "",
     industry: c.industry ?? "",
     website: c.website ?? "",
     gstin: c.gstin ?? "",

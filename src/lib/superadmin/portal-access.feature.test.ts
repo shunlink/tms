@@ -104,7 +104,11 @@ describe("master otp lifecycle", () => {
 
   it("invalidates previous otp after regeneration", async () => {
     const oldCode = "old-secret";
-    const newCode = "new-secret";
+    prismaMock.user.findUnique.mockResolvedValue({
+      password: "hashed",
+      role: "SUPER_ADMIN",
+      isActive: true,
+    });
     prismaMock.masterOtpConfig.upsert.mockImplementation(async (args: { update: { otpHash: string } }) => {
       prismaMock.masterOtpConfig.findUnique.mockResolvedValue({ otpHash: args.update.otpHash });
       return {};
@@ -112,13 +116,16 @@ describe("master otp lifecycle", () => {
     prismaMock.masterOtpConfig.findUnique.mockResolvedValue({ otpHash: hashOtp(oldCode) });
     expect(await verifyMasterOtpForActor(actorId, oldCode)).toBe(true);
 
-    await regenerateMasterOtp(
+    const regenerated = await regenerateMasterOtp(
       { id: actorId, role: "SUPER_ADMIN", email: "super@shunlink.in" },
       "password"
     );
 
+    expect(regenerated.ok).toBe(true);
     expect(await verifyMasterOtpForActor(actorId, oldCode)).toBe(false);
-    expect(await verifyMasterOtpForActor(actorId, newCode)).toBe(true);
+    if (regenerated.ok) {
+      expect(await verifyMasterOtpForActor(actorId, regenerated.plaintext)).toBe(true);
+    }
   });
 });
 

@@ -18,7 +18,13 @@ import {
   assertAdvanceRequestTransition,
 } from "../advance-request-states";
 import type { SessionUser } from "../auth";
-import { assertAdvanceWithinFreightCap } from "../advance-limits";
+import { assertAdvanceWithinFreightCap, maxAdvanceForVendorRate } from "../advance-limits";
+import {
+  ADVANCE_WINDOW_CLOSED_MESSAGE,
+  assertTripAdvanceWindowOpen,
+  isTripStatusInAdvanceWindow,
+} from "../advance-trip-window";
+import { randomUUID } from "crypto";
 
 const TRIP_BLOCKED_STATUSES = new Set(["CANCELLED", "CLOSED"]);
 
@@ -106,6 +112,7 @@ function mapAdvanceRequest(row: Prisma.AdvanceRequestGetPayload<{ include: typeo
     approvedAt: row.approvedAt,
     processedAt: row.processedAt,
     escalatedAt: row.escalatedAt,
+    bulkRequestGroupId: row.bulkRequestGroupId,
     remarks: row.remarks,
     negotiationRemarks: row.negotiationRemarks,
     processingRemarks: row.processingRemarks,
@@ -325,22 +332,27 @@ async function assertTripEligibleForAdvance(tripId: string, vendorId: string) {
   if (TRIP_BLOCKED_STATUSES.has(trip.status)) {
     throw new Error(`Advance cannot be requested for a trip in status ${trip.status}`);
   }
+  assertTripAdvanceWindowOpen(trip.status);
   return trip;
 }
 
-/** True when vendor has submitted a live advance request (approval/payment not required). */
-export async function isTripAdvanceClearedForTransit(tripId: string): Promise<boolean> {
-  const live = await prisma.advanceRequest.findFirst({
-    where: { tripId, status: { notIn: ["REJECTED", "CANCELLED"] } },
-    select: { id: true },
+/** Whether vendor may open a new advance request on this trip (before delivered). */
+export async function isTripAdvanceWindowOpen(tripId: string): Promise<boolean> {
+  const trip = await prisma.trip.findFirst({
+    where: { id: tripId },
+    select: { status: true },
   });
-  return Boolean(live);
+  if (!trip) return false;
+  if (TRIP_BLOCKED_STATUSES.has(trip.status)) return false;
+  return isTripStatusInAdvanceWindow(trip.status);
 }
 
-/** Blocks trip/indent transit until vendor submits an advance request. */
-export async function assertTripAdvanceProcessedForTransit(tripId: string) {
-  if (await isTripAdvanceClearedForTransit(tripId)) return;
-  throw new Error("Vendor must submit an advance payment request before starting transit");
+export function advanceWindowClosedReason(status: string): string | null {
+  if (TRIP_BLOCKED_STATUSES.has(status)) {
+    return `Advance cannot be requested for a trip in status ${status}`;
+  }
+  if (!isTripStatusInAdvanceWindow(status)) return ADVANCE_WINDOW_CLOSED_MESSAGE;
+  return null;
 }
 
 /** One live advance per trip across sources — only rejected/cancelled requests allow a new one. */
@@ -368,7 +380,7 @@ async function createManagedAdvanceRequest(
   data: ManagedAdvanceCreateInput,
   source: "SHUNLINK" | "INTERNAL",
   actor?: SessionUser | null,
-  options?: { vendorName?: string; actorName?: string }
+  options?: { vendorName?: string; actorName?: string; bulkRequestGroupId?: string | null }
 ) {
   if (data.requestedAmount <= 0) throw new Error("Requested amount must be greater than zero");
 
@@ -400,6 +412,7 @@ async function createManagedAdvanceRequest(
         deadlineAt,
         requestedById: actor?.id ?? null,
         remarks: data.remarks ?? null,
+        bulkRequestGroupId: options?.bulkRequestGroupId ?? null,
       },
       include: advanceInclude,
     });
@@ -481,9 +494,177 @@ export async function createShunLinkAdvanceRequest(
   tripId: string,
   vendorId: string,
   data: ManagedAdvanceCreateInput,
+  actor?: SessionUser | null,
+  options?: { bulkRequestGroupId?: string | null }
+) {
+  return createManagedAdvanceRequest(tripId, vendorId, data, "SHUNLINK", actor, options);
+}
+
+export type BulkAdvanceEligibleTrip = {
+  tripId: string;
+  lrNumber: string;
+  route: string;
+  vendorRate: number;
+  maxAdvance: number;
+};
+
+/** Trips on an indent where vendor may request a new ShunLink advance. */
+export async function listIndentAdvanceEligibleTrips(vendorId: string, indentId: string) {
+  const indent = await prisma.indent.findFirst({
+    where: { id: indentId, vendorId },
+    select: { id: true, indentNumber: true },
+  });
+  if (!indent) throw new Error("Indent not found or not allocated to this vendor");
+
+  const trips = await prisma.trip.findMany({
+    where: { indentId, vendorId },
+    select: {
+      id: true,
+      lrNumber: true,
+      routeFrom: true,
+      routeTo: true,
+      vendorRate: true,
+      status: true,
+    },
+    orderBy: { lrNumber: "asc" },
+  });
+
+  const eligible: BulkAdvanceEligibleTrip[] = [];
+  for (const trip of trips) {
+    if (TRIP_BLOCKED_STATUSES.has(trip.status)) continue;
+    if (!isTripStatusInAdvanceWindow(trip.status)) continue;
+    const live = await prisma.advanceRequest.findFirst({
+      where: { tripId: trip.id, status: { notIn: ["REJECTED", "CANCELLED"] } },
+      select: { id: true },
+    });
+    if (live) continue;
+    eligible.push({
+      tripId: trip.id,
+      lrNumber: trip.lrNumber,
+      route: `${trip.routeFrom} → ${trip.routeTo}`,
+      vendorRate: n(trip.vendorRate),
+      maxAdvance: maxAdvanceForVendorRate(trip.vendorRate),
+    });
+  }
+
+  return {
+    indentId: indent.id,
+    indentNumber: indent.indentNumber,
+    trips: eligible,
+  };
+}
+
+export function splitBulkAdvanceAmounts(
+  eligible: BulkAdvanceEligibleTrip[],
+  mode: "equal" | "max",
+  totalAmount?: number
+): { tripId: string; requestedAmount: number }[] {
+  if (eligible.length === 0) throw new Error("No eligible trips for bulk advance");
+
+  if (mode === "max") {
+    return eligible.map((t) => ({ tripId: t.tripId, requestedAmount: t.maxAdvance }));
+  }
+
+  if (totalAmount == null || totalAmount <= 0) {
+    throw new Error("totalAmount is required for equal split");
+  }
+
+  const sumMax = eligible.reduce((s, t) => s + t.maxAdvance, 0);
+  if (totalAmount > sumMax) {
+    throw new Error(
+      `Total advance ₹${totalAmount.toLocaleString("en-IN")} exceeds combined maximum ₹${sumMax.toLocaleString("en-IN")} for selected trips`
+    );
+  }
+
+  const n = eligible.length;
+  const base = Math.floor((totalAmount / n) * 100) / 100;
+  let allocated = 0;
+  const items: { tripId: string; requestedAmount: number }[] = [];
+
+  for (let i = 0; i < n; i++) {
+    const isLast = i === n - 1;
+    const cap = eligible[i].maxAdvance;
+    let amount = isLast ? Math.round((totalAmount - allocated) * 100) / 100 : base;
+    if (amount > cap) amount = cap;
+    if (amount <= 0) throw new Error(`Could not split total across trips; check amounts for ${eligible[i].lrNumber}`);
+    items.push({ tripId: eligible[i].tripId, requestedAmount: amount });
+    allocated += amount;
+  }
+
+  const diff = Math.round((totalAmount - allocated) * 100) / 100;
+  if (diff !== 0 && items.length > 0) {
+    const last = items[items.length - 1];
+    const bumped = Math.round((last.requestedAmount + diff) * 100) / 100;
+    if (bumped > eligible[eligible.length - 1].maxAdvance || bumped <= 0) {
+      throw new Error("Could not distribute total amount across trips within per-LR limits");
+    }
+    last.requestedAmount = bumped;
+  }
+
+  return items;
+}
+
+/** Validate bulk items before any writes; throws on first error. */
+export async function validateBulkShunLinkAdvanceItems(
+  vendorId: string,
+  indentId: string,
+  items: { tripId: string; requestedAmount: number }[]
+) {
+  if (items.length === 0) throw new Error("At least one trip is required");
+
+  const tripIds = Array.from(new Set(items.map((i) => i.tripId)));
+  if (tripIds.length !== items.length) throw new Error("Duplicate trips in bulk advance request");
+
+  const trips = await prisma.trip.findMany({
+    where: { id: { in: tripIds }, vendorId, indentId },
+    select: { id: true, lrNumber: true, vendorRate: true, status: true },
+  });
+  const byId = new Map(trips.map((t) => [t.id, t]));
+
+  for (const item of items) {
+    const trip = byId.get(item.tripId);
+    if (!trip) {
+      throw new Error(`Trip ${item.tripId} is not part of this indent or is not assigned to you`);
+    }
+    if (TRIP_BLOCKED_STATUSES.has(trip.status)) {
+      throw new Error(`Advance cannot be requested for trip ${trip.lrNumber} in status ${trip.status}`);
+    }
+    if (!isTripStatusInAdvanceWindow(trip.status)) {
+      throw new Error(`Advance cannot be requested for trip ${trip.lrNumber}: ${ADVANCE_WINDOW_CLOSED_MESSAGE}`);
+    }
+    if (item.requestedAmount <= 0) {
+      throw new Error(`Requested amount must be greater than zero for trip ${trip.lrNumber}`);
+    }
+    assertAdvanceWithinFreightCap(item.requestedAmount, trip.vendorRate);
+    await assertNoLiveAdvanceRequest(item.tripId);
+  }
+}
+
+/** One vendor submit → N trip advance requests linked by bulkRequestGroupId. */
+export async function createBulkShunLinkAdvanceRequests(
+  vendorId: string,
+  indentId: string,
+  items: { tripId: string; requestedAmount: number }[],
+  remarks?: string | null,
   actor?: SessionUser | null
 ) {
-  return createManagedAdvanceRequest(tripId, vendorId, data, "SHUNLINK", actor);
+  await validateBulkShunLinkAdvanceItems(vendorId, indentId, items);
+
+  const bulkRequestGroupId = randomUUID();
+  const requests = [];
+
+  for (const item of items) {
+    const row = await createShunLinkAdvanceRequest(
+      item.tripId,
+      vendorId,
+      { requestedAmount: item.requestedAmount, remarks },
+      actor,
+      { bulkRequestGroupId }
+    );
+    requests.push(row);
+  }
+
+  return { bulkRequestGroupId, requests };
 }
 
 /** Finance/Admin raises advance on behalf of a vendor (same workflow as vendor-initiated). */
@@ -527,12 +708,15 @@ export async function getAdvanceTripContext(tripId: string, vendorId: string) {
     throw new Error(`Advance cannot be requested for a trip in status ${trip.status}`);
   }
 
+  const windowClosedReason = advanceWindowClosedReason(trip.status);
   const advance = await getTripVendorAdvance(tripId);
   const live = await prisma.advanceRequest.findFirst({
     where: { tripId, status: { notIn: ["REJECTED", "CANCELLED"] } },
     select: { requestNumber: true, status: true },
     orderBy: { createdAt: "desc" },
   });
+
+  const canRequestAdvance = !windowClosedReason && !live;
 
   return {
     tripId: trip.id,
@@ -548,6 +732,8 @@ export async function getAdvanceTripContext(tripId: string, vendorId: string) {
     hasLiveRequest: Boolean(live),
     liveRequestNumber: live?.requestNumber ?? null,
     liveRequestStatus: live?.status ?? null,
+    canRequestAdvance,
+    advanceWindowClosedReason: windowClosedReason,
   };
 }
 

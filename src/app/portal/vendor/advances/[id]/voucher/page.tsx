@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import AdvancePaymentVoucherDocument from "@/components/advance-payment-voucher-document";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getCompanyProfile } from "@/lib/company";
 import { getAdvanceVoucherForRequest } from "@/lib/services/advance-voucher.service";
 
 export const dynamic = "force-dynamic";
@@ -18,11 +19,14 @@ export default async function VendorAdvanceVoucherPage({ params }: { params: { i
   });
   if (!owned) notFound();
 
-  const voucher = await getAdvanceVoucherForRequest(params.id);
+  const [voucher, company] = await Promise.all([
+    getAdvanceVoucherForRequest(params.id),
+    getCompanyProfile(),
+  ]);
   if (!voucher?.voucherData) notFound();
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full max-w-4xl mx-auto">
       <Link
         href="/portal/vendor/payments"
         className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-4 print:hidden"
@@ -31,6 +35,7 @@ export default async function VendorAdvanceVoucherPage({ params }: { params: { i
       </Link>
       <AdvancePaymentVoucherDocument
         data={voucher.voucherData}
+        company={company}
         paymentProofUrl={null}
       />
     </div>

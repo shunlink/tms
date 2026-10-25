@@ -7,8 +7,7 @@ import IndentQuotes from "@/components/forms/indent-quotes";
 import IndentForm from "@/components/forms/indent-form";
 import VendorAllocationPanel from "@/components/forms/vendor-allocation-panel";
 import { getSessionUser } from "@/lib/auth";
-import { getIndentDetail, getIndentQuotes, getFormOptions } from "@/lib/queries";
-import { isTripAdvanceClearedForTransit } from "@/lib/services/trip-advance.service";
+import { countBillableTripsForIndent, getIndentDetail, getIndentQuotes, getFormOptions } from "@/lib/queries";
 import { hasPermission, type PermissionKey } from "@/lib/services/permission.service";
 import { indentFlatToFormValues } from "@/lib/mappers/indent-form";
 import IndentLiveTracking from "@/components/forms/indent-live-tracking";
@@ -17,6 +16,7 @@ import PodVerificationPanel from "@/components/forms/pod-verification-panel";
 import { isVendorAdvancePaidStatus } from "@/lib/advance";
 import { formatINR, formatDate } from "@/lib/utils";
 import { getIndentSectionOrder, type IndentDetailSection } from "@/lib/indent-section-order";
+import { getVendorDebitNoteGateStatus } from "@/lib/services/pod.service";
 
 export const dynamic = "force-dynamic";
 
@@ -40,13 +40,26 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 export default async function IndentDetailPage({ params }: { params: { id: string } }) {
-  const [indent, user, quotes, { clients, vendors }] = await Promise.all([
+  const [indent, user, quotes, { clients, vendors }, billableTripCount] = await Promise.all([
     getIndentDetail(params.id),
     getSessionUser(),
     getIndentQuotes(params.id),
     getFormOptions(),
+    countBillableTripsForIndent(params.id),
   ]);
   if (!indent) notFound();
+
+  const podsWithGate = await Promise.all(
+    indent.pods.map(async (p) => {
+      if (p.status !== "BAD_POD" || !p.tripId) return p;
+      const gate = await getVendorDebitNoteGateStatus(p.tripId, p.id);
+      return {
+        ...p,
+        debitNoteGateSatisfied: gate.satisfied,
+        issuedDebitNoteNumber: gate.note?.noteNumber ?? null,
+      };
+    })
+  );
 
   async function userCan(p: PermissionKey) {
     if (!user?.id) return false;
@@ -61,22 +74,21 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
   const canViewPod = await userCan("pod.view");
   const canAllocate = await userCan("indent.allocate");
   const canViewFinance = (await userCan("payment.view")) || (await userCan("invoice.view"));
+  const canCreateInvoice = await userCan("invoice.create");
   const margin = indent.clientRate && indent.vendorRate ? indent.clientRate - indent.vendorRate : null;
   const vendorAllocated = Boolean(indent.vendorId);
   const vehicleReached = indent.placementStatus === "VEHICLE_REACHED";
   const driverAssigned = Boolean(indent.driverId);
   const driverVerified = Boolean(indent.driver?.otpVerified);
+  const hasAnyTrip = (indent.trips?.length ?? 0) > 0 || Boolean(indent.trip);
   const canReallocate =
     canAllocate &&
-    !indent.trip &&
+    !hasAnyTrip &&
     ["VENDOR_ALLOCATED", "PLACEMENT_PENDING", "VEHICLE_PLACED", "DRIVER_ASSIGNED"].includes(
       indent.status
     );
+  const canMarkPlacement = await userCan("placement.update");
   const sectionOrder = getIndentSectionOrder(indent.status);
-  const advanceClearedForTransit = indent.trip
-    ? await isTripAdvanceClearedForTransit(indent.trip.id)
-    : false;
-
   const lastPing = indent.lastTracking;
 
   const formClients = clients.some((c) => c.id === indent.client.id)
@@ -123,6 +135,7 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
         canAllocate={canAllocate}
         canReallocate={canReallocate}
         allocatedVendorId={indent.vendorId}
+        vehicleQuantity={indent.quantity}
       />
     ),
 
@@ -149,6 +162,8 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
             otpVerified: indent.driver?.otpVerified ?? false,
           }}
           driverAssigned={driverAssigned}
+          vehicleSlots={indent.vehicleSlots}
+          canMarkPlacement={canMarkPlacement}
           initialEwayBillRequired={indent.ewayBillRequired}
           initialEwayBill={
             indent.ewayBill
@@ -266,9 +281,11 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
     pod: canViewPod ? (
       <PodVerificationPanel
         key="pod"
-        pods={indent.pods}
+        pods={podsWithGate}
         canVerify={canVerifyPod}
         canManage={canManagePod}
+        indentId={indent.id}
+        vendorId={indent.vendorId}
       />
     ) : null,
 
@@ -300,6 +317,7 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-medium text-slate-900">
                       {a.vendorName ?? "—"} · {formatINR(a.vendorRate)}
+                      {"lineNumber" in a && a.lineNumber != null ? ` · Vehicle ${a.lineNumber}` : ""}
                     </p>
                     <span
                       className={`text-xs px-2 py-0.5 rounded-full ${
@@ -340,7 +358,7 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
   };
 
   return (
-    <div className="max-w-5xl">
+    <div className="w-full max-w-5xl mx-auto">
       <Link
         href="/indents"
         className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-4"
@@ -367,26 +385,34 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
           <div className="text-right text-sm text-slate-500">
             <p>Indent Date</p>
             <p className="font-medium text-slate-800">{formatDate(indent.indentDate)}</p>
-            {indent.trip && (
-              <div className="mt-2 space-y-1">
-                <Link
-                  href={`/trips/${indent.trip.id}`}
-                  className="inline-block text-blue-600 hover:underline"
-                >
-                  LR {indent.trip.lrNumber}
+            {(indent.trips?.length ? indent.trips : indent.trip ? [indent.trip] : []).map((t) => (
+              <div key={t.id} className="mt-2 space-y-1">
+                <Link href={`/trips/${t.id}`} className="inline-block text-blue-600 hover:underline">
+                  LR {t.lrNumber}
                 </Link>
                 {canViewFinance && (
                   <Link
-                    href={`/finance/trips/${indent.trip.id}`}
+                    href={`/finance/trips/${t.id}`}
                     className="inline-flex items-center gap-1 text-blue-600 hover:underline"
                   >
                     <IndianRupee className="h-3.5 w-3.5" /> Trip Finance
                   </Link>
                 )}
               </div>
-            )}
+            ))}
           </div>
         </div>
+        {canCreateInvoice && billableTripCount > 0 && (
+          <div className="mt-4 pt-4 border-t border-slate-200/80">
+            <Link
+              href={`/invoices/new?indentId=${indent.id}`}
+              className="inline-flex items-center gap-2 text-sm font-medium text-blue-600 hover:underline"
+            >
+              <FileText className="h-4 w-4" />
+              Invoice all billable trips ({billableTripCount})
+            </Link>
+          </div>
+        )}
         <div className="mt-4">
           <IndentActions
             indentId={indent.id}
@@ -394,12 +420,13 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
             status={indent.status}
             advanceStatus={indent.advanceStatus}
             allocationMode={indent.allocationMode ?? "BIDDING"}
-            hasTrip={Boolean(indent.trip)}
+            hasTrip={hasAnyTrip}
+            vehicleQuantity={indent.quantity}
+            perSlotPlacement={(indent.vehicleSlots?.length ?? 0) > 0}
             hasVehicle={Boolean(indent.vehicleId)}
             hasDriver={driverAssigned}
             driverVerified={driverVerified}
             vendorAllocated={vendorAllocated}
-            advanceClearedForTransit={advanceClearedForTransit}
             canReleasePermission={canReleaseIndent}
           />
         </div>

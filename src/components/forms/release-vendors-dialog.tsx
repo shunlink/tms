@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+import { readJsonBody, reportApiFailure, resolveApiError } from "@/lib/api-client";
+import { deliveryZoneLabel, type ReleaseFilterZone } from "@/lib/delivery-zones";
+import { useToast } from "@/components/toast";
+
 type CityOption = { city: string; vendorCount: number };
+type ZoneOption = { value: ReleaseFilterZone; label: string };
 
 export default function ReleaseVendorsDialog({
   indentId,
@@ -21,37 +26,65 @@ export default function ReleaseVendorsDialog({
   onClose: () => void;
   canRelease: boolean;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [cities, setCities] = useState<CityOption[]>([]);
+  const [zoneOptions, setZoneOptions] = useState<ZoneOption[]>([]);
   const [releasedCities, setReleasedCities] = useState<string[]>([]);
+  const [releasedZones, setReleasedZones] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectedZones, setSelectedZones] = useState<Set<ReleaseFilterZone>>(new Set());
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (!open) return;
-    setError("");
-    setSearch("");
+  const zonesQuery = useMemo(
+    () => Array.from(selectedZones).sort().join(","),
+    [selectedZones]
+  );
+
+  const loadOptions = useCallback(() => {
     setLoading(true);
-    fetch(`/api/vendors/release-cities?indentId=${encodeURIComponent(indentId)}`)
+    const zonesPart = zonesQuery ? `&zones=${encodeURIComponent(zonesQuery)}` : "";
+    return fetch(`/api/vendors/release-cities?indentId=${encodeURIComponent(indentId)}${zonesPart}`)
       .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
+        const data = await readJsonBody(res);
         if (!res.ok) {
-          throw new Error(data.error || "Failed to load vendor cities");
+          throw new Error(resolveApiError(res, data, "Failed to load vendor cities").message);
         }
-        setCities(data.cities ?? []);
-        setReleasedCities(data.releasedCities ?? []);
-        setSelected(new Set());
+        const body = data as {
+          cities?: CityOption[];
+          releasedCities?: string[];
+          releasedZones?: string[];
+          zoneOptions?: ZoneOption[];
+        };
+        setCities(body.cities ?? []);
+        setReleasedCities(body.releasedCities ?? []);
+        setReleasedZones(body.releasedZones ?? []);
+        if (body.zoneOptions?.length) setZoneOptions(body.zoneOptions);
       })
       .catch((err: unknown) => {
         setCities([]);
         setReleasedCities([]);
+        setReleasedZones([]);
         setError(err instanceof Error ? err.message : "Failed to load vendor cities");
       })
       .finally(() => setLoading(false));
+  }, [indentId, zonesQuery]);
+
+  useEffect(() => {
+    if (!open) return;
+    setError("");
+    setSearch("");
+    setSelected(new Set());
+    setSelectedZones(new Set());
   }, [open, indentId]);
+
+  useEffect(() => {
+    if (!open) return;
+    void loadOptions();
+  }, [open, loadOptions]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -74,6 +107,15 @@ export default function ReleaseVendorsDialog({
     });
   }
 
+  function toggleZone(zone: ReleaseFilterZone) {
+    setSelectedZones((prev) => {
+      const next = new Set(prev);
+      if (next.has(zone)) next.delete(zone);
+      else next.add(zone);
+      return next;
+    });
+  }
+
   async function confirmRelease() {
     if (selected.size === 0) {
       setError("Select at least one vendor city");
@@ -84,12 +126,16 @@ export default function ReleaseVendorsDialog({
     const res = await fetch(`/api/indents/${indentId}/lifecycle`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "release", cities: Array.from(selected) }),
+      body: JSON.stringify({
+        action: "release",
+        cities: Array.from(selected),
+        zones: Array.from(selectedZones),
+      }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Release failed");
+      reportApiFailure(res, data, { toast, setError, fallback: "Release failed" });
       return;
     }
     onClose();
@@ -97,6 +143,14 @@ export default function ReleaseVendorsDialog({
   }
 
   if (!open) return null;
+
+  const defaultZoneOptions: ZoneOption[] = [
+    { value: "NORTH", label: "North" },
+    { value: "SOUTH", label: "South" },
+    { value: "EAST", label: "East" },
+    { value: "WEST", label: "West" },
+  ];
+  const zonesForUi = zoneOptions.length > 0 ? zoneOptions : defaultZoneOptions;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -126,9 +180,45 @@ export default function ReleaseVendorsDialog({
         <div className="px-5 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
           {releasedCities.length > 0 && (
             <div className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-900">
-              Previously released to: {releasedCities.join(", ")}
+              Previously released to cities: {releasedCities.join(", ")}
+              {releasedZones.length > 0 && (
+                <span className="block mt-1 text-cyan-800">
+                  Zones used: {releasedZones.map(deliveryZoneLabel).join(", ")}
+                </span>
+              )}
             </div>
           )}
+
+          <div>
+            <p className="text-sm font-medium text-slate-700 mb-2">
+              Advanced filter: delivery zones <span className="font-normal text-slate-500">(optional)</span>
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {zonesForUi.map((opt) => {
+                const checked = selectedZones.has(opt.value);
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => toggleZone(opt.value)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                      checked
+                        ? "border-blue-600 bg-blue-50 text-blue-800"
+                        : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            {selectedZones.size > 0 && (
+              <p className="text-xs text-slate-500 mt-2">
+                Showing vendors in selected cities who deliver to{" "}
+                {Array.from(selectedZones).map(deliveryZoneLabel).join(" or ")}.
+              </p>
+            )}
+          </div>
 
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -149,7 +239,11 @@ export default function ReleaseVendorsDialog({
             <p className="text-sm text-slate-500 py-4 text-center">Loading cities...</p>
           ) : filtered.length === 0 ? (
             <p className="text-sm text-slate-500 py-4 text-center">
-              {cities.length === 0 ? "No registered vendor cities found." : "No cities match your search."}
+              {cities.length === 0
+                ? selectedZones.size > 0
+                  ? "No vendor cities match the selected delivery zones."
+                  : "No registered vendor cities found."
+                : "No cities match your search."}
             </p>
           ) : (
             <ul className="space-y-1 rounded-lg border divide-y max-h-56 overflow-y-auto">
@@ -187,6 +281,11 @@ export default function ReleaseVendorsDialog({
                 {selectedSummary.count} city{selectedSummary.count === 1 ? "" : "ies"} selected ·{" "}
                 {selectedSummary.total} vendor{selectedSummary.total === 1 ? "" : "s"} will receive this indent
               </p>
+              {selectedZones.size > 0 && (
+                <p className="text-slate-600">
+                  Delivery zones: {Array.from(selectedZones).map(deliveryZoneLabel).join(", ")}
+                </p>
+              )}
               <div className="text-slate-600 space-y-0.5">
                 {selectedSummary.rows.map((row) => (
                   <p key={row.city}>{row.city} ({row.vendorCount})</p>

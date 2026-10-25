@@ -8,7 +8,7 @@ export default function VendorLoginPage() {
       variant="vendor"
       icon={Truck}
       iconClassName="bg-[#E6F6EE] text-[#15803D]"
-      title="Transporter / Vendor Login"
+      title="Signin"
       subtitle="Access loads, manage trips and grow with ShunLink."
       extraCardFooter={
         <div className="mt-6 flex gap-3 rounded-xl border border-emerald-100 bg-emerald-50/90 px-4 py-4 text-sm text-slate-700">

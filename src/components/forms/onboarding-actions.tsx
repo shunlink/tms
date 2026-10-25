@@ -6,6 +6,8 @@ import { Eye, X, ShieldCheck, Loader2 } from "lucide-react";
 import OnboardingReviewSnapshot, {
   type OnboardingApplicationSnapshot,
 } from "@/components/forms/onboarding-review-snapshot";
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 
 export default function OnboardingActions({
   type,
@@ -16,6 +18,7 @@ export default function OnboardingActions({
   id: string;
   name: string;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [snapshot, setSnapshot] = useState<OnboardingApplicationSnapshot | null>(null);
@@ -32,13 +35,12 @@ export default function OnboardingActions({
     setRemarks("");
     try {
       const res = await fetch(`/api/onboarding/${type}/${id}`);
+      const data = await readJsonBody(res);
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error || "Failed to load application");
+        reportApiFailure(res, data, { toast, setError, fallback: "Failed to load application" });
         return;
       }
-      const data = await res.json();
-      setSnapshot(data);
+      setSnapshot(data as OnboardingApplicationSnapshot);
     } catch {
       setError("Failed to load application");
     } finally {
@@ -55,9 +57,9 @@ export default function OnboardingActions({
       body: JSON.stringify({ action, remarks: remarks || undefined }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to update");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to update" });
       return;
     }
     setOpen(false);

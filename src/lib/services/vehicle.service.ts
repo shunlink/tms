@@ -2,7 +2,8 @@ import { prisma } from "../prisma";
 import { logAudit } from "../audit";
 import type { SessionUser } from "../auth";
 import { normalizeVehicleReg } from "../field-validators";
-import { assertVehicleDriverAssignable } from "../indent-placement";
+import { assertVehicleDriverAssignableForLine } from "../indent-placement";
+import { resolveTargetLine, syncIndentHeaderFromLines } from "../indent-line-rollup";
 
 export type VehicleAssignmentInput = {
   registrationNumber: string;
@@ -11,6 +12,7 @@ export type VehicleAssignmentInput = {
   capacityTons?: number | null;
   capacityCbm?: number | null;
   remarks?: string | null;
+  indentLineId?: string | null;
 };
 
 export type VehicleComplianceLookup = {
@@ -145,7 +147,9 @@ export async function assignVehicleToIndent(
     include: { consignment: { select: { vehicleTypeCode: true } } },
   });
   if (!indent) return null;
-  assertVehicleDriverAssignable(indent);
+
+  const line = await resolveTargetLine(indentId, input.indentLineId);
+  assertVehicleDriverAssignableForLine(indent, line);
 
   const registrationNumber = normalizeVehicleReg(input.registrationNumber);
 
@@ -164,9 +168,8 @@ export async function assignVehicleToIndent(
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.indent.update({ where: { id: indentId }, data: { vehicleId: vehicle.id } });
     const alloc = await tx.indentAllocation.findFirst({
-      where: { indentId, status: "ACTIVE" },
+      where: { indentLineId: line.id, status: "ACTIVE" },
       orderBy: { allocatedAt: "desc" },
     });
     if (alloc) {
@@ -175,6 +178,7 @@ export async function assignVehicleToIndent(
         data: { vehicleId: vehicle.id },
       });
     }
+    await syncIndentHeaderFromLines(indentId, tx);
   });
 
   await logAudit({
@@ -182,7 +186,7 @@ export async function assignVehicleToIndent(
     action: "indent.vehicle_assigned",
     entity: "INDENT",
     entityId: indentId,
-    meta: { vehicleId: vehicle.id, registrationNumber },
+    meta: { vehicleId: vehicle.id, registrationNumber, indentLineId: line.id, lineNumber: line.lineNumber },
   });
 
   const { autoMockVerifyVehicleOnAssign } = await import("../integrations/auto-mock-verify");

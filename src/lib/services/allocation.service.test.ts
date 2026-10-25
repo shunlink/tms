@@ -16,6 +16,14 @@ vi.mock("../prisma", () => ({
 
 vi.mock("../audit", () => ({ logAudit: vi.fn() }));
 
+vi.mock("../indent-line-sync", () => ({
+  reconcileIndentLines: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../vendor-onboarding-eligibility", () => ({
+  assertVendorEligibleForIndentOps: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { allocateVendorInTransaction } from "./allocation.service";
 
 describe("allocateVendorInTransaction", () => {
@@ -37,7 +45,7 @@ describe("allocateVendorInTransaction", () => {
       vendorId: null,
       vehicleId: null,
       driverId: null,
-      lines: [{ id: "line_1" }],
+      lines: [{ id: "line_1", tripId: null, status: "OPEN" }],
     });
 
     const result = await allocateVendorInTransaction(
@@ -56,5 +64,31 @@ describe("allocateVendorInTransaction", () => {
         vendorId: "ven_1",
       }),
     });
+    expect(tx.indentAllocation.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates one active allocation per open line", async () => {
+    tx.indent.findFirst.mockResolvedValue({
+      id: "ind_1",
+      indentNumber: "IND-1",
+      status: "DRAFT",
+      allocationMode: "MANUAL",
+      vendorId: null,
+      vehicleId: null,
+      driverId: null,
+      lines: [
+        { id: "line_1", tripId: null, status: "OPEN" },
+        { id: "line_2", tripId: null, status: "OPEN" },
+      ],
+    });
+
+    await allocateVendorInTransaction(
+      tx as never,
+      "ind_1",
+      { vendorId: "ven_1", vendorRate: 38000 },
+      null
+    );
+
+    expect(tx.indentAllocation.create).toHaveBeenCalledTimes(2);
   });
 });

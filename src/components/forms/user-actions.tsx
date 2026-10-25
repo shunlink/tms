@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 export default function UserActions({
   id,
   email,
@@ -13,6 +15,7 @@ export default function UserActions({
   onEdit?: () => void;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
 
   async function resetPassword() {
@@ -29,7 +32,13 @@ export default function UserActions({
       body: JSON.stringify({ password: pwd }),
     });
     setBusy(false);
-    window.alert(res.ok ? "Password updated" : "Failed to update password");
+    const data = await readJsonBody(res);
+    if (!res.ok) {
+      const err = reportApiFailure(res, data, { toast, fallback: "Failed to update password" });
+      window.alert(err.message);
+      return;
+    }
+    window.alert("Password updated");
     router.refresh();
   }
 
@@ -38,9 +47,10 @@ export default function UserActions({
     setBusy(true);
     const res = await fetch(`/api/users/${id}`, { method: "DELETE" });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      window.alert(data.error || "Failed to delete user");
+      const err = reportApiFailure(res, data, { toast, fallback: "Failed to delete user" });
+      window.alert(err.message);
       return;
     }
     router.refresh();

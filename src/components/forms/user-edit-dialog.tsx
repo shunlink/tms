@@ -6,6 +6,9 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isInternalRole } from "@/lib/teams";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type TeamOption = { id: string; code: string; name: string };
 type Option = { id: string; name: string };
 type DriverOption = { id: string; name: string; phone: string };
@@ -55,6 +58,7 @@ export default function UserEditDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [form, setForm] = useState({
     name: user.name ?? "",
@@ -134,9 +138,9 @@ export default function UserEditDialog({
       body: JSON.stringify(body),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to update user");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to update user" });
       return;
     }
     onClose();

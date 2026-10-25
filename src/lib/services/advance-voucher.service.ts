@@ -1,6 +1,6 @@
 import { prisma } from "../prisma";
 import { putObject } from "../storage";
-import { companyProfile } from "../company";
+import { getCompanyProfile, type CompanyProfile } from "../company";
 import { nextNumber } from "../sequence";
 import { formatINR, formatDate } from "../utils";
 
@@ -38,7 +38,7 @@ function escapeHtml(value: string) {
     .replace(/"/g, "&quot;");
 }
 
-export function buildAdvanceVoucherHtml(data: AdvanceVoucherData) {
+export function buildAdvanceVoucherHtml(data: AdvanceVoucherData, company: CompanyProfile) {
   const route = `${data.routeFrom} → ${data.routeTo}`;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -65,10 +65,10 @@ export function buildAdvanceVoucherHtml(data: AdvanceVoucherData) {
 <body>
   <div class="header">
     <div>
-      <h1>${escapeHtml(companyProfile.name)}</h1>
-      <p class="muted">${escapeHtml(companyProfile.address)}</p>
-      <p class="muted">GSTIN: ${escapeHtml(companyProfile.gstin)} · PAN: ${escapeHtml(companyProfile.pan)}</p>
-      <p class="muted">${escapeHtml(companyProfile.phone)} · ${escapeHtml(companyProfile.email)}</p>
+      <h1>${escapeHtml(company.name)}</h1>
+      <p class="muted">${escapeHtml(company.address)}</p>
+      <p class="muted">GSTIN: ${escapeHtml(company.gstin)} · PAN: ${escapeHtml(company.pan)}</p>
+      <p class="muted">${escapeHtml(company.phone)} · ${escapeHtml(company.email)}</p>
     </div>
     <div style="text-align:right">
       <h2>ADVANCE PAYMENT VOUCHER</h2>
@@ -112,7 +112,7 @@ export function buildAdvanceVoucherHtml(data: AdvanceVoucherData) {
   </div>
 
   <div class="footer">
-    This is a system-generated advance payment voucher from ${escapeHtml(companyProfile.name)}.
+    This is a system-generated advance payment voucher from ${escapeHtml(company.name)}.
     Please retain this document for your records.
   </div>
 </body>
@@ -176,7 +176,8 @@ export async function generateAndStoreAdvanceVoucher(
     status: "PAID",
   };
 
-  const html = buildAdvanceVoucherHtml(voucherData);
+  const company = await getCompanyProfile();
+  const html = buildAdvanceVoucherHtml(voucherData, company);
   const key = `advance-voucher/${advanceRequestId}/${voucherNumber}.html`;
   const { url } = await putObject(key, Buffer.from(html, "utf-8"));
 

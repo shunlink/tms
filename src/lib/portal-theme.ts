@@ -1,4 +1,4 @@
-export type PortalAccent = "client" | "vendor";
+export type PortalAccent = "client" | "vendor" | "driver";
 
 export const PORTAL_THEME: Record<
   PortalAccent,
@@ -29,6 +29,15 @@ export const PORTAL_THEME: Record<
     statIcon: "bg-accent/15 text-accent",
     titleAccent: "border-accent",
     chip: "bg-accent hover:bg-accent/90 text-accent-foreground",
+  },
+  driver: {
+    pageBg: "bg-[radial-gradient(ellipse_120%_80%_at_50%_-20%,hsl(49_90%_92%/0.45),transparent_55%)]",
+    headerGlow: "from-[#F5D33C]/20 to-transparent",
+    navActive: "text-gray-950 bg-[#F5D33C]",
+    navActiveBorder: "border-[#F5D33C]",
+    statIcon: "bg-[#F5D33C]/15 text-[#5C4A00]",
+    titleAccent: "border-[#F5D33C]",
+    chip: "bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950",
   },
 };
 

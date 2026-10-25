@@ -9,6 +9,7 @@ type AdvanceRequestRow = {
   id: string;
   vendorId: string;
   requestNumber: string;
+  bulkRequestGroupId?: string | null;
   status: string;
   requestedAmount: number;
   negotiatedAmount: number | null;
@@ -86,6 +87,9 @@ export default function AdvancePaymentsTable({
     vendorName: r.vendor.name,
     sourceDisplay: r.sourceLabel ?? (r.source === "INTERNAL" ? "Internal" : "Vendor"),
     raisedByDisplay: r.raisedByLabel ?? "—",
+    bulkLabel: r.bulkRequestGroupId
+      ? `Bulk · …${r.bulkRequestGroupId.slice(-6)}`
+      : "—",
     tripLr: r.trip?.lrNumber ?? "—",
     requestedAmountDisplay: formatINR(r.requestedAmount),
     negotiatedAmountDisplay: r.negotiatedAmount != null ? formatINR(r.negotiatedAmount) : "—",
@@ -95,6 +99,7 @@ export default function AdvancePaymentsTable({
 
   const columns: DataColumn[] = [
     { key: "requestNumber", header: "Request ID" },
+    { key: "bulkLabel", header: "Batch" },
     { key: "tripLr", header: "Trip (LR)" },
     { key: "vendorName", header: "Vendor" },
     { key: "sourceDisplay", header: "Source" },

@@ -4,6 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type Option = { id: string; label: string };
 type TripOption = {
   id: string;
@@ -28,6 +31,7 @@ export default function VendorPaymentForm({
   vendors: Option[];
   trips: TripOption[];
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [form, setForm] = useState({
     vendorId: vendors[0]?.id ?? "",
@@ -76,9 +80,9 @@ export default function VendorPaymentForm({
 
     const res = await fetch("/api/payments", { method: "POST", body: fd });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to record payment");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to record payment" });
       return;
     }
     router.refresh();

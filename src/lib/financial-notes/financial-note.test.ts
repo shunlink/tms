@@ -4,7 +4,7 @@ import { buildFinancialNoteJournalLines } from "./posting-rules";
 import { computeNoteTotals } from "./calculations";
 import { canTransitionNote, isNoteEditable } from "./lifecycle";
 import { inferVendorNoteFromTripCharge } from "./purpose";
-import { noteRequiresApproval } from "./policy";
+import { getFinancialNotePolicy, noteRequiresApproval } from "./policy";
 
 describe("financial note lifecycle", () => {
   it("allows draft to pending approval and issued only from approved", () => {
@@ -72,15 +72,15 @@ describe("financial note posting rules", () => {
 });
 
 describe("trip charge note inference", () => {
-  it("maps deduction to credit note with subledger already reflected", () => {
+  it("maps deduction to debit note with subledger already reflected", () => {
     const inferred = inferVendorNoteFromTripCharge("DEDUCTION");
-    expect(inferred.noteType).toBe("CREDIT_NOTE");
+    expect(inferred.noteType).toBe("DEBIT_NOTE");
     expect(inferred.payableEffect).toBe("SUBLEDGER_ALREADY_REFLECTED");
   });
 
-  it("maps detention to debit note", () => {
+  it("maps detention to credit note for vendor increase", () => {
     const inferred = inferVendorNoteFromTripCharge("DETENTION");
-    expect(inferred.noteType).toBe("DEBIT_NOTE");
+    expect(inferred.noteType).toBe("CREDIT_NOTE");
     expect(inferred.businessPurpose).toBe("VENDOR_FREIGHT_INCREASE");
   });
 });
@@ -88,5 +88,11 @@ describe("trip charge note inference", () => {
 describe("approval policy", () => {
   it("does not require approval when threshold is disabled", () => {
     expect(noteRequiresApproval(100)).toBe(false);
+  });
+});
+
+describe("issuer vs approver (documented behavior)", () => {
+  it("separate issuer policy is on by default in policy config", () => {
+    expect(getFinancialNotePolicy().separateIssuerFromApprover).toBe(true);
   });
 });

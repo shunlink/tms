@@ -115,6 +115,7 @@ type VendorEntity = {
   accountHolder?: string | null;
   upiId?: string | null;
   paymentTerms?: number | null;
+  paymentTermsType?: string | null;
   tdsApplicable?: boolean;
   rating?: number | null;
   notes?: string | null;
@@ -204,7 +205,6 @@ function ClientSnapshot({ entity }: { entity: ClientEntity }) {
     <div className="space-y-3">
       <Section title="Application / Company Information">
         <Row label="Company Name" value={entity.name} />
-        <Row label="Legal Name" value={entity.legalName} />
         <Row label="Industry" value={entity.industry} />
         <Row label="Website" value={entity.website} />
       </Section>
@@ -290,7 +290,18 @@ function VendorSnapshot({ entity }: { entity: VendorEntity }) {
         <Row label="GSTIN" value={entity.gstin} />
         <Row label="PAN" value={entity.pan} />
         <Row label="MSME / Udyam" value={entity.msme} />
-        <Row label="Payment Terms" value={entity.paymentTerms ? `${entity.paymentTerms} days` : null} />
+        <Row
+          label="Payment terms"
+          value={
+            entity.paymentTermsType === "CREDIT"
+              ? "Credit"
+              : entity.paymentTermsType === "ADHOC"
+                ? "Adhoc"
+                : entity.paymentTerms
+                  ? `${entity.paymentTerms} days`
+                  : null
+          }
+        />
         <Row label="TDS Applicable" value={entity.tdsApplicable ? "Yes" : "No"} />
       </Section>
 

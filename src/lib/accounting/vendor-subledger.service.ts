@@ -66,13 +66,21 @@ function applyRunningBalance(lines: VendorSubledgerLine[], openingMinor: number)
   });
 }
 
+export type VendorStatementView = "operational" | "all";
+
+function filterLinesForView(lines: VendorSubledgerLine[], view: VendorStatementView): VendorSubledgerLine[] {
+  if (view === "all") return lines;
+  return lines.filter((l) => l.postingLayer === "OPERATIONAL");
+}
+
 async function openingBalanceMinorBefore(
   vendorId: string,
   beforeDate: Date | null,
-  currency: string
+  currency: string,
+  view: VendorStatementView
 ): Promise<number> {
   if (!beforeDate) return 0;
-  const lines = await collectVendorLines({ vendorId, currency });
+  const lines = filterLinesForView(await collectVendorLines({ vendorId, currency }), view);
   const prior = lines.filter((l) => l.effectiveDate < beforeDate);
   return prior.reduce((s, l) => s + l.creditMinor - l.debitMinor, 0);
 }
@@ -85,6 +93,7 @@ async function collectVendorLines(input: {
   documentType?: VendorSubledgerDocumentType;
   paymentStatus?: string;
   reference?: string;
+  includeGlPostings?: boolean;
 }): Promise<VendorSubledgerLine[]> {
   const currency = input.currency ?? "INR";
   const vendorId = input.vendorId;
@@ -206,6 +215,8 @@ async function collectVendorLines(input: {
 
   for (const note of notes) {
     if (note.status !== "ISSUED") continue;
+    // Payable adjustment row already reflects subledger impact when note is applied to trip payable.
+    if (note.subledgerAppliedAt) continue;
     const issuedAt = note.issuedAt ?? note.issueDate ?? note.accountingDate ?? note.updatedAt;
     const totalMinor = rupeesToMinor(Number(note.totalAmount));
     const isReduction =
@@ -262,6 +273,7 @@ async function collectVendorLines(input: {
     });
   }
 
+  if (input.includeGlPostings) {
   const glLines = await prisma.journalLine.findMany({
     where: {
       vendorId,
@@ -297,6 +309,7 @@ async function collectVendorLines(input: {
       paymentStatus: null,
     });
   }
+  }
 
   let filtered = lines;
   if (input.documentType) filtered = filtered.filter((l) => l.documentType === input.documentType);
@@ -320,6 +333,8 @@ export async function buildVendorStatement(input: {
   paymentStatus?: string;
   reference?: string;
   currency?: string;
+  /** Operational = trip payables, adjustments, payments (default). All = include GL mirror lines. */
+  view?: VendorStatementView;
 }): Promise<VendorStatement | null> {
   const vendor = await prisma.vendor.findUnique({
     where: { id: input.vendorId },
@@ -328,17 +343,22 @@ export async function buildVendorStatement(input: {
   if (!vendor) return null;
 
   const currency = input.currency ?? "INR";
-  const allLines = await collectVendorLines({
-    vendorId: input.vendorId,
-    currency,
-    indentId: input.indentId,
-    tripId: input.tripId,
-    documentType: input.documentType,
-    paymentStatus: input.paymentStatus,
-    reference: input.reference,
-  });
+  const view = input.view ?? "operational";
+  const allLines = filterLinesForView(
+    await collectVendorLines({
+      vendorId: input.vendorId,
+      currency,
+      indentId: input.indentId,
+      tripId: input.tripId,
+      documentType: input.documentType,
+      paymentStatus: input.paymentStatus,
+      reference: input.reference,
+      includeGlPostings: view === "all",
+    }),
+    view
+  );
 
-  const opening = await openingBalanceMinorBefore(input.vendorId, input.fromDate ?? null, currency);
+  const opening = await openingBalanceMinorBefore(input.vendorId, input.fromDate ?? null, currency, view);
   const ranged = allLines.filter((l) => inDateRange(l.effectiveDate, input.fromDate, input.toDate));
   const withRunning = applyRunningBalance(ranged, opening);
 

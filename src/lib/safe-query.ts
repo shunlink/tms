@@ -17,6 +17,7 @@ export type OnboardingQueueRow = {
   onboardingStatus: string;
   onboardingRemarks: string | null;
   createdAt: Date;
+  createdByLabel?: string | null;
 };
 
 export type OnboardingQueueDriverRow = OnboardingQueueRow & { phone: string };
@@ -70,6 +71,7 @@ export const EMPTY_ONBOARDING_QUEUE = {
 export const EMPTY_CLIENT_PORTAL = {
   clientName: "Client",
   active: 0,
+  inTransit: 0,
   delivered: 0,
   outstanding: 0,
   recentTrips: [] as {
@@ -119,7 +121,7 @@ export const EMPTY_VENDOR_ASSIGNMENTS = {
 };
 
 export const EMPTY_AGEING = {
-  buckets: { current: 0, d30: 0, d60: 0, d90: 0 },
+  buckets: { d0_30: 0, d31_60: 0, d61_90: 0, d90plus: 0 },
   rows: [] as { client: string; invoiceNumber: string; balance: number; days: number }[],
   total: 0,
 };

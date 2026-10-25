@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
+import { readJsonBody, resolveApiError } from "@/lib/api-client";
 export default function BankStatementImportForm() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
@@ -18,9 +19,9 @@ export default function BankStatementImportForm() {
       form.append("file", file);
       form.append("glAccountCode", "1010");
       const res = await fetch("/api/accounting/bank-statements/preview", { method: "POST", body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Preview failed");
-      setPreview(data);
+      const data = await readJsonBody(res);
+      if (!res.ok) throw new Error(resolveApiError(res, data, "Preview failed").message);
+      setPreview(data as Record<string, unknown>);
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Preview failed");
     } finally {
@@ -39,8 +40,8 @@ export default function BankStatementImportForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ allowDuplicateFile: Boolean(preview?.duplicateFile) }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Commit failed");
+      const data = await readJsonBody(res);
+      if (!res.ok) throw new Error(resolveApiError(res, data, "Commit failed").message);
       setMessage("Import committed.");
       window.location.reload();
     } catch (e) {

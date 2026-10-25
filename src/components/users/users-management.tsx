@@ -5,11 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import UserForm from "@/components/forms/user-form";
 import UserActions from "@/components/forms/user-actions";
 import UserEditDialog, { type EditableUser } from "@/components/forms/user-edit-dialog";
+import UserAccessRolesDialog from "@/components/users/user-access-roles-dialog";
 import { formatDate } from "@/lib/utils";
 import { isInternalRole } from "@/lib/teams";
 
 type UserRow = EditableUser & {
   teamName: string | null;
+  phone: string | null;
+  accessMode?: string;
   linked: string | null;
   createdAt: string | Date;
 };
@@ -49,6 +52,8 @@ export default function UsersManagement({
 }) {
   const [tab, setTab] = useState<"employees" | "portal">("employees");
   const [editUser, setEditUser] = useState<UserRow | null>(null);
+  const [accessUser, setAccessUser] = useState<UserRow | null>(null);
+  const canAssignAccessRoles = actorRole === "SUPER_ADMIN";
 
   const employees = useMemo(() => users.filter((u) => isInternalRole(u.role)), [users]);
   const portalUsers = useMemo(() => users.filter((u) => !isInternalRole(u.role)), [users]);
@@ -119,12 +124,11 @@ export default function UsersManagement({
               <tr className="border-b text-left text-slate-500">
                 {tab === "employees" ? (
                   <>
-                    <th className="pb-3 font-medium">Employee ID</th>
-                    <th className="pb-3 font-medium">Name</th>
-                    <th className="pb-3 font-medium">Email</th>
-                    <th className="pb-3 font-medium">Job Title</th>
                     <th className="pb-3 font-medium">Team</th>
                     <th className="pb-3 font-medium">Role</th>
+                    <th className="pb-3 font-medium">Name</th>
+                    <th className="pb-3 font-medium">Email</th>
+                    <th className="pb-3 font-medium">Mobile</th>
                     <th className="pb-3 font-medium">Status</th>
                   </>
                 ) : (
@@ -143,7 +147,7 @@ export default function UsersManagement({
             <tbody>
               {activeRows.length === 0 ? (
                 <tr>
-                  <td colSpan={tab === "employees" ? 9 : 7} className="py-8 text-center text-slate-500">
+                  <td colSpan={tab === "employees" ? 8 : 7} className="py-8 text-center text-slate-500">
                     {tab === "employees" ? "No employees yet. Add one above." : "No portal accounts yet."}
                   </td>
                 </tr>
@@ -152,16 +156,18 @@ export default function UsersManagement({
                   <tr key={u.id} className={`border-b last:border-0 hover:bg-slate-50 ${!u.isActive ? "opacity-60" : ""}`}>
                     {tab === "employees" ? (
                       <>
-                        <td className="py-3 font-mono text-xs text-slate-700">{u.employeeCode ?? "—"}</td>
-                        <td className="py-3 font-medium text-slate-900">{u.name ?? "—"}</td>
-                        <td className="py-3 text-slate-600">{u.email}</td>
-                        <td className="py-3 text-slate-600">{u.jobTitle ?? "—"}</td>
                         <td className="py-3 text-slate-600">{u.teamName ?? "—"}</td>
                         <td className="py-3">
                           <span className={`text-xs px-2 py-1 rounded-full ${roleColors[u.role] ?? "bg-slate-100 text-slate-700"}`}>
                             {u.role.replace(/_/g, " ")}
                           </span>
+                          {u.accessMode === "CUSTOM_ROLES" && (
+                            <span className="block text-[10px] text-amber-700 mt-0.5">Custom access</span>
+                          )}
                         </td>
+                        <td className="py-3 font-medium text-slate-900">{u.name ?? "—"}</td>
+                        <td className="py-3 text-slate-600">{u.email ?? "—"}</td>
+                        <td className="py-3 text-slate-600">{u.phone ?? "—"}</td>
                         <td className="py-3">
                           <span className={`text-xs px-2 py-1 rounded-full ${u.isActive ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-600"}`}>
                             {u.isActive ? "Active" : "Inactive"}
@@ -187,11 +193,22 @@ export default function UsersManagement({
                     )}
                     <td className="py-3 text-slate-600">{formatDate(u.createdAt)}</td>
                     <td className="py-3">
-                      <UserActions
-                        id={u.id}
-                        email={u.email}
-                        onEdit={() => setEditUser(u)}
-                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <UserActions
+                          id={u.id}
+                          email={u.email}
+                          onEdit={() => setEditUser(u)}
+                        />
+                        {tab === "employees" && canAssignAccessRoles && u.role !== "SUPER_ADMIN" && (
+                          <button
+                            type="button"
+                            onClick={() => setAccessUser(u)}
+                            className="text-sm text-amber-700 hover:underline"
+                          >
+                            Access roles
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -200,6 +217,15 @@ export default function UsersManagement({
           </table>
         </CardContent>
       </Card>
+
+      {accessUser && (
+        <UserAccessRolesDialog
+          userId={accessUser.id}
+          userLabel={accessUser.name ?? accessUser.email ?? accessUser.id}
+          open={Boolean(accessUser)}
+          onClose={() => setAccessUser(null)}
+        />
+      )}
 
       {editUser && (
         <UserEditDialog

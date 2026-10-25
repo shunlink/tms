@@ -1,3 +1,9 @@
+import {
+  clientOnboardingAgreementUploaded,
+  clientOnboardingMandatoryProfileComplete,
+} from "./client-onboarding-fields";
+import { ONBOARDING_CASE_STATUS } from "./onboarding-case-status";
+
 export type OnboardingPortalKind = "client" | "vendor";
 
 export type OnboardingStepState = "complete" | "current" | "pending";
@@ -22,7 +28,7 @@ function sectionRatio(keys: string[], values: Record<string, string>) {
 
 export function computeClientFieldProgress(values: Record<string, string>) {
   const company = sectionRatio(
-    ["name", "legalName", "industry", "website"],
+    ["name", "businessType", "industry", "website"],
     values
   );
   const contact = sectionRatio(
@@ -42,6 +48,12 @@ export function computeClientFieldProgress(values: Record<string, string>) {
   };
 }
 
+function deliveryZonesFilled(values: Record<string, string>) {
+  const raw = values.deliveryZones?.trim();
+  if (!raw) return 0;
+  return raw.split(",").filter(Boolean).length > 0 ? 1 : 0;
+}
+
 export function computeVendorFieldProgress(values: Record<string, string>) {
   const business = sectionRatio(
     ["name", "type", "contactName", "phone", "email", "whatsapp", "altPhone"],
@@ -49,10 +61,16 @@ export function computeVendorFieldProgress(values: Record<string, string>) {
   );
   const compliance = sectionRatio(["gstin", "pan", "msme"], values);
   const address = sectionRatio(["addressLine1", "city", "state", "pincode"], values);
+  const zones = deliveryZonesFilled(values);
+  const settlement = sectionRatio(
+    ["paymentTermsType", "bankName", "bankAccount", "bankIfsc", "accountHolder"],
+    values
+  );
+  const businessWithZones = business * 0.55 + address * 0.2 + zones * 0.1 + settlement * 0.15;
   return {
-    business: (business * 0.7 + address * 0.3),
+    business: businessWithZones,
     compliance,
-    overallFields: (business * 0.5 + compliance * 0.35 + address * 0.15),
+    overallFields: (businessWithZones * 0.5 + compliance * 0.35 + address * 0.1 + zones * 0.05),
   };
 }
 
@@ -73,14 +91,21 @@ export function computeOnboardingPercent(
   requiredDocTypes: string[],
   onboardingStatus: string
 ): number {
-  if (onboardingStatus === "APPROVED") return 100;
-  if (onboardingStatus === "SUBMITTED") return 92;
+  if (onboardingStatus === ONBOARDING_CASE_STATUS.APPROVED) return 100;
+  if (
+    onboardingStatus === ONBOARDING_CASE_STATUS.SUBMITTED ||
+    onboardingStatus === ONBOARDING_CASE_STATUS.PENDING_APPROVAL ||
+    onboardingStatus === ONBOARDING_CASE_STATUS.PARTIAL_SUBMISSION
+  ) {
+    return 92;
+  }
 
   const docP = documentProgress(documents, requiredDocTypes);
 
   if (kind === "client") {
-    const { profile, compliance } = computeClientFieldProgress(values);
-    const raw = profile * 0.35 + compliance * 0.25 + docP * 0.4;
+    const mandatoryProfile = clientOnboardingMandatoryProfileComplete(values) ? 1 : 0;
+    const agreement = clientOnboardingAgreementUploaded(documents) ? 1 : 0;
+    const raw = mandatoryProfile * 0.35 + docP * 0.45 + agreement * 0.1 + 0.1;
     return Math.min(88, Math.round(raw * 100));
   }
 
@@ -89,35 +114,46 @@ export function computeOnboardingPercent(
   return Math.min(88, Math.round(raw * 100));
 }
 
+function clientSubmittedForReview(onboardingStatus: string) {
+  return (
+    onboardingStatus === ONBOARDING_CASE_STATUS.SUBMITTED ||
+    onboardingStatus === ONBOARDING_CASE_STATUS.PENDING_APPROVAL ||
+    onboardingStatus === ONBOARDING_CASE_STATUS.PARTIAL_SUBMISSION ||
+    onboardingStatus === ONBOARDING_CASE_STATUS.APPROVED
+  );
+}
+
 export function clientOnboardingSteps(
   values: Record<string, string>,
   documents: Doc[],
   requiredDocTypes: string[],
   onboardingStatus: string
 ): OnboardingStep[] {
-  const { profile, compliance } = computeClientFieldProgress(values);
   const docP = documentProgress(documents, requiredDocTypes);
+  const kycDone = clientOnboardingMandatoryProfileComplete(values);
+  const agreementDone = clientOnboardingAgreementUploaded(documents);
 
-  let current = "company";
-  if (profile >= 0.85) current = "compliance";
-  if (profile >= 0.85 && compliance >= 0.8) current = "documents";
-  if (profile >= 0.85 && compliance >= 0.8 && docP >= 1) current = "admin";
-  if (onboardingStatus === "SUBMITTED" || onboardingStatus === "APPROVED") current = "admin";
+  let current = "kyc";
+  if (kycDone) current = "documents";
+  if (kycDone && docP >= 1) current = "agreement";
+  if (kycDone && docP >= 1 && agreementDone) current = "admin";
+  if (clientSubmittedForReview(onboardingStatus)) current = "admin";
 
   const state = (id: string): OnboardingStepState => {
-    const order = ["company", "compliance", "documents", "admin"];
+    const order = ["kyc", "documents", "agreement", "admin"];
     const ci = order.indexOf(current);
     const i = order.indexOf(id);
-    if (onboardingStatus === "APPROVED") return "complete";
+    if (onboardingStatus === ONBOARDING_CASE_STATUS.APPROVED) return "complete";
+    if (id === "agreement" && agreementDone) return "complete";
     if (i < ci) return "complete";
     if (i === ci) return "current";
     return "pending";
   };
 
   return [
-    { id: "company", label: "Company Profile", state: state("company") },
-    { id: "compliance", label: "Business & Compliance", state: state("compliance") },
+    { id: "kyc", label: "GST, PAN & Bank", state: state("kyc") },
     { id: "documents", label: "Documents", state: state("documents") },
+    { id: "agreement", label: "Agreement", state: state("agreement") },
     { id: "admin", label: "Admin Review", state: state("admin") },
   ];
 }

@@ -3,7 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import PageHeader from "@/components/page-header";
 import StatusBadge from "@/components/status-badge";
 import { formatDate } from "@/lib/utils";
-import { listPendingVerificationPods, listBadPodTasks } from "@/lib/services/pod.service";
+import {
+  listPendingVerificationPods,
+  listBadPodTasks,
+  getVendorDebitNoteGateStatus,
+} from "@/lib/services/pod.service";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +23,17 @@ export default async function PodsPage({
   ]);
 
   const rows = view === "bad" ? bad : pending;
+
+  const badGateByPodId = new Map(
+    await Promise.all(
+      bad.map(async (pod) => {
+        const gate = pod.tripId
+          ? await getVendorDebitNoteGateStatus(pod.tripId, pod.id)
+          : { satisfied: false, note: null };
+        return [pod.id, gate] as const;
+      })
+    )
+  );
 
   return (
     <div>
@@ -67,6 +82,13 @@ export default async function PodsPage({
                     </p>
                     {pod.slaDeadlineAt && pod.status === "BAD_POD" && (
                       <p className="text-xs text-amber-600">SLA due {formatDate(pod.slaDeadlineAt)}</p>
+                    )}
+                    {pod.status === "BAD_POD" && pod.tripId && (
+                      <p className="text-xs mt-1">
+                        {badGateByPodId.get(pod.id)?.satisfied
+                          ? "Debit note issued — mark as good on review"
+                          : "Issue vendor debit note before mark as good"}
+                      </p>
                     )}
                   </div>
                   {pod.indent && (

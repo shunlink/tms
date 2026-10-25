@@ -6,11 +6,15 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { authInputClass, authLabelClass } from "@/components/auth-shell";
+import { settingsSectionClass } from "@/components/settings/settings-styles";
 import { PORTAL_ACCESS_EMAIL_MARKER } from "@/lib/superadmin/portal-access-marker";
 import { parsePortalAccessIdentifier } from "@/lib/superadmin/portal-access-marker";
 import type { PortalAccessTargetPreview } from "@/lib/superadmin/portal-access-session.service";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 export default function PortalAccessForm() {
+  const toast = useToast();
   const router = useRouter();
   const { update } = useSession();
   const [identifier, setIdentifier] = useState(`${PORTAL_ACCESS_EMAIL_MARKER}`);
@@ -39,12 +43,12 @@ export default function PortalAccessForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier, masterOtp }),
       });
-      const data = await res.json();
+      const data = await readJsonBody(res);
       if (!res.ok) {
-        setError(data.error ?? "Verification failed");
+        reportApiFailure(res, data, { toast, setError, fallback: "Verification failed" });
         return;
       }
-      setPreview(data.target);
+      setPreview((data as { target: PortalAccessTargetPreview }).target);
     } finally {
       setLoading(false);
     }
@@ -60,14 +64,15 @@ export default function PortalAccessForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier, masterOtp }),
       });
-      const data = await res.json();
+      const data = await readJsonBody(res);
       if (!res.ok) {
-        setError(data.error ?? "Could not start portal access");
+        reportApiFailure(res, data, { toast, setError, fallback: "Could not start portal access" });
         setPreview(null);
         return;
       }
-      await update({ portalAccess: data.portalAccess });
-      router.push(data.portalHome);
+      const body = data as { portalAccess: unknown; portalHome: string };
+      await update({ portalAccess: body.portalAccess });
+      router.push(body.portalHome);
       router.refresh();
     } finally {
       setLoading(false);
@@ -75,7 +80,7 @@ export default function PortalAccessForm() {
   }
 
   return (
-    <Card>
+    <Card className={settingsSectionClass}>
       <CardHeader>
         <CardTitle>Employee portal access</CardTitle>
       </CardHeader>
@@ -117,7 +122,12 @@ export default function PortalAccessForm() {
         {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
 
         {!preview ? (
-          <Button type="button" disabled={loading} onClick={() => verifyPreview()}>
+          <Button
+            type="button"
+            disabled={loading}
+            className="bg-slate-900 text-white hover:bg-slate-800"
+            onClick={() => verifyPreview()}
+          >
             {loading ? "Verifying…" : "Verify employee"}
           </Button>
         ) : (
@@ -133,7 +143,12 @@ export default function PortalAccessForm() {
               <li><span className="text-slate-500">Portal:</span> {preview.portalLabel}</li>
             </ul>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" disabled={loading} onClick={() => confirmAccess()}>
+              <Button
+                type="button"
+                disabled={loading}
+                className="bg-slate-900 text-white hover:bg-slate-800"
+                onClick={() => confirmAccess()}
+              >
                 {loading ? "Starting…" : "Enter portal"}
               </Button>
               <Button

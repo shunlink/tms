@@ -6,6 +6,7 @@ import { PENDING_COUNT_PERMISSIONS } from "../sidebar-pending-keys";
 import type { TeamCode } from "../teams";
 import { countSlaEscalations } from "./escalation.service";
 import { countUnreadNotifications } from "./notification-read.service";
+import { isOnboardingRequestsSuperAdmin } from "../onboarding-request-access";
 import {
   clientOutstandingInvoiceWhere,
   countIndentActionQueue,
@@ -13,6 +14,7 @@ import {
   vendorOpenIndentWhere,
   vendorTripActionWhere,
 } from "./work-queues.service";
+import { countOnboardingRequestsForUser } from "./onboarding.service";
 
 export type PendingCountsContext = {
   userId: string;
@@ -60,7 +62,7 @@ async function computePendingActionCounts(ctx: PendingCountsContext): Promise<Si
 
   const isPortalUser = ctx.role === "VENDOR" || ctx.role === "CLIENT" || ctx.role === "DRIVER";
 
-  const [queues, indents, audit, vendorOpenIndents, vendorTrips, vendorPaymentsPortal, clientInvoices] =
+  const [queues, indents, audit, vendorOpenIndents, vendorTrips, vendorPaymentsPortal, clientInvoices, onboardingRequests] =
     await Promise.all([
       isPortalUser ? null : countWorkQueues(),
       isPortalUser ? 0 : countIndentActionQueue(salesIndentScope(ctx)),
@@ -71,6 +73,9 @@ async function computePendingActionCounts(ctx: PendingCountsContext): Promise<Si
         ? prisma.vendorPayment.count({ where: { vendorId: ctx.vendorId, status: { not: "PAID" } } })
         : 0,
       ctx.clientId ? prisma.clientInvoice.count({ where: clientOutstandingInvoiceWhere(ctx.clientId) }) : 0,
+      isPortalUser
+        ? 0
+        : countOnboardingRequestsForUser(ctx.userId, isOnboardingRequestsSuperAdmin(ctx.role)),
     ]);
 
   const raw: SidebarPendingCounts = {
@@ -83,6 +88,7 @@ async function computePendingActionCounts(ctx: PendingCountsContext): Promise<Si
           advancePayments: queues.financeAdvances,
           placement: queues.placement,
           onboarding: queues.onboarding,
+          onboardingRequests,
           requirements: queues.openRequirements,
           trips: queues.tripsAwaitingPod,
           pods: queues.podQueue,

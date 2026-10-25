@@ -5,6 +5,8 @@ import { Plus } from "lucide-react";
 import DataTable, { type DataColumn } from "@/components/data-table";
 import { getClients } from "@/lib/queries";
 import PageHeader from "@/components/page-header";
+import { requirePagePermission } from "@/lib/page-auth";
+import { hasPermission } from "@/lib/services/permission.service";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +28,8 @@ const columns: DataColumn[] = [
 ];
 
 export default async function ClientsPage() {
+  const user = await requirePagePermission("client.view");
+  const canEdit = user.id ? await hasPermission(user.id, "client.edit") : false;
   const clients = await getClients();
 
   return (
@@ -34,11 +38,13 @@ export default async function ClientsPage() {
         title="Clients"
         description="Manage your client companies"
         action={
-          <Link href="/clients/new">
-            <Button>
-              <Plus className="h-4 w-4 mr-2" /> Add Client
-            </Button>
-          </Link>
+          canEdit ? (
+            <Link href="/clients/new">
+              <Button>
+                <Plus className="h-4 w-4 mr-2" /> Add Client
+              </Button>
+            </Link>
+          ) : undefined
         }
       />
 

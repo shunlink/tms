@@ -4,7 +4,7 @@ import { prisma } from "../prisma";
 export type SignupRole = "CLIENT" | "VENDOR";
 
 export type SignupInput = {
-  name: string;
+  name?: string;
   email?: string | null;
   password: string;
   phone: string;
@@ -30,20 +30,21 @@ export async function registerPortalUser(input: SignupInput) {
     let entityId: string;
 
     if (input.role === "CLIENT") {
+      const company = input.companyName?.trim() || "Client";
       const client = await tx.client.create({
         data: {
-          name: input.companyName?.trim() || input.name.trim(),
-          contactName: input.name.trim(),
+          name: company,
+          legalName: company,
           phone,
           email,
         },
       });
       entityId = client.id;
     } else {
+      const business = input.companyName?.trim() || "Vendor";
       const vendor = await tx.vendor.create({
         data: {
-          name: input.companyName?.trim() || input.name.trim(),
-          contactName: input.name.trim(),
+          name: business,
           phone,
           email,
         },
@@ -51,11 +52,16 @@ export async function registerPortalUser(input: SignupInput) {
       entityId = vendor.id;
     }
 
+    const displayName =
+      input.companyName?.trim() ||
+      email?.split("@")[0] ||
+      (input.role === "CLIENT" ? "Client" : "Vendor");
+
     const user = await tx.user.create({
       data: {
         email,
         phone,
-        name: input.name.trim(),
+        name: displayName,
         password: passwordHash,
         role: input.role,
         clientId: input.role === "CLIENT" ? entityId : null,

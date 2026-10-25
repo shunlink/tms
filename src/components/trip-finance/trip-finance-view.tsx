@@ -94,7 +94,7 @@ export default function TripFinanceView({ finance }: { finance: TripFinanceDto }
     finance;
 
   return (
-    <div className="max-w-6xl">
+    <div className="w-full max-w-6xl mx-auto">
       <Link
         href={`/trips/${trip.id}`}
         className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-4"
@@ -134,13 +134,28 @@ export default function TripFinanceView({ finance }: { finance: TripFinanceDto }
       <Card className="mb-6">
         <CardHeader>
           <CardTitle className="text-base">Commercial Summary</CardTitle>
-          <p className="text-xs text-slate-500">Expected / booking margin is based on contracted sell and buy rates</p>
+          <p className="text-xs text-slate-500">
+            Sell rate is freight only. Loading and unloading are client charges; receivables use the invoiced trip
+            total when billed.
+          </p>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 text-sm">
             <div>
-              <p className="text-slate-500">Sell Rate</p>
+              <p className="text-slate-500">Sell rate (freight)</p>
               <p className="text-lg font-semibold">{formatINR(commercialSummary.sellRate)}</p>
+            </div>
+            <div>
+              <p className="text-slate-500">Client loading</p>
+              <p className="text-lg font-semibold">{formatINR(commercialSummary.customerLoadingCharge)}</p>
+            </div>
+            <div>
+              <p className="text-slate-500">Client unloading</p>
+              <p className="text-lg font-semibold">{formatINR(commercialSummary.customerUnloadingCharge)}</p>
+            </div>
+            <div>
+              <p className="text-slate-500">Total billable (pre-invoice)</p>
+              <p className="text-lg font-semibold">{formatINR(commercialSummary.customerBillableTotal)}</p>
             </div>
             <div>
               <p className="text-slate-500">Buy Rate</p>
@@ -164,12 +179,13 @@ export default function TripFinanceView({ finance }: { finance: TripFinanceDto }
               <p className="text-lg font-semibold">{formatINR(commercialSummary.vendorBalance)}</p>
             </div>
             <div>
-              <p className="text-slate-500">Customer Invoice</p>
+              <p className="text-slate-500">Invoiced trip total</p>
               <p className="text-lg font-semibold">
                 {commercialSummary.customerInvoice != null
                   ? formatINR(commercialSummary.customerInvoice)
                   : "Not invoiced"}
               </p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Freight + loading + unloading on invoice</p>
             </div>
             <div>
               <p className="text-slate-500">Customer Receivable</p>
@@ -194,7 +210,7 @@ export default function TripFinanceView({ finance }: { finance: TripFinanceDto }
       </Card>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        <StatCard icon={IndianRupee} value={formatINR(commercialSummary.sellRate)} label="Sell" />
+        <StatCard icon={IndianRupee} value={formatINR(commercialSummary.sellRate)} label="Freight (sell)" />
         <StatCard icon={Wallet} value={formatINR(commercialSummary.buyRate)} label="Buy" />
         <StatCard
           icon={TrendingUp}
@@ -231,6 +247,18 @@ export default function TripFinanceView({ finance }: { finance: TripFinanceDto }
             {!customerSettlement.invoiced ? (
               <div className="space-y-3">
                 <p className="text-sm font-medium text-slate-700">Not invoiced</p>
+                <AmountRow label="Freight (sell rate)" amount={customerSettlement.customerFreight} />
+                <AmountRow label="Loading (client)" amount={customerSettlement.customerLoadingCharge} />
+                <AmountRow label="Unloading (client)" amount={customerSettlement.customerUnloadingCharge} />
+                <AmountRow
+                  label="Expected billable total"
+                  amount={
+                    customerSettlement.customerFreight +
+                    customerSettlement.customerLoadingCharge +
+                    customerSettlement.customerUnloadingCharge
+                  }
+                  emphasize
+                />
                 {customerSettlement.invoiceTaskId ? (
                   <Link href="/invoice-tasks" className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1">
                     View invoice tasks <ArrowRight className="h-3.5 w-3.5" />
@@ -277,7 +305,10 @@ export default function TripFinanceView({ finance }: { finance: TripFinanceDto }
                     <span>—</span>
                   )}
                 </div>
-                <AmountRow label="Invoice total" amount={customerSettlement.invoiceTotal} emphasize />
+                <AmountRow label="Freight" amount={customerSettlement.customerFreight} />
+                <AmountRow label="Loading (client)" amount={customerSettlement.customerLoadingCharge} />
+                <AmountRow label="Unloading (client)" amount={customerSettlement.customerUnloadingCharge} />
+                <AmountRow label="Invoice total (trip)" amount={customerSettlement.invoiceTotal} emphasize />
                 <AmountRow label="Amount collected" amount={customerSettlement.amountCollected} />
                 <AmountRow label="Outstanding" amount={customerSettlement.outstanding} emphasize />
                 {customerSettlement.ageingDays != null && customerSettlement.ageingDays > 0 && (
@@ -345,8 +376,15 @@ export default function TripFinanceView({ finance }: { finance: TripFinanceDto }
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <BreakdownSection title="Revenue">
-              <AmountRow label="Customer sell rate" amount={financialBreakdown.revenue.customerSellRate} emphasize />
+            <BreakdownSection title="Revenue (client)">
+              <AmountRow label="Freight (sell rate)" amount={financialBreakdown.revenue.customerFreight} />
+              <AmountRow label="Loading charge" amount={financialBreakdown.revenue.customerLoadingCharge} />
+              <AmountRow label="Unloading charge" amount={financialBreakdown.revenue.customerUnloadingCharge} />
+              <AmountRow
+                label="Total billable (pre-invoice)"
+                amount={financialBreakdown.revenue.customerBillableTotal}
+                emphasize
+              />
             </BreakdownSection>
             <BreakdownSection title="Vendor Cost">
               <AmountRow label="Base freight / buy rate" amount={financialBreakdown.vendorCost.baseFreight} />
@@ -362,7 +400,10 @@ export default function TripFinanceView({ finance }: { finance: TripFinanceDto }
               <AmountRow label="Vendor outstanding" amount={financialBreakdown.vendorSettlement.vendorOutstanding} emphasize />
             </BreakdownSection>
             <BreakdownSection title="Customer Settlement">
-              <AmountRow label="Invoice amount" amount={financialBreakdown.customerSettlement.invoiceAmount} />
+              <AmountRow label="Freight" amount={financialBreakdown.customerSettlement.customerFreight} />
+              <AmountRow label="Loading" amount={financialBreakdown.customerSettlement.customerLoadingCharge} />
+              <AmountRow label="Unloading" amount={financialBreakdown.customerSettlement.customerUnloadingCharge} />
+              <AmountRow label="Invoice amount (trip)" amount={financialBreakdown.customerSettlement.invoiceAmount} emphasize />
               <AmountRow label="Customer paid" amount={financialBreakdown.customerSettlement.customerPaid} />
               <AmountRow label="Customer outstanding" amount={financialBreakdown.customerSettlement.customerOutstanding} emphasize />
             </BreakdownSection>

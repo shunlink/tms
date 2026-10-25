@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+import { readJsonBody, resolveApiError } from "@/lib/api-client";
 export type FinancialNoteFormOptions = {
   vendors: { id: string; name: string }[];
   clients: { id: string; name: string }[];
@@ -31,8 +32,8 @@ const PURPOSE_BY_COUNTERPARTY: Record<
   { value: string; label: string; suggestedNoteType: "DEBIT_NOTE" | "CREDIT_NOTE" }[]
 > = {
   VENDOR: [
-    { value: "VENDOR_FREIGHT_INCREASE", label: "Freight / charges increase (we pay vendor more)", suggestedNoteType: "DEBIT_NOTE" },
-    { value: "VENDOR_FREIGHT_REDUCTION", label: "Freight / deduction (we pay vendor less)", suggestedNoteType: "CREDIT_NOTE" },
+    { value: "VENDOR_FREIGHT_INCREASE", label: "Freight / charges increase (we pay vendor more)", suggestedNoteType: "CREDIT_NOTE" },
+    { value: "VENDOR_FREIGHT_REDUCTION", label: "Freight / deduction (we pay vendor less)", suggestedNoteType: "DEBIT_NOTE" },
     { value: "OTHER", label: "Other (finance review)", suggestedNoteType: "DEBIT_NOTE" },
   ],
   CLIENT: [
@@ -41,7 +42,22 @@ const PURPOSE_BY_COUNTERPARTY: Record<
   ],
 };
 
-export default function NewFinancialNoteForm({ options }: { options: FinancialNoteFormOptions }) {
+export type FinancialNoteFormPrefill = {
+  vendorId?: string;
+  tripId?: string;
+  indentPodId?: string;
+  indentId?: string;
+  purpose?: string;
+  noteType?: "DEBIT_NOTE" | "CREDIT_NOTE";
+};
+
+export default function NewFinancialNoteForm({
+  options,
+  prefill,
+}: {
+  options: FinancialNoteFormOptions;
+  prefill?: FinancialNoteFormPrefill;
+}) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -52,8 +68,24 @@ export default function NewFinancialNoteForm({ options }: { options: FinancialNo
   const [clientInvoiceId, setClientInvoiceId] = useState("");
   const [businessPurpose, setBusinessPurpose] = useState("VENDOR_FREIGHT_INCREASE");
   const [noteType, setNoteType] = useState<"DEBIT_NOTE" | "CREDIT_NOTE">("DEBIT_NOTE");
+  const [indentPodId, setIndentPodId] = useState("");
+  const [vendorDeductionReason, setVendorDeductionReason] = useState("");
 
   const purposes = PURPOSE_BY_COUNTERPARTY[counterpartyType] ?? [];
+
+  useEffect(() => {
+    if (!prefill) return;
+    if (prefill.vendorId) setVendorId(prefill.vendorId);
+    if (prefill.tripId) setTripId(prefill.tripId);
+    if (prefill.indentPodId) setIndentPodId(prefill.indentPodId);
+    if (prefill.purpose) {
+      setBusinessPurpose(prefill.purpose);
+      const match = PURPOSE_BY_COUNTERPARTY.VENDOR.find((p) => p.value === prefill.purpose);
+      if (match) setNoteType(match.suggestedNoteType);
+    }
+    if (prefill.noteType) setNoteType(prefill.noteType);
+    setCounterpartyType("VENDOR");
+  }, [prefill]);
 
   const filteredTrips = useMemo(() => {
     return options.trips.filter((t) => {
@@ -110,6 +142,11 @@ export default function NewFinancialNoteForm({ options }: { options: FinancialNo
       setLoading(false);
       return;
     }
+    if (businessPurpose === "VENDOR_FREIGHT_REDUCTION" && !vendorDeductionReason) {
+      setError("Select a deduction reason (Shortage, Damage, or Other)");
+      setLoading(false);
+      return;
+    }
     if (
       counterpartyType === "CLIENT" &&
       ["CLIENT_BILLING_INCREASE", "CLIENT_BILLING_REDUCTION"].includes(businessPurpose) &&
@@ -130,15 +167,18 @@ export default function NewFinancialNoteForm({ options }: { options: FinancialNo
           vendorId: counterpartyType === "VENDOR" ? vendorId : null,
           clientId: counterpartyType === "CLIENT" ? clientId : null,
           tripId: tripId || null,
+          indentPodId: indentPodId || null,
+          vendorDeductionReason:
+            businessPurpose === "VENDOR_FREIGHT_REDUCTION" ? vendorDeductionReason : null,
           clientInvoiceId: counterpartyType === "CLIENT" ? clientInvoiceId || null : null,
           businessPurpose,
           reason,
           lines: [{ description: reason ?? businessPurpose, amount }],
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? data.message ?? "Create failed");
-      router.push(`/financial-notes/${data.id}`);
+      const data = await readJsonBody(res);
+      if (!res.ok) throw new Error(resolveApiError(res, data, "Create failed").message);
+      router.push(`/financial-notes/${(data as { id: string }).id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Create failed");
     } finally {
@@ -230,6 +270,22 @@ export default function NewFinancialNoteForm({ options }: { options: FinancialNo
               <option value="CREDIT_NOTE">Credit note</option>
             </select>
           </div>
+          {businessPurpose === "VENDOR_FREIGHT_REDUCTION" && counterpartyType === "VENDOR" && (
+            <div>
+              <Label>Deduction reason</Label>
+              <select
+                className="w-full border rounded-md h-10 px-3"
+                value={vendorDeductionReason}
+                onChange={(e) => setVendorDeductionReason(e.target.value)}
+                required
+              >
+                <option value="">Select…</option>
+                <option value="SHORTAGE">Shortage</option>
+                <option value="DAMAGE">Damage</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+          )}
           <div>
             <Label>Trip (optional)</Label>
             <select

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MapPin, Loader2, Radio } from "lucide-react";
 import { DRIVER_GPS_SHARE_INTERVAL_MS } from "@/lib/constants";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 type Ping = { id: string; lat: number; lng: number; note: string | null; createdAt: string };
 
 const TRACKING_INDENT_STATUSES = new Set(["VEHICLE_PLACED", "DRIVER_ASSIGNED", "IN_TRANSIT"]);
@@ -15,11 +17,13 @@ function formatTime(iso: string) {
 
 export default function DriverTracking({
   indentId,
+  tripId,
   indentStatus,
   tripStatus,
   pings: initialPings,
 }: {
   indentId: string;
+  tripId?: string | null;
   indentStatus: string;
   tripStatus: string | null;
   pings: Ping[];
@@ -40,9 +44,13 @@ export default function DriverTracking({
   const geocode = useCallback(async (lat: number, lng: number) => {
     try {
       const res = await fetch(`/api/geocode?lat=${lat}&lng=${lng}`);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.address && mounted.current) setAddress(data.address);
+      const data = await readJsonBody(res);
+      if (!res.ok) {
+        reportApiFailure(res, data, { silent: true });
+        return;
+      }
+      const body = data as { address?: string };
+      if (body.address && mounted.current) setAddress(body.address);
     } catch {
       // geocoding is best-effort
     }
@@ -64,7 +72,10 @@ export default function DriverTracking({
         await geocode(lat, lng);
 
         try {
-          const res = await fetch(`/api/indents/${indentId}/tracking`, {
+          const trackingUrl = tripId
+            ? `/api/trips/${tripId}/tracking`
+            : `/api/indents/${indentId}/tracking`;
+          const res = await fetch(trackingUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ lat, lng, source: "GPS", accuracyMeters }),

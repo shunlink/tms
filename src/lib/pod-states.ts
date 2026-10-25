@@ -10,7 +10,8 @@ export const POD_TRANSITIONS: Record<PodStatus, PodStatus[]> = {
   INCOMPLETE: ["PENDING_VERIFICATION"],
   PENDING_VERIFICATION: ["VERIFIED", "BAD_POD"],
   VERIFIED: [],
-  BAD_POD: [],
+  /** Resolved only via markBadPodAsGood after issued vendor debit note — not via re-upload. */
+  BAD_POD: ["VERIFIED"],
 };
 
 export function canPodTransition(from: PodStatus, to: PodStatus): boolean {

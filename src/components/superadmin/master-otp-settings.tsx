@@ -4,8 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { authInputClass, authLabelClass } from "@/components/auth-shell";
+import { settingsSectionClass } from "@/components/settings/settings-styles";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 export default function MasterOtpSettings() {
+  const toast = useToast();
   const [status, setStatus] = useState<{ configured: boolean; lastGeneratedAt: string | null } | null>(
     null
   );
@@ -17,7 +21,7 @@ export default function MasterOtpSettings() {
 
   const loadStatus = useCallback(async () => {
     const res = await fetch("/api/superadmin/master-otp/status");
-    if (res.ok) setStatus(await res.json());
+    if (res.ok) setStatus((await readJsonBody(res)) as { configured: boolean; lastGeneratedAt: string | null });
   }, []);
 
   useEffect(() => {
@@ -39,12 +43,12 @@ export default function MasterOtpSettings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
       });
-      const data = await res.json();
+      const data = await readJsonBody(res);
       if (!res.ok) {
-        setError(data.error ?? "Regeneration failed");
+        reportApiFailure(res, data, { toast, setError, fallback: "Regeneration failed" });
         return;
       }
-      setRevealedOtp(data.masterOtp);
+      setRevealedOtp((data as { masterOtp: string }).masterOtp);
       setPassword("");
       await loadStatus();
     } finally {
@@ -53,7 +57,7 @@ export default function MasterOtpSettings() {
   }
 
   return (
-    <Card>
+    <Card className={settingsSectionClass}>
       <CardHeader>
         <CardTitle>Master OTP (portal access)</CardTitle>
       </CardHeader>
@@ -85,7 +89,12 @@ export default function MasterOtpSettings() {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <Button type="button" disabled={loading} onClick={() => regenerate()}>
+        <Button
+          type="button"
+          disabled={loading}
+          className="bg-slate-900 text-white hover:bg-slate-800"
+          onClick={() => regenerate()}
+        >
           {loading ? "Generating…" : status?.configured ? "Regenerate Master OTP" : "Generate Master OTP"}
         </Button>
 

@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
-import { parseApiError } from "@/lib/toast-utils";
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 import {
   isMockVerification,
   isSuccessfulVerification,
@@ -34,6 +35,7 @@ export default function GstVerificationField({
   required?: boolean;
   disabled?: boolean;
 }) {
+  const toast = useToast();
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState("");
   const [meta, setMeta] = useState<GstMeta | null>(
@@ -64,12 +66,12 @@ export default function GstVerificationField({
           persist: Boolean(entityType && entityId),
         }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await readJsonBody(res);
       if (!res.ok) {
-        setError(parseApiError(data, "GST verification failed"));
+        reportApiFailure(res, data, { toast, setError, fallback: "GST verification failed" });
         return;
       }
-      const verified = data.data as Record<string, unknown>;
+      const verified = (data as { data: Record<string, unknown> }).data;
       setMeta({
         verificationStatus: String(verified.verificationStatus ?? "VERIFIED"),
         verifiedAt: String(verified.verifiedAt ?? new Date().toISOString()),

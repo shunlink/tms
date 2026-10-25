@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
+import { readJsonBody, resolveApiError } from "@/lib/api-client";
 export default function GatewaySettlementImportForm({ disabled }: { disabled?: boolean }) {
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -16,9 +17,9 @@ export default function GatewaySettlementImportForm({ disabled }: { disabled?: b
       const form = new FormData();
       form.append("file", file);
       const res = await fetch("/api/accounting/gateway-settlements/import", { method: "POST", body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Import failed");
-      setMessage(`Imported ${data.lineCount} settlement line(s).`);
+      const data = await readJsonBody(res);
+      if (!res.ok) throw new Error(resolveApiError(res, data, "Import failed").message);
+      setMessage(`Imported ${(data as { lineCount: number }).lineCount} settlement line(s).`);
       window.location.reload();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Import failed");

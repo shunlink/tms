@@ -32,6 +32,83 @@ export type PodUploadInput = {
   previousPodId?: string | null;
 };
 
+export type PodVerificationCharges = {
+  loadingCharge?: number;
+  unloadingCharge?: number;
+};
+
+function chargeAmount(v: number | undefined) {
+  const n = Number(v ?? 0);
+  if (!Number.isFinite(n) || n < 0) throw new Error("Charges must be zero or a positive amount");
+  return Math.round(n * 100) / 100;
+}
+
+/** Issued vendor debit note required before marking a bad POD as good. */
+export async function findIssuedVendorReductionNoteForPod(
+  tripId: string,
+  indentPodId?: string | null
+) {
+  return prisma.financialNote.findFirst({
+    where: {
+      status: "ISSUED",
+      counterpartyType: "VENDOR",
+      businessPurpose: "VENDOR_FREIGHT_REDUCTION",
+      tripId,
+      ...(indentPodId ? { indentPodId } : {}),
+    },
+    orderBy: { issuedAt: "desc" },
+    select: { id: true, noteNumber: true, status: true, issuedAt: true },
+  });
+}
+
+export async function assertVendorDebitNoteGateForPod(tripId: string, indentPodId: string) {
+  const note = await findIssuedVendorReductionNoteForPod(tripId, indentPodId);
+  if (!note) {
+    throw new Error(
+      "An issued vendor debit note (freight reduction) linked to this bad POD is required before marking as good"
+    );
+  }
+  return note;
+}
+
+export async function getVendorDebitNoteGateStatus(tripId: string | null | undefined, indentPodId: string) {
+  if (!tripId) {
+    return { satisfied: false as const, note: null };
+  }
+  const note = await findIssuedVendorReductionNoteForPod(tripId, indentPodId);
+  return { satisfied: Boolean(note), note };
+}
+
+async function hasUnresolvedBadPodOnTrip(tripId: string, excludePodId?: string) {
+  const row = await prisma.indentPod.findFirst({
+    where: {
+      tripId,
+      status: "BAD_POD",
+      resolutionStatus: { in: ["PENDING", "SLA_BREACHED"] },
+      ...(excludePodId ? { id: { not: excludePodId } } : {}),
+    },
+    select: { id: true },
+  });
+  return Boolean(row);
+}
+
+function buildDebitNoteDraftPath(opts: {
+  tripId: string;
+  indentPodId: string;
+  vendorId: string;
+  indentId: string;
+}) {
+  const q = new URLSearchParams({
+    tripId: opts.tripId,
+    indentPodId: opts.indentPodId,
+    indentId: opts.indentId,
+    vendorId: opts.vendorId,
+    purpose: "VENDOR_FREIGHT_REDUCTION",
+    noteType: "DEBIT_NOTE",
+  });
+  return `/financial-notes/new?${q.toString()}`;
+}
+
 function mapPodSourceFromRole(role?: string | null): PodSource {
   if (role === "DRIVER") return "DRIVER";
   if (role === "VENDOR") return "VENDOR";
@@ -150,20 +227,27 @@ export async function uploadPodFromTrip(
   const indentId = trip.indentId;
   if (!POD_UPLOAD_ELIGIBLE_TRIP_STATUSES.has(trip.status)) return null;
 
-  const badPod = await prisma.indentPod.findFirst({
+  if (await hasUnresolvedBadPodOnTrip(tripId)) {
+    throw new Error(
+      "This trip has a bad POD awaiting vendor debit note resolution; uploads cannot replace verification"
+    );
+  }
+
+  const alreadySubmitted = await prisma.indentPod.findFirst({
     where: {
       tripId,
-      status: "BAD_POD",
-      OR: [{ resolutionStatus: { in: ["PENDING", "SLA_BREACHED"] } }, { resolutionStatus: null }],
+      status: { in: ["PENDING_VERIFICATION", "VERIFIED", "BAD_POD"] },
     },
-    orderBy: { rejectedAt: "desc" },
+    select: { id: true },
   });
-  if (badPod) {
-    return correctBadPod(badPod.id, { frontFileId, backFileId, remarks }, actor);
+  if (alreadySubmitted) {
+    throw new Error(
+      "A POD has already been submitted for this trip. Only operations can replace it from the indent POD verification panel."
+    );
   }
 
   const existingOpen = await prisma.indentPod.findFirst({
-    where: { tripId, status: { in: ["INCOMPLETE", "PENDING_VERIFICATION"] } },
+    where: { tripId, status: "INCOMPLETE" },
     orderBy: { uploadedAt: "desc" },
   });
 
@@ -277,98 +361,78 @@ export async function syncOrphanTripPodUploads(tripId?: string) {
   }
 }
 
-/** Re-upload a corrected POD for a previously rejected (bad) POD. */
-export async function correctBadPod(
-  badPodId: string,
+/** Replace front/back images on a pending POD (finance review only — does not resolve bad POD). */
+export async function replacePodImages(
+  podId: string,
   data: { frontFileId: string; backFileId: string; remarks?: string | null },
   actor?: SessionUser | null
 ) {
-  const badPod = await prisma.indentPod.findFirst({
-    where: { id: badPodId },
-    include: { indent: { select: { indentNumber: true } } },
-  });
-  if (!badPod || badPod.status !== "BAD_POD") return null;
+  const pod = await prisma.indentPod.findFirst({ where: { id: podId } });
+  if (!pod || pod.status !== "PENDING_VERIFICATION") return null;
+  if (!isPodComplete(data.frontFileId, data.backFileId)) {
+    throw new Error("Both front and back POD images are required");
+  }
 
-  const source = actor ? mapPodSourceFromRole(actor.role) : "EMPLOYEE";
-  const pod = await createPodRecord(
-    badPod.indentId,
-    {
-      frontFileId: data.frontFileId,
+  await prisma.indentPod.update({
+    where: { id: podId },
+    data: {
+      fileId: data.frontFileId,
       backFileId: data.backFileId,
-      source,
-      remarks: data.remarks,
-      tripId: badPod.tripId,
-      previousPodId: badPodId,
+      remarks: data.remarks ?? pod.remarks,
+      uploadedAt: new Date(),
+      uploadedById: actor?.id ?? pod.uploadedById,
     },
-    actor
-  );
-
-  const { createImportantEvent } = await import("./important-event.service");
-  await createImportantEvent({
-    type: "POD_PENDING",
-    severity: "INFO",
-    title: `Corrected POD pending verification — ${badPod.indent.indentNumber}`,
-    description: `Replacement for rejected POD (${badPod.rejectionReason ?? "no reason"})`,
-    indentId: badPod.indentId,
-    relatedEntityId: pod.id,
-    targetTeamCode: "FINANCE",
   });
-
-  const { resolveSlaTask } = await import("./sla.service");
-  const { SLA_TYPES } = await import("../sla-types");
-  await resolveSlaTask(SLA_TYPES.BAD_POD, badPodId);
-  const { resolveImportantEvents } = await import("./important-event.service");
-  await resolveImportantEvents(
-    { types: ["POD_REJECTED", "POD_SLA_BREACHED"], relatedEntityIds: [badPodId] },
-    { actorId: actor?.id }
-  );
 
   await logAudit({
     user: actor,
-    action: AUDIT_ACTIONS.RESOLVED_BAD_POD,
+    action: AUDIT_ACTIONS.POD_UPLOADED,
     entity: "IndentPod",
-    entityId: badPodId,
-    meta: { correctedPodId: pod.id },
+    entityId: podId,
+    meta: { replacedImages: true, indentId: pod.indentId },
   });
 
-  return getPodById(pod.id);
+  return getPodById(podId);
 }
 
-/** Verify a pending POD — does NOT auto-verify on upload. */
-export async function verifyPod(podId: string, actor?: SessionUser | null) {
-  const pod = await prisma.indentPod.findFirst({
-    where: { id: podId },
-    include: { indent: true, trip: true },
-  });
-  if (!pod) return null;
-  if (!isPodComplete(pod.fileId, pod.backFileId)) {
-    throw new Error("Both front and back POD images are required before verification");
-  }
+/** @deprecated Bad POD is resolved via debit note + markBadPodAsGood — use replacePodImages on pending PODs. */
+export async function correctBadPod(
+  badPodId: string,
+  data: { frontFileId: string; backFileId: string; remarks?: string | null },
+  _actor?: SessionUser | null
+) {
+  throw new Error(
+    "Corrected POD upload is not supported for bad POD; issue a vendor debit note and mark as good, or re-upload on pending verification only"
+  );
+}
 
-  assertPodTransition(pod.status, "VERIFIED");
+async function completePodVerification(
+  pod: {
+    id: string;
+    indentId: string;
+    tripId: string | null;
+    status: string;
+    indent: { indentNumber: string };
+  },
+  charges: PodVerificationCharges,
+  actor?: SessionUser | null,
+  opts?: { markBadPodResolved?: boolean }
+) {
   const now = new Date();
-
-  const supersededBadPods = await prisma.indentPod.findMany({
-    where: {
-      id: { not: podId },
-      status: "BAD_POD",
-      resolutionStatus: { not: "CORRECTED" },
-      ...(pod.tripId ? { tripId: pod.tripId } : { indentId: pod.indentId }),
-    },
-    select: { id: true },
-  });
-  const supersededIds = supersededBadPods.map((p) => p.id);
+  const loading = chargeAmount(charges.loadingCharge);
+  const unloading = chargeAmount(charges.unloadingCharge);
 
   await prisma.$transaction(async (tx) => {
-    if (supersededIds.length) {
-      await tx.indentPod.updateMany({
-        where: { id: { in: supersededIds } },
-        data: { resolutionStatus: "CORRECTED" },
-      });
-    }
     await tx.indentPod.update({
-      where: { id: podId },
-      data: { status: "VERIFIED", verifiedAt: now, verifiedById: actor?.id ?? null },
+      where: { id: pod.id },
+      data: {
+        status: "VERIFIED",
+        verifiedAt: now,
+        verifiedById: actor?.id ?? null,
+        ...(opts?.markBadPodResolved
+          ? { resolutionStatus: "CORRECTED" }
+          : {}),
+      },
     });
 
     await tx.indent.update({
@@ -376,15 +440,34 @@ export async function verifyPod(podId: string, actor?: SessionUser | null) {
       data: { status: "POD_RECEIVED", podReceivedAt: now },
     });
 
-    if (pod.tripId) {
+    const resolvedTripId =
+      pod.tripId ??
+      (
+        await tx.trip.findFirst({
+          where: { indentId: pod.indentId },
+          orderBy: { createdAt: "desc" },
+          select: { id: true },
+        })
+      )?.id ??
+      null;
+
+    if (resolvedTripId) {
+      if (!pod.tripId) {
+        await tx.indentPod.update({
+          where: { id: pod.id },
+          data: { tripId: resolvedTripId },
+        });
+      }
       await tx.trip.update({
-        where: { id: pod.tripId },
+        where: { id: resolvedTripId },
         data: {
           status: "CLOSED",
           podReceivedAt: now,
           podVerifiedAt: now,
           podVerifiedById: actor?.id ?? null,
           tripClosedAt: now,
+          clientLoadingCharge: loading,
+          clientUnloadingCharge: unloading,
         },
       });
     }
@@ -392,20 +475,19 @@ export async function verifyPod(podId: string, actor?: SessionUser | null) {
     const { resolveImportantEvents } = await import("./important-event.service");
     await resolveImportantEvents(
       {
-        types: ["POD_PENDING", "POD_REJECTED", "POD_SLA_BREACHED"],
-        relatedEntityIds: [podId, ...supersededIds],
+        types: [
+          "POD_PENDING",
+          "POD_REJECTED",
+          "POD_SLA_BREACHED",
+          "POD_VENDOR_DEBIT_NOTE_REQUIRED",
+        ],
+        relatedEntityIds: [pod.id],
       },
       { actorId: actor?.id, db: tx }
     );
   });
 
-  if (supersededIds.length) {
-    const { resolveSlaTask } = await import("./sla.service");
-    const { SLA_TYPES } = await import("../sla-types");
-    for (const id of supersededIds) await resolveSlaTask(SLA_TYPES.BAD_POD, id);
-  }
-
-  const resolvedTripId =
+  const tripId =
     pod.tripId ??
     (
       await prisma.trip.findFirst({
@@ -416,16 +498,9 @@ export async function verifyPod(podId: string, actor?: SessionUser | null) {
     )?.id ??
     null;
 
-  if (resolvedTripId) {
-    if (!pod.tripId) {
-      await prisma.indentPod.update({
-        where: { id: podId },
-        data: { tripId: resolvedTripId },
-      });
-    }
-
+  if (tripId) {
     const { notifyClientOfTripStatus } = await import("../notifications");
-    await notifyClientOfTripStatus(resolvedTripId, "POD_RECEIVED");
+    await notifyClientOfTripStatus(tripId, "POD_RECEIVED");
 
     const { createImportantEvent } = await import("./important-event.service");
     await createImportantEvent({
@@ -433,27 +508,81 @@ export async function verifyPod(podId: string, actor?: SessionUser | null) {
       severity: "INFO",
       title: `POD verified — ${pod.indent.indentNumber}`,
       indentId: pod.indentId,
-      relatedEntityId: podId,
+      relatedEntityId: pod.id,
       targetTeamCode: "FINANCE",
     });
 
     const { createInvoiceTaskOnPodVerification } = await import("./invoice-task.service");
-    await createInvoiceTaskOnPodVerification(resolvedTripId, now, pod.indentId);
+    await createInvoiceTaskOnPodVerification(tripId, now, pod.indentId);
 
     const { createBalancePaymentTaskOnPodVerification } = await import("./vendor-balance-payment.service");
-    await createBalancePaymentTaskOnPodVerification(resolvedTripId, now, pod.indentId);
+    await createBalancePaymentTaskOnPodVerification(tripId, now, pod.indentId);
+  }
+
+  if (opts?.markBadPodResolved) {
+    const { resolveSlaTask } = await import("./sla.service");
+    const { SLA_TYPES } = await import("../sla-types");
+    await resolveSlaTask(SLA_TYPES.BAD_POD, pod.id);
   }
 
   await logAudit({
     user: actor,
     action: AUDIT_ACTIONS.POD_VERIFIED,
     entity: "IndentPod",
-    entityId: podId,
+    entityId: pod.id,
     before: { status: pod.status },
-    after: { status: "VERIFIED" },
+    after: { status: "VERIFIED", loading, unloading },
   });
 
-  return getPodById(podId);
+  return getPodById(pod.id);
+}
+
+/** Verify a pending POD — does NOT auto-verify on upload. */
+export async function verifyPod(
+  podId: string,
+  actor?: SessionUser | null,
+  charges: PodVerificationCharges = {}
+) {
+  const pod = await prisma.indentPod.findFirst({
+    where: { id: podId },
+    include: { indent: true, trip: true },
+  });
+  if (!pod) return null;
+  if (!isPodComplete(pod.fileId, pod.backFileId)) {
+    throw new Error("Both front and back POD images are required before verification");
+  }
+
+  assertPodTransition(pod.status, "VERIFIED");
+  if (pod.tripId && (await hasUnresolvedBadPodOnTrip(pod.tripId, pod.id))) {
+    throw new Error(
+      "Cannot verify while this trip has an unresolved bad POD; resolve via vendor debit note and mark as good"
+    );
+  }
+
+  return completePodVerification(pod, charges, actor);
+}
+
+/** Mark a bad POD as good after an issued vendor debit note (same images, with client charges). */
+export async function markBadPodAsGood(
+  podId: string,
+  actor?: SessionUser | null,
+  charges: PodVerificationCharges = {}
+) {
+  const pod = await prisma.indentPod.findFirst({
+    where: { id: podId },
+    include: { indent: true, trip: { select: { id: true, vendorId: true } } },
+  });
+  if (!pod || pod.status !== "BAD_POD") return null;
+  if (!isPodComplete(pod.fileId, pod.backFileId)) {
+    throw new Error("Both front and back POD images are required");
+  }
+  const tripId = pod.tripId ?? pod.trip?.id;
+  if (!tripId) throw new Error("Trip is required to mark bad POD as good");
+
+  assertPodTransition(pod.status, "VERIFIED");
+  await assertVendorDebitNoteGateForPod(tripId, pod.id);
+
+  return completePodVerification(pod, charges, actor, { markBadPodResolved: true });
 }
 
 /** Reject a pending POD — creates a bad POD finance task with 24h SLA. */
@@ -464,7 +593,10 @@ export async function rejectPod(
 ) {
   const pod = await prisma.indentPod.findFirst({
     where: { id: podId },
-    include: { indent: true },
+    include: {
+      indent: true,
+      trip: { select: { id: true, lrNumber: true, vendorId: true, vendor: { select: { name: true } } } },
+    },
   });
   if (!pod) return null;
 
@@ -518,6 +650,27 @@ export async function rejectPod(
     dueAt: slaDeadlineAt,
     targetTeamCode: "FINANCE",
   });
+
+  if (pod.tripId && pod.trip) {
+    const debitPath = buildDebitNoteDraftPath({
+      tripId: pod.tripId,
+      indentPodId: podId,
+      vendorId: pod.trip.vendorId,
+      indentId: pod.indentId,
+    });
+    const lr = pod.trip.lrNumber;
+    const vendorName = pod.trip.vendor?.name ?? "vendor";
+    await createImportantEvent({
+      type: "POD_VENDOR_DEBIT_NOTE_REQUIRED",
+      severity: "CRITICAL",
+      title: `Vendor debit note required — ${lr}`,
+      description: `Issue a vendor debit note for trip ${lr} (${vendorName}) before marking POD good. ${rejectionReason ?? ""} Create note: ${debitPath}`,
+      indentId: pod.indentId,
+      relatedEntityId: podId,
+      dueAt: slaDeadlineAt,
+      targetTeamCode: "FINANCE",
+    });
+  }
 
   await logAudit({
     user: actor,
@@ -655,7 +808,7 @@ export async function approvePod(indentId: string, actor?: SessionUser | null) {
     orderBy: { uploadedAt: "desc" },
   });
   if (!pending) return null;
-  const result = await verifyPod(pending.id, actor);
+  const result = await verifyPod(pending.id, actor, {});
   if (!result) return null;
   return (await import("./indent.service")).getIndentById(indentId);
 }

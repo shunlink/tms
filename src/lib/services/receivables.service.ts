@@ -4,12 +4,14 @@ import { invoiceOutstanding } from "../invoice-payment";
 import { parsePagination, paginated, type PaginatedResult } from "../pagination";
 import {
   OUTSTANDING_INVOICE_STATUSES,
+  balanceAgeBucketForDays,
   buildReceivablesSummary,
   deriveReceivableDisplayStatus,
-  detailedAgeingBucketForDays,
   invoiceAgeingDays,
-  type AgeingBucketFilter,
+  invoiceBalanceAgeDays,
+  type ReceivableBalanceAgeingBucket,
   type ReceivableDisplayStatus,
+  type ReportAgeingBuckets,
 } from "../receivables";
 import { listClientPayments } from "./client-payment.service";
 
@@ -22,10 +24,24 @@ const n = (v: Decimalish) => {
 export type ReceivablesSortField = "dueDate" | "outstanding" | "issueDate" | "client";
 export type ReceivablesSortDir = "asc" | "desc";
 
+export type ReceivableAgeingBucketFilter = ReceivableBalanceAgeingBucket | "overdue";
+
+export function normalizeReceivableAgeingBucketFilter(
+  raw?: string
+): ReceivableAgeingBucketFilter | undefined {
+  if (!raw) return undefined;
+  if (raw === "overdue") return "overdue";
+  if (raw === "current" || raw === "d1_30") return "d0_30";
+  if (["d0_30", "d31_60", "d61_90", "d90plus"].includes(raw)) {
+    return raw as ReceivableBalanceAgeingBucket;
+  }
+  return undefined;
+}
+
 export type ReceivablesFilters = {
   clientId?: string;
   status?: ReceivableDisplayStatus;
-  ageingBucket?: AgeingBucketFilter;
+  ageingBucket?: ReceivableAgeingBucketFilter;
   dueFrom?: Date;
   dueTo?: Date;
   issueFrom?: Date;
@@ -47,7 +63,8 @@ export type ReceivableRow = {
   paidAmount: number;
   outstanding: number;
   daysOverdue: number;
-  ageingBucket: AgeingBucketFilter;
+  daysSinceIssue: number;
+  ageingBucket: ReceivableBalanceAgeingBucket;
   displayStatus: ReceivableDisplayStatus;
   storedStatus: string;
 };
@@ -55,13 +72,7 @@ export type ReceivableRow = {
 export type ReceivablesSummary = {
   total: number;
   totalOverdue: number;
-  buckets: {
-    current: number;
-    d1_30: number;
-    d31_60: number;
-    d61_90: number;
-    d90plus: number;
-  };
+  buckets: ReportAgeingBuckets;
 };
 
 export type ClientReceivableSummary = {
@@ -108,17 +119,14 @@ export function parseReceivablesFilters(
   const minOutstanding = pick("minOutstanding");
   const maxOutstanding = pick("maxOutstanding");
   const status = pick("status") as ReceivableDisplayStatus | undefined;
-  const ageingBucket = pick("ageingBucket") as AgeingBucketFilter | undefined;
+  const ageingBucketRaw = pick("ageingBucket");
+  const ageingBucket = normalizeReceivableAgeingBucketFilter(ageingBucketRaw);
 
   return {
     clientId: pick("clientId") || undefined,
     status:
       status && ["UNPAID", "PARTIALLY_PAID", "OVERDUE"].includes(status) ? status : undefined,
-    ageingBucket:
-      ageingBucket &&
-      ["current", "d1_30", "d31_60", "d61_90", "d90plus", "overdue"].includes(ageingBucket)
-        ? ageingBucket
-        : undefined,
+    ageingBucket,
     dueFrom: parseDate(pick("dueFrom")),
     dueTo: parseDate(pick("dueTo")),
     issueFrom: parseDate(pick("issueFrom")),
@@ -189,9 +197,8 @@ function mapInvoiceToRow(
   if (outstanding <= 0) return null;
 
   const daysOverdue = Math.max(0, invoiceAgeingDays(inv.dueDate, inv.issueDate, nowMs));
-  const ageingBucket = detailedAgeingBucketForDays(
-    invoiceAgeingDays(inv.dueDate, inv.issueDate, nowMs)
-  );
+  const daysSinceIssue = invoiceBalanceAgeDays(inv.issueDate, inv.finalizedAt, nowMs);
+  const ageingBucket = balanceAgeBucketForDays(daysSinceIssue);
   const displayStatus = deriveReceivableDisplayStatus(
     totalAmount,
     paidAmount,
@@ -216,6 +223,7 @@ function mapInvoiceToRow(
     paidAmount,
     outstanding,
     daysOverdue,
+    daysSinceIssue,
     ageingBucket,
     displayStatus,
     storedStatus: inv.status,
@@ -329,6 +337,7 @@ export async function getReceivablesSummary(
         status: inv.status,
         dueDate: inv.dueDate,
         issueDate: inv.issueDate,
+        finalizedAt: inv.finalizedAt,
       };
     })
     .filter((r): r is NonNullable<typeof r> => r != null);

@@ -5,6 +5,8 @@ import DataTable, { type DataColumn } from "@/components/data-table";
 import BalancePaymentDetailDialog from "@/components/forms/balance-payment-detail-dialog";
 import { formatINR, formatDate } from "@/lib/utils";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 type FinancialNoteSummary = {
   id: string;
   noteNumber: string | null;
@@ -89,12 +91,15 @@ function formatSlaCell(row: BalancePaymentRow) {
 export default function BalancePaymentsTable({
   tasks,
   canProcess,
+  canApprove,
   currentUserId,
 }: {
   tasks: BalancePaymentRow[];
   canProcess: boolean;
+  canApprove: boolean;
   currentUserId?: string | null;
 }) {
+  const toast = useToast();
   const [selected, setSelected] = useState<BalancePaymentRow | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [detailError, setDetailError] = useState("");
@@ -130,9 +135,9 @@ export default function BalancePaymentsTable({
           setLoadingDetail(true);
           try {
             const res = await fetch(`/api/balance-payments/${row.id}`);
-            const data = await res.json().catch(() => ({}));
+            const data = await readJsonBody(res);
             if (!res.ok) {
-              setDetailError(data.error || "Could not load balance payment details");
+              reportApiFailure(res, data, { toast, setError: setDetailError, fallback: "Could not load balance payment details" });
               const match = tasks.find((t) => t.id === row.id);
               if (match) setSelected(match);
               return;
@@ -164,6 +169,7 @@ export default function BalancePaymentsTable({
             approvedBy: selected.approvedBy ?? null,
           }}
           canProcess={canProcess}
+          canApprove={canApprove}
           currentUserId={currentUserId}
           open={!!selected}
           onClose={() => setSelected(null)}

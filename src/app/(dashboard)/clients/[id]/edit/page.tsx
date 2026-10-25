@@ -1,16 +1,18 @@
 import { notFound } from "next/navigation";
 import ClientForm from "@/components/forms/client-form";
 import { getClientDetail } from "@/lib/queries";
+import { requirePagePermission } from "@/lib/page-auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function EditClientPage({ params }: { params: { id: string } }) {
+  await requirePagePermission("client.edit");
   const c = await getClientDetail(params.id);
   if (!c) notFound();
 
   const initial = {
     name: c.name ?? "",
-    legalName: c.legalName ?? "",
+    businessType: c.businessType ?? "",
     industry: c.industry ?? "",
     website: c.website ?? "",
     gstin: c.gstin ?? "",
@@ -45,7 +47,7 @@ export default async function EditClientPage({ params }: { params: { id: string 
   };
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full max-w-4xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-900">Edit Client</h1>
         <p className="text-slate-500">{c.name}</p>

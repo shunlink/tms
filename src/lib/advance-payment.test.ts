@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ADVANCE_PAYMENT_METHODS } from "./advance-payment-methods";
 import { advancePaymentSchema } from "./validation";
+import { DEFAULT_COMPANY_PROFILE } from "./company";
 import { buildAdvanceVoucherHtml } from "./services/advance-voucher.service";
 
 describe("advance payment processing", () => {
@@ -53,7 +54,7 @@ describe("advance payment processing", () => {
       processedByName: "Finance User",
       processedAt: new Date("2026-10-03"),
       status: "PAID",
-    });
+    }, DEFAULT_COMPANY_PROFILE);
     expect(html).toContain("APV-2026-0001");
     expect(html).toContain("Sharma Transport");
     expect(html).toContain("UTR123456");

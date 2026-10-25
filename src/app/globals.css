@@ -72,3 +72,118 @@
     height: 0;
   }
 }
+
+@keyframes portal-cta-intro-pulse {
+  0%,
+  100% {
+    background-color: #f5d33c;
+    box-shadow:
+      0 1px 2px rgba(17, 24, 39, 0.08),
+      0 0 0 0 rgba(245, 211, 60, 0.5);
+  }
+  50% {
+    background-color: #ffe566;
+    box-shadow:
+      0 2px 8px rgba(17, 24, 39, 0.1),
+      0 0 0 7px rgba(245, 211, 60, 0.22),
+      0 0 20px rgba(245, 211, 60, 0.35);
+  }
+}
+
+@keyframes portal-cta-arrow-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes portal-cta-badge-pop {
+  from {
+    transform: scale(0.82);
+    opacity: 0.5;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@layer utilities {
+  .portal-cta-intro {
+    animation: portal-cta-intro-pulse 1.55s ease-in-out 3;
+  }
+  .portal-cta-arrow-intro {
+    animation: portal-cta-arrow-nudge 1.15s ease-in-out 3;
+  }
+  .portal-cta-badge-pop {
+    animation: portal-cta-badge-pop 0.4s ease-out 0.15s both;
+  }
+  .portal-nav-open-indents-hint:not(.portal-nav-active) {
+    box-shadow: inset 0 0 0 1px rgba(245, 211, 60, 0.35);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .portal-cta-intro,
+    .portal-cta-arrow-intro,
+    .portal-cta-badge-pop {
+      animation: none;
+    }
+  }
+
+  @keyframes shunlink-indent-urgent-pop {
+    0%,
+    100% {
+      transform: scale(1);
+      box-shadow:
+        0 2px 6px rgba(15, 23, 42, 0.1),
+        0 0 0 0 rgba(245, 211, 60, 0.45);
+    }
+    50% {
+      transform: scale(1.04);
+      box-shadow:
+        0 10px 28px rgba(15, 23, 42, 0.14),
+        0 0 0 8px rgba(245, 211, 60, 0),
+        0 6px 22px rgba(245, 211, 60, 0.42);
+    }
+  }
+
+  @keyframes shunlink-indent-badge-pulse {
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.1);
+    }
+  }
+
+  .shunlink-indent-btn-urgent-pop {
+    animation: shunlink-indent-urgent-pop 1.75s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  .shunlink-indent-badge-pulse {
+    animation: shunlink-indent-badge-pulse 1.75s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .shunlink-indent-btn-urgent-pop,
+    .shunlink-indent-badge-pulse {
+      animation: none;
+    }
+  }
+
+  .client-portal-view-only [data-portal-mutate] {
+    pointer-events: none;
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .client-portal-view-only button[data-portal-mutate],
+  .client-portal-view-only form[data-portal-mutate] button {
+    pointer-events: none;
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}

@@ -125,11 +125,9 @@ export function buildIndentBidMessage(input: IndentBidMessageInput): string {
     "",
     "How to send your rate:",
     `1. Tap "${WHATSAPP_QUOTE_BUTTON_TITLE}" below`,
-    "2. Reply with your amount in INR (example: 43000)",
+    "2. Enter your freight amount on the quote page (no login needed)",
     "",
-    `Or reply: quote ${input.indentNumber} 43000`,
-    "",
-    "Send only one rate per indent. The first rate we receive is recorded.",
+    "Send only one rate per indent. The first valid submission is recorded.",
   ]);
 }
 
@@ -159,6 +157,16 @@ export function buildInvalidAmountMessage(): string {
   ]);
 }
 
+export function buildPortalQuoteRedirectMessage(indentNumber: string, quotePageUrl: string): string {
+  return buildLines([
+    `Submit your rate for ${indentNumber} on this page (no login needed):`,
+    "",
+    quotePageUrl,
+    "",
+    "WhatsApp replies are not accepted for new quotes.",
+  ]);
+}
+
 export function buildMultipleIndentsMessage(indentNumbers: string[]): string {
   const list = indentNumbers.map((n) => `- ${n}`).join("\n");
   return buildLines([
@@ -166,17 +174,15 @@ export function buildMultipleIndentsMessage(indentNumbers: string[]): string {
     "",
     list,
     "",
-    `Tap "${WHATSAPP_QUOTE_BUTTON_TITLE}" on the correct indent message, then send your amount.`,
-    "",
-    "Or reply: quote IND-2026-0001 43000",
+    `Tap "${WHATSAPP_QUOTE_BUTTON_TITLE}" on the correct indent message to open your quote page.`,
   ]);
 }
 
 export function buildNoActiveIndentMessage(): string {
   return buildLines([
-    `Tap "${WHATSAPP_QUOTE_BUTTON_TITLE}" on the indent message first, then send your amount.`,
+    `Tap "${WHATSAPP_QUOTE_BUTTON_TITLE}" on the indent message to open your quote page and submit your rate.`,
     "",
-    "Or reply: quote IND-2026-0001 43000",
+    "WhatsApp text replies are not accepted for quotes.",
   ]);
 }
 

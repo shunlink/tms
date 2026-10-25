@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/status-badge";
 import { formatINR, formatDate } from "@/lib/utils";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type ExternalAdvanceRow = {
   id: string;
   requestNumber: string;
@@ -32,6 +35,7 @@ export default function ExternalAdvanceDetailDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [requestedAmount, setRequestedAmount] = useState(
     request.requestedAmount > 0 ? String(request.requestedAmount) : ""
@@ -69,9 +73,9 @@ export default function ExternalAdvanceDetailDialog({
       }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Update failed");
+      reportApiFailure(res, data, { toast, setError, fallback: "Update failed" });
       return;
     }
     onClose();

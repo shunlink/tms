@@ -73,13 +73,9 @@ export default function PortalClientProfileView({ client }: { client: ClientProf
             <p className="font-heading text-lg font-semibold text-foreground truncate">
               {formatProfileValue(client.name)}
             </p>
-            {client.legalName && client.legalName !== client.name && (
-              <p className="text-sm text-muted-foreground truncate">{client.legalName}</p>
-            )}
           </div>
         </div>
         <ProfileFieldGrid>
-          <ProfileField label="Legal name" value={client.legalName} />
           <ProfileField label="Industry" value={client.industry} />
           <ProfileField label="Website" value={client.website} />
         </ProfileFieldGrid>

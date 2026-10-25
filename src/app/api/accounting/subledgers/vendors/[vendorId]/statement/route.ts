@@ -17,6 +17,8 @@ export async function GET(req: Request, { params }: Params) {
     const url = new URL(req.url);
     const fromDate = parseIsoDate(url.searchParams.get("fromDate"), "fromDate") ?? undefined;
     const toDate = parseIsoDate(url.searchParams.get("toDate"), "toDate") ?? undefined;
+    const viewParam = url.searchParams.get("view");
+    const view = viewParam === "all" ? "all" : "operational";
     const statement = await buildVendorStatement({
       vendorId: params.vendorId,
       fromDate,
@@ -27,6 +29,7 @@ export async function GET(req: Request, { params }: Params) {
       paymentStatus: url.searchParams.get("paymentStatus") ?? undefined,
       reference: url.searchParams.get("reference") ?? undefined,
       currency: url.searchParams.get("currency") ?? undefined,
+      view,
     });
     if (!statement) return notFound("Vendor not found");
 

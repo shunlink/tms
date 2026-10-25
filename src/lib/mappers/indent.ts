@@ -26,8 +26,52 @@ function weightToKg(value: Prisma.Decimal | null | undefined, unit: string | nul
 }
 
 function activeAllocation(i: IndentWithRelations) {
-  const allocs = i.lines[0]?.allocations ?? [];
-  return allocs.find((a) => a.status === "ACTIVE") ?? null;
+  for (const line of i.lines) {
+    const active = line.allocations.find((a) => a.status === "ACTIVE");
+    if (active) return active;
+  }
+  return null;
+}
+
+function mapVehicleSlots(i: IndentWithRelations) {
+  return i.lines.map((line) => {
+    const alloc = line.allocations.find((a) => a.status === "ACTIVE") ?? null;
+    return {
+      lineId: line.id,
+      lineNumber: line.lineNumber,
+      lineStatus: line.status,
+      placementStatus: line.placementStatus,
+      placementReachedAt: line.placementReachedAt,
+      trip: line.trip
+        ? { id: line.trip.id, lrNumber: line.trip.lrNumber, status: line.trip.status }
+        : null,
+      vehicle: alloc?.vehicle
+        ? {
+            id: alloc.vehicle.id,
+            registrationNumber: alloc.vehicle.registrationNumber,
+          }
+        : null,
+      driver: alloc?.driver
+        ? {
+            id: alloc.driver.id,
+            name: alloc.driver.name,
+            phone: alloc.driver.phone,
+            dlNumber: alloc.driver.dlNumber,
+            deviceType: alloc.driver.deviceType,
+            otpVerified: alloc.driver.otpVerified,
+          }
+        : null,
+      allocation: alloc
+        ? {
+            id: alloc.id,
+            vendorId: alloc.vendorId,
+            vendorRate: n(alloc.vendorRate),
+            vehicleId: alloc.vehicleId,
+            driverId: alloc.driverId,
+          }
+        : null,
+    };
+  });
 }
 
 function paymentOfType(i: IndentWithRelations, type: string) {
@@ -194,22 +238,28 @@ export function mapIndentToFlat(i: IndentWithRelations) {
     deadlineAt: alloc?.deadlineAt ?? i.placementDeadlineAt ?? null,
     placementStatus: i.placementStatus ?? null,
     placementDeadlineAt: i.placementDeadlineAt ?? null,
-    allocations: (i.lines[0]?.allocations ?? []).map((a) => ({
-      id: a.id,
-      vendorId: a.vendorId,
-      vendorName: a.vendor?.name ?? null,
-      vendorRate: n(a.vendorRate),
-      status: a.status,
-      allocatedAt: a.allocatedAt,
-      deadlineAt: a.deadlineAt,
-      reallocatedAt: a.reallocatedAt,
-      reallocationReason: a.reallocationReason,
-      vehicleId: a.vehicleId,
-      driverId: a.driverId,
-      vehicleRegistration: a.vehicle?.registrationNumber ?? null,
-      driverName: a.driver?.name ?? null,
-      driverDlNumber: a.driver?.dlNumber ?? null,
-    })),
+    allocations: i.lines.flatMap((line) =>
+      line.allocations.map((a) => ({
+        id: a.id,
+        indentLineId: line.id,
+        lineNumber: line.lineNumber,
+        vendorId: a.vendorId,
+        vendorName: a.vendor?.name ?? null,
+        vendorRate: n(a.vendorRate),
+        status: a.status,
+        allocatedAt: a.allocatedAt,
+        deadlineAt: a.deadlineAt,
+        reallocatedAt: a.reallocatedAt,
+        reallocationReason: a.reallocationReason,
+        vehicleId: a.vehicleId,
+        driverId: a.driverId,
+        vehicleRegistration: a.vehicle?.registrationNumber ?? null,
+        driverName: a.driver?.name ?? null,
+        driverDlNumber: a.driver?.dlNumber ?? null,
+      }))
+    ),
+    vehicleSlots: mapVehicleSlots(i),
+    trips: i.trips.map((t) => ({ id: t.id, lrNumber: t.lrNumber, status: t.status })),
     quotes: quotes.map((q) => ({
       id: q.id,
       vendorId: q.vendorId,
@@ -230,6 +280,7 @@ export function mapIndentToFlat(i: IndentWithRelations) {
     balancePaidAt: balance?.paidAt ?? null,
     pods: i.pods.map((p) => ({
       id: p.id,
+      tripId: p.tripId,
       url: p.file?.url ?? null,
       backUrl: p.backFile?.url ?? null,
       source: p.source,

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
+import { readJsonBody, resolveApiError } from "@/lib/api-client";
 type PeriodRow = { id: string; name: string; status: string };
 
 export default function AccountingPeriodActions({ periods }: { periods: PeriodRow[] }) {
@@ -14,10 +15,11 @@ export default function AccountingPeriodActions({ periods }: { periods: PeriodRo
     setMessage(null);
     try {
       const res = await fetch(`/api/accounting/periods/${id}/validate`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Validation failed");
+      const data = await readJsonBody(res);
+      if (!res.ok) throw new Error(resolveApiError(res, data, "Validation failed").message);
+      const summary = data as { errorCount: number; warningCount: number; canClose: boolean };
       setMessage(
-        `Validation: ${data.errorCount} error(s), ${data.warningCount} warning(s). canClose=${data.canClose}`
+        `Validation: ${summary.errorCount} error(s), ${summary.warningCount} warning(s). canClose=${summary.canClose}`
       );
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "Validation failed");
@@ -31,8 +33,8 @@ export default function AccountingPeriodActions({ periods }: { periods: PeriodRo
     setMessage(null);
     try {
       const res = await fetch(`/api/accounting/periods/${id}/review`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Review failed");
+      const data = await readJsonBody(res);
+      if (!res.ok) throw new Error(resolveApiError(res, data, "Review failed").message);
       setMessage("Period marked under review (posting blocked).");
       window.location.reload();
     } catch (e) {
@@ -54,8 +56,8 @@ export default function AccountingPeriodActions({ periods }: { periods: PeriodRo
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ allowWarnings }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Close failed");
+      const data = await readJsonBody(res);
+      if (!res.ok) throw new Error(resolveApiError(res, data, "Close failed").message);
       setMessage("Period closed.");
       window.location.reload();
     } catch (e) {
@@ -76,8 +78,8 @@ export default function AccountingPeriodActions({ periods }: { periods: PeriodRo
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Reopen failed");
+      const data = await readJsonBody(res);
+      if (!res.ok) throw new Error(resolveApiError(res, data, "Reopen failed").message);
       setMessage("Period reopened.");
       window.location.reload();
     } catch (e) {

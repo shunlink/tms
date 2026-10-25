@@ -1,6 +1,16 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getActorSessionUser, getSessionUser } from "./auth";
+import {
+  buildAppOrigin,
+  canAccessHref,
+  normalizePathname,
+  resolveDeniedRedirectTarget,
+  type RouteAccessContext,
+} from "./route-access";
 import { hasPermission, type PermissionKey } from "./services/permission.service";
+import type { UserAccessMode } from "./services/access-role.service";
+import type { TeamCode } from "./teams";
 import { isInternalRole } from "./teams";
 
 export async function requireSessionUser() {
@@ -49,4 +59,37 @@ export async function requireFinanceViewPermission() {
   ]);
   if (!canPayables && !canReceivables) redirect("/");
   return user;
+}
+
+export type DashboardRouteAccessInput = {
+  pathname: string;
+  granted: Set<string>;
+  teamCode?: TeamCode;
+  role: string;
+  accessMode: UserAccessMode;
+  portalAccessSessionId?: string;
+};
+
+/** Central dashboard route gate — redirects when href is not allowed for this user. */
+export async function enforceDashboardRouteAccess(input: DashboardRouteAccessInput) {
+  const actor = await getActorSessionUser();
+  const superBypass = actor?.role === "SUPER_ADMIN" && !input.portalAccessSessionId;
+
+  const ctx: RouteAccessContext = {
+    granted: input.granted,
+    teamCode: input.teamCode,
+    role: input.role,
+    accessMode: input.accessMode,
+    superBypass,
+  };
+
+  const path = normalizePathname(input.pathname);
+  if (canAccessHref(path, ctx)) return;
+
+  const hdrs = headers();
+  const target = resolveDeniedRedirectTarget(ctx, {
+    referer: hdrs.get("referer"),
+    origin: buildAppOrigin(hdrs),
+  });
+  redirect(target);
 }

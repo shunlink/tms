@@ -4,6 +4,12 @@ import { AUDIT_ACTIONS } from "@/lib/audit-actions";
 import { listDocuments, uploadDocument } from "@/lib/services/document.service";
 import { uploadPodFromTrip } from "@/lib/services/pod.service";
 import {
+  canUploadTripPod,
+  deriveTripPodQueueState,
+  POD_ALREADY_SUBMITTED_MESSAGE,
+  tripPodAlreadySubmitted,
+} from "@/lib/pod-upload-eligibility";
+import {
   requireAuth,
   ok,
   created,
@@ -67,6 +73,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const type = ALLOWED_TYPES.includes(rawType) ? rawType : "OTHER";
 
     if (type === "POD") {
+      if (!canUploadTripPod(trip.status)) {
+        return badRequest("POD can only be uploaded after the trip is marked as delivered");
+      }
+      const pods = await prisma.indentPod.findMany({
+        where: { tripId: params.id },
+        select: { status: true, resolutionStatus: true },
+      });
+      if (tripPodAlreadySubmitted(deriveTripPodQueueState(pods))) {
+        return badRequest(POD_ALREADY_SUBMITTED_MESSAGE);
+      }
       const front = formData.get("front");
       const back = formData.get("back");
       const legacy = formData.get("file");

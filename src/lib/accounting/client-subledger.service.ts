@@ -64,9 +64,20 @@ function applyRunningBalance(lines: ClientSubledgerLine[], openingMinor: number)
   });
 }
 
-async function openingBalanceMinorBefore(clientId: string, beforeDate: Date | null): Promise<number> {
+export type ClientStatementView = "operational" | "all";
+
+function filterClientLinesForView(lines: ClientSubledgerLine[], view: ClientStatementView): ClientSubledgerLine[] {
+  if (view === "all") return lines;
+  return lines.filter((l) => l.postingLayer === "OPERATIONAL");
+}
+
+async function openingBalanceMinorBefore(
+  clientId: string,
+  beforeDate: Date | null,
+  view: ClientStatementView
+): Promise<number> {
   if (!beforeDate) return 0;
-  const lines = await collectClientLines({ clientId });
+  const lines = filterClientLinesForView(await collectClientLines({ clientId }), view);
   const prior = lines.filter((l) => l.effectiveDate < beforeDate);
   return prior.reduce((s, l) => s + l.debitMinor - l.creditMinor, 0);
 }
@@ -78,6 +89,7 @@ async function collectClientLines(input: {
   tripId?: string;
   documentType?: ClientSubledgerDocumentType;
   reference?: string;
+  includeGlPostings?: boolean;
 }): Promise<ClientSubledgerLine[]> {
   const clientId = input.clientId;
   const lines: ClientSubledgerLine[] = [];
@@ -129,6 +141,7 @@ async function collectClientLines(input: {
   });
 
   for (const note of notes) {
+    if (note.subledgerAppliedAt) continue;
     const issuedAt = note.issuedAt ?? note.issueDate ?? note.accountingDate ?? note.updatedAt;
     const totalMinor = rupeesToMinor(Number(note.totalAmount));
     const isReduction =
@@ -186,6 +199,7 @@ async function collectClientLines(input: {
     });
   }
 
+  if (input.includeGlPostings) {
   const glLines = await prisma.journalLine.findMany({
     where: {
       clientId,
@@ -222,6 +236,7 @@ async function collectClientLines(input: {
       allocationStatus: null,
     });
   }
+  }
 
   let filtered = lines;
   if (input.documentType) filtered = filtered.filter((l) => l.documentType === input.documentType);
@@ -244,6 +259,7 @@ export async function buildClientStatement(input: {
   documentType?: ClientSubledgerDocumentType;
   reference?: string;
   currency?: string;
+  view?: ClientStatementView;
 }): Promise<ClientStatement | null> {
   const client = await prisma.client.findUnique({
     where: { id: input.clientId },
@@ -252,16 +268,21 @@ export async function buildClientStatement(input: {
   if (!client) return null;
 
   const currency = input.currency ?? "INR";
-  const allLines = await collectClientLines({
-    clientId: input.clientId,
-    invoiceId: input.invoiceId,
-    indentId: input.indentId,
-    tripId: input.tripId,
-    documentType: input.documentType,
-    reference: input.reference,
-  });
+  const view = input.view ?? "operational";
+  const allLines = filterClientLinesForView(
+    await collectClientLines({
+      clientId: input.clientId,
+      invoiceId: input.invoiceId,
+      indentId: input.indentId,
+      tripId: input.tripId,
+      documentType: input.documentType,
+      reference: input.reference,
+      includeGlPostings: view === "all",
+    }),
+    view
+  );
 
-  const opening = await openingBalanceMinorBefore(input.clientId, input.fromDate ?? null);
+  const opening = await openingBalanceMinorBefore(input.clientId, input.fromDate ?? null, view);
   const ranged = allLines.filter((l) => inDateRange(l.effectiveDate, input.fromDate, input.toDate));
   const withRunning = applyRunningBalance(ranged, opening);
 

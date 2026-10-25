@@ -1,5 +1,6 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
+import { forbiddenErrorBody } from "./lib/api-errors";
 
 const INTERNAL_ROLES = ["SUPER_ADMIN", "ADMIN", "SALES", "OPERATIONS", "FINANCE", "VENDOR_TEAM"];
 
@@ -25,6 +26,12 @@ function isPublicPortalStaticAsset(pathname: string) {
   return /^\/portal\/[^/]+\.(webp|jpe?g|png|gif|svg)$/i.test(pathname);
 }
 
+function forwardWithPathname(req: { headers: Headers; nextUrl: { pathname: string } }) {
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-pathname", req.nextUrl.pathname);
+  return NextResponse.next({ request: { headers: requestHeaders } });
+}
+
 function apiAllowed(role: string, method: string, pathname: string) {
   if (pathname.startsWith("/api/portal/")) return true;
   if (pathname === "/api/geocode" && method === "GET") return true;
@@ -32,7 +39,9 @@ function apiAllowed(role: string, method: string, pathname: string) {
   if (role === "CLIENT") {
     return (
       (method === "POST" && pathname === "/api/requirements") ||
-      (method === "GET" && pathname === "/api/sidebar/pending-counts")
+      (method === "GET" && pathname === "/api/sidebar/pending-counts") ||
+      (method === "GET" && pathname === "/api/geocode") ||
+      (method === "GET" && pathname === "/api/maps/config")
     );
   }
   if (role === "VENDOR") {
@@ -41,7 +50,9 @@ function apiAllowed(role: string, method: string, pathname: string) {
       (method === "GET" && /^\/api\/indents\/[^/]+\/quotes$/.test(pathname)) ||
       (method === "GET" && pathname === "/api/sidebar/pending-counts") ||
       /^\/api\/portal\/vendor\/trips\/[^/]+\/advance$/.test(pathname) ||
-      /^\/api\/trips\/[^/]+\/documents$/.test(pathname)
+      /^\/api\/trips\/[^/]+\/documents$/.test(pathname) ||
+      (method === "GET" && pathname === "/api/geocode") ||
+      (method === "GET" && pathname === "/api/maps/config")
     );
   }
   if (role === "DRIVER") {
@@ -50,7 +61,8 @@ function apiAllowed(role: string, method: string, pathname: string) {
       (method === "POST" && /^\/api\/drivers\/[^/]+\/(send-otp|verify-otp)$/.test(pathname)) ||
       (method === "POST" && /^\/api\/indents\/[^/]+\/(pod|tracking)$/.test(pathname)) ||
       (method === "GET" && /^\/api\/indents\/[^/]+\/tracking$/.test(pathname)) ||
-      (method === "POST" && /^\/api\/trips\/[^/]+\/tracking$/.test(pathname))
+      (method === "POST" && /^\/api\/trips\/[^/]+\/tracking$/.test(pathname)) ||
+      (method === "POST" && /^\/api\/trips\/[^/]+\/documents$/.test(pathname))
     );
   }
   return true;
@@ -64,15 +76,20 @@ export default withAuth(
     const { pathname } = req.nextUrl;
     const method = req.method ?? "GET";
 
+    // Public marketing / portal chooser — not the employee dashboard
+    if (pathname === "/" && !token?.sub) {
+      return NextResponse.redirect(new URL("/welcome", req.url));
+    }
+
     if (isPublicPortalStaticAsset(pathname)) {
-      return NextResponse.next();
+      return forwardWithPathname(req);
     }
 
     if (pathname.startsWith("/superadmin")) {
       if (realRole !== "SUPER_ADMIN") {
         return NextResponse.redirect(new URL("/", req.url));
       }
-      return NextResponse.next();
+      return forwardWithPathname(req);
     }
 
     const isPortal = pathname.startsWith("/portal");
@@ -82,34 +99,38 @@ export default withAuth(
     const isCapture = pathname.startsWith("/capture");
 
     if (role === "CLIENT") {
-      if (pathname.startsWith("/portal/client") || pathname.startsWith("/onboard/client") || isCapture) return NextResponse.next();
-      if (isFile) return NextResponse.next();
+      if (pathname.startsWith("/portal/client") || pathname.startsWith("/onboard/client") || isCapture) {
+        return forwardWithPathname(req);
+      }
+      if (isFile) return forwardWithPathname(req);
       if (isApi) {
         return apiAllowed(role, method, pathname)
-          ? NextResponse.next()
-          : NextResponse.json({ error: "Forbidden" }, { status: 403 });
+          ? forwardWithPathname(req)
+          : NextResponse.json(forbiddenErrorBody(), { status: 403 });
       }
       return NextResponse.redirect(new URL("/portal/client", req.url));
     }
 
     if (role === "VENDOR") {
-      if (pathname.startsWith("/portal/vendor") || pathname.startsWith("/onboard/vendor") || isCapture) return NextResponse.next();
-      if (isFile) return NextResponse.next();
+      if (pathname.startsWith("/portal/vendor") || pathname.startsWith("/onboard/vendor") || isCapture) {
+        return forwardWithPathname(req);
+      }
+      if (isFile) return forwardWithPathname(req);
       if (isApi) {
         return apiAllowed(role, method, pathname)
-          ? NextResponse.next()
-          : NextResponse.json({ error: "Forbidden" }, { status: 403 });
+          ? forwardWithPathname(req)
+          : NextResponse.json(forbiddenErrorBody(), { status: 403 });
       }
       return NextResponse.redirect(new URL("/portal/vendor", req.url));
     }
 
     if (role === "DRIVER") {
-      if (isDriver || isCapture) return NextResponse.next();
-      if (isFile) return NextResponse.next();
+      if (isDriver || isCapture) return forwardWithPathname(req);
+      if (isFile) return forwardWithPathname(req);
       if (isApi) {
         return apiAllowed(role, method, pathname)
-          ? NextResponse.next()
-          : NextResponse.json({ error: "Forbidden" }, { status: 403 });
+          ? forwardWithPathname(req)
+          : NextResponse.json(forbiddenErrorBody(), { status: 403 });
       }
       return NextResponse.redirect(new URL("/driver", req.url));
     }
@@ -118,14 +139,17 @@ export default withAuth(
     if (INTERNAL_ROLES.includes(role)) {
       if (isPortal) return NextResponse.redirect(new URL("/", req.url));
       if (isDriver) return NextResponse.redirect(new URL("/", req.url));
-      return NextResponse.next();
+      return forwardWithPathname(req);
     }
 
     return NextResponse.redirect(new URL("/login", req.url));
   },
   {
     callbacks: {
-      authorized: ({ token }) => !!token?.sub,
+      authorized: ({ token, req }) => {
+        if (req.nextUrl.pathname === "/") return true;
+        return !!token?.sub;
+      },
     },
     pages: { signIn: "/login" },
   }
@@ -133,6 +157,6 @@ export default withAuth(
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/health|api/webhooks|api/webhook|api/integration/bidding|api/drivers/otp|login(?:/|$)|signup|welcome|_next/static|_next/image|favicon.ico|brand/|auth/|images/|portal/[^/]+\\.(?:webp|jpg|jpeg|png|gif|svg)).*)",
+    "/((?!api/auth|api/health|api/webhooks|api/webhook|api/public|api/integration/bidding|api/drivers/otp|login(?:/|$)|signup|welcome|quote(?:/|$)|_next/static|_next/image|favicon.ico|brand/|auth/|images/|portal/[^/]+\\.(?:webp|jpg|jpeg|png|gif|svg)).*)",
   ],
 };

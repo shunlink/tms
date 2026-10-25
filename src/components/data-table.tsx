@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowUpDown, Download, Search, SlidersHorizontal } from "lucide-react";
 import { cn, formatINR, formatDate } from "@/lib/utils";
+import { downloadExcelCsv } from "@/lib/table-export";
 
 export type DataColumn = {
   key: string;
@@ -103,22 +104,13 @@ export default function DataTable({
   }
 
   function exportCsv() {
-    const header = visibleCols.map((c) => c.header).join(",");
-    const lines = sorted.map((r) =>
-      visibleCols
-        .map((c) => {
-          const v = cellValue(c, r);
-          return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
-        })
-        .join(",")
-    );
-    const blob = new Blob([header + "\n" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${exportName ?? "export"}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const columns = visibleCols.map((c) => ({ key: c.key, header: c.header }));
+    const rows = sorted.map((r) => {
+      const row: Record<string, unknown> = {};
+      for (const c of visibleCols) row[c.key] = cellValue(c, r);
+      return row;
+    });
+    downloadExcelCsv(exportName ?? "export", columns, rows);
   }
 
   return (
@@ -167,7 +159,7 @@ export default function DataTable({
           onClick={exportCsv}
           className="inline-flex h-11 items-center gap-2 rounded-lg border border-input bg-background px-4 text-sm font-medium hover:bg-muted"
         >
-          <Download className="h-4 w-4" /> Export
+          <Download className="h-4 w-4" /> Export Excel
         </button>
       </div>
 

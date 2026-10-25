@@ -1,4 +1,6 @@
+import { vendorMatchesDeliveryZones } from "./delivery-zones";
 import { prisma } from "./prisma";
+import { filterEligibleVendorIds, isVendorEligibleForIndentOps } from "./vendor-onboarding-eligibility";
 
 export type EligibleVendor = {
   id: string;
@@ -6,6 +8,7 @@ export type EligibleVendor = {
   phone: string | null;
   whatsapp: string | null;
   city: string | null;
+  deliveryZones: string[];
 };
 
 export type VendorCityOption = {
@@ -41,7 +44,7 @@ export function getVendorPrimaryCity(
 }
 
 async function loadActiveVendorsWithCity() {
-  return prisma.vendor.findMany({
+  const rows = await prisma.vendor.findMany({
     where: { isActive: true, deletedAt: null },
     select: {
       id: true,
@@ -49,16 +52,31 @@ async function loadActiveVendorsWithCity() {
       phone: true,
       whatsapp: true,
       addresses: vendorPrimaryAddressSelect,
+      deliveryZones: { select: { zone: true } },
     },
   });
+  const eligibleIds = await filterEligibleVendorIds(rows.map((v) => v.id));
+  return rows.filter((v) => eligibleIds.has(v.id));
+}
+
+export { isVendorEligibleForIndentOps };
+
+function getVendorDeliveryZones(vendor: { deliveryZones: Array<{ zone: string }> }): string[] {
+  return vendor.deliveryZones.map((z) => z.zone);
+}
+
+function vendorPassesZoneFilter(vendor: { deliveryZones: Array<{ zone: string }> }, zones?: string[]) {
+  if (!zones || zones.length === 0) return true;
+  return vendorMatchesDeliveryZones(getVendorDeliveryZones(vendor), zones);
 }
 
 /** Distinct vendor cities with eligible vendor counts (for the release city picker). */
-export async function listVendorCitiesWithCounts(): Promise<VendorCityOption[]> {
+export async function listVendorCitiesWithCounts(zones?: string[]): Promise<VendorCityOption[]> {
   const vendors = await loadActiveVendorsWithCity();
   const counts = new Map<string, { display: string; count: number }>();
 
   for (const vendor of vendors) {
+    if (!vendorPassesZoneFilter(vendor, zones)) continue;
     const city = getVendorPrimaryCity(vendor);
     if (!city) continue;
     const key = normalizeCityKey(city);
@@ -76,13 +94,17 @@ export async function listVendorCitiesWithCounts(): Promise<VendorCityOption[]> 
 }
 
 /** Active vendors whose primary address city matches any of the selected cities. */
-export async function listVendorsInCities(cities: string[]): Promise<EligibleVendor[]> {
+export async function listVendorsInCities(
+  cities: string[],
+  zones?: string[]
+): Promise<EligibleVendor[]> {
   const keys = new Set(cities.map(normalizeCityKey).filter(Boolean));
   if (keys.size === 0) return [];
 
   const vendors = await loadActiveVendorsWithCity();
   return vendors
     .filter((vendor) => {
+      if (!vendorPassesZoneFilter(vendor, zones)) return false;
       const city = getVendorPrimaryCity(vendor);
       return city ? keys.has(normalizeCityKey(city)) : false;
     })
@@ -92,6 +114,7 @@ export async function listVendorsInCities(cities: string[]): Promise<EligibleVen
       phone: vendor.phone,
       whatsapp: vendor.whatsapp,
       city: getVendorPrimaryCity(vendor),
+      deliveryZones: getVendorDeliveryZones(vendor),
     }));
 }
 
@@ -99,7 +122,10 @@ export async function listVendorsInCities(cities: string[]): Promise<EligibleVen
  * Validates admin-selected cities against the current vendor registry.
  * Returns canonical city labels for valid selections.
  */
-export async function resolveValidReleaseCities(cities: string[]): Promise<{
+export async function resolveValidReleaseCities(
+  cities: string[],
+  zones?: string[]
+): Promise<{
   valid: VendorCityOption[];
   invalid: string[];
 }> {
@@ -108,7 +134,7 @@ export async function resolveValidReleaseCities(cities: string[]): Promise<{
     return { valid: [], invalid: [] };
   }
 
-  const available = await listVendorCitiesWithCounts();
+  const available = await listVendorCitiesWithCounts(zones);
   const byKey = new Map(available.map((row) => [normalizeCityKey(row.city), row]));
 
   const valid: VendorCityOption[] = [];

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { readJsonBody, resolveApiError } from "@/lib/api-client";
 import {
   type AuctionBidRow,
   auctionPusherChannelName,
@@ -80,14 +81,10 @@ export function useAuctionBidFeed({ auctionId, enabled, live }: UseAuctionBidFee
       const res = await fetch(
         `/api/bidding-proxy/admin/auctions/${encodeURIComponent(auctionId)}/bids`
       );
-      const data = await res.json().catch(() => ({}));
+      const data = await readJsonBody(res);
       if (!res.ok) {
         setBids([]);
-        setError(
-          typeof data === "object" && data && "error" in data && typeof (data as { error: unknown }).error === "string"
-            ? (data as { error: string }).error
-            : "Could not load bid history"
-        );
+        setError(resolveApiError(res, data, "Could not load bid history").message);
         return;
       }
       setBids(normalizeBidList(extractBidsPayload(data)));

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Pencil } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import OnboardingDocuments from "@/components/forms/onboarding-documents";
+import { formatDeliveryZones } from "@/lib/delivery-zones";
 import { getVendorDetail } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,7 @@ export default async function VendorDetailPage({ params }: { params: { id: strin
   if (!v) notFound();
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full max-w-4xl mx-auto">
       <Link href="/vendors" className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-4">
         <ArrowLeft className="h-4 w-4" /> Back to Vendors
       </Link>
@@ -68,7 +69,20 @@ export default async function VendorDetailPage({ params }: { params: { id: strin
             <Row label="Branch" value={v.bankBranch} />
             <Row label="Account Holder" value={v.accountHolder} />
             <Row label="UPI ID" value={v.upiId} />
-            <Row label="Payment Terms" value={v.paymentTerms ? `${v.paymentTerms} days` : ""} />
+            <Row
+              label="Payment terms"
+              value={
+                v.paymentTermsType
+                  ? v.paymentTermsType === "CREDIT"
+                    ? "Credit"
+                    : v.paymentTermsType === "ADHOC"
+                      ? "Adhoc"
+                      : v.paymentTermsType
+                  : v.paymentTerms
+                    ? `${v.paymentTerms} days`
+                    : ""
+              }
+            />
             <Row label="TDS Applicable" value={v.tdsApplicable ? "Yes" : "No"} />
           </CardContent>
         </Card>
@@ -79,6 +93,7 @@ export default async function VendorDetailPage({ params }: { params: { id: strin
         <CardContent>
           <Row label="Address" value={[v.addressLine1, v.addressLine2].filter(Boolean).join(", ")} />
           <Row label="City / State" value={[v.city, v.state].filter(Boolean).join(", ")} />
+          <Row label="Delivery zones" value={formatDeliveryZones(v.deliveryZones ?? [])} />
           <Row label="Pincode" value={v.pincode} />
           <Row label="Notes" value={v.notes} />
         </CardContent>

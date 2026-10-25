@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation";
 import PortalShell from "@/components/portal-shell";
-import PortalAccessGuard from "@/components/portal-access-guard";
 import PortalAccessBanner from "@/components/superadmin/portal-access-banner";
 import OnboardingStatusBanner from "@/components/onboarding-status-banner";
+import { ClientPortalViewOnlyProvider } from "@/components/portal/client-portal-view-only-context";
 import { getSessionUser } from "@/lib/auth";
 import { getOnboardingStatus } from "@/lib/queries";
-import { isProfileOnlyStatus, shouldCompleteOnboarding } from "@/lib/portal-access";
+import { isClientPortalViewOnly, shouldCompleteOnboarding } from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 import ClientPortalShell from "@/components/client-portal-shell";
 
@@ -30,31 +30,28 @@ export default async function ClientPortalLayout({
     redirect("/onboard/client");
   }
 
-  const profileOnly = isProfileOnlyStatus(status);
+  const viewOnly = isClientPortalViewOnly(status);
 
   return (
     <div className="h-screen w-full flex flex-col overflow-hidden bg-[#F4F6F9]">
       <PortalAccessBanner />
-      {profileOnly && (
-        <PortalAccessGuard
-          profilePath="/portal/client/profile"
-          onboardingStatus={status}
-        />
-      )}
-      <div className="flex-1 min-h-0 flex overflow-hidden">
-        <ClientPortalShell
-          clientName={clientName}
-          userName={user.email ?? ""}
-        >
-          {profileOnly && (
-            <OnboardingStatusBanner
-              status={status}
-              remarks={onboarding?.onboardingRemarks}
-            />
-          )}
-          {children}
-        </ClientPortalShell>
-      </div>
+      <ClientPortalViewOnlyProvider viewOnly={viewOnly}>
+        <div className="flex-1 min-h-0 flex overflow-hidden">
+          <ClientPortalShell
+            clientName={clientName}
+            userName={user.email ?? ""}
+            viewOnly={viewOnly}
+          >
+            {viewOnly && (
+              <OnboardingStatusBanner
+                status={status}
+                remarks={onboarding?.onboardingRemarks}
+              />
+            )}
+            {children}
+          </ClientPortalShell>
+        </div>
+      </ClientPortalViewOnlyProvider>
     </div>
   );
 }

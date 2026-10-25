@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { Upload, FileText, CheckCircle2, AlertCircle, Trash2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type Doc = { id: string; type: string; url: string; name: string | null };
 
 const ALL_TYPES: [string, string][] = [
@@ -31,6 +34,9 @@ const ALL_TYPES: [string, string][] = [
 ];
 
 const DOC_LABEL: Record<string, string> = Object.fromEntries(ALL_TYPES);
+
+const ONBOARDING_UPLOAD_BTN =
+  "w-full rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-300 disabled:text-slate-500";
 
 export type DocTypeConfig = {
   type: string;
@@ -63,6 +69,7 @@ export default function OnboardingDocuments({
   /** Client-side progress sync (no extra API) */
   onDocumentsChange?: (documents: Doc[]) => void;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [busyType, setBusyType] = useState<string | null>(null);
@@ -102,20 +109,20 @@ export default function OnboardingDocuments({
     }
     const res = await fetch(endpoint ?? "/api/documents", { method: "POST", body: fd });
     setBusyType(null);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Upload failed");
+      reportApiFailure(res, data, { toast, setError, fallback: "Upload failed" });
       return;
     }
-    const data = await res.json().catch(() => null);
-    if (data?.id && onDocumentsChange) {
+    const uploaded = data as { id?: string; type?: string; url?: string; name?: string | null } | null;
+    if (uploaded?.id && onDocumentsChange) {
       const next = [
         ...documents.filter((d) => d.type !== type),
         {
-          id: String(data.id),
+          id: String(uploaded.id),
           type,
-          url: String(data.url ?? ""),
-          name: data.name != null ? String(data.name) : file.name,
+          url: String(uploaded.url ?? ""),
+          name: uploaded.name != null ? String(uploaded.name) : file.name,
         },
       ];
       onDocumentsChange(next);
@@ -246,14 +253,14 @@ export default function OnboardingDocuments({
                   />
                   <Button
                     type="button"
-                    variant={hasFile ? "outline" : "default"}
+                    variant="default"
                     size="sm"
-                    className="w-full rounded-lg"
-                    disabled={isBusy}
+                    className={ONBOARDING_UPLOAD_BTN}
+                    disabled={isBusy || hasFile}
                     onClick={() => fileRefs.current[cfg.type]?.click()}
                   >
                     <Upload className="h-3.5 w-3.5 mr-2" />
-                    {isBusy ? "Uploading..." : hasFile ? "Replace file" : "Upload file"}
+                    {isBusy ? "Uploading..." : "Upload file"}
                   </Button>
                 </>
               )}

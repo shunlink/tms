@@ -17,6 +17,7 @@ type Row = {
   onboardingStatus: string;
   onboardingRemarks: string | null;
   createdAt: Date;
+  createdByLabel?: string | null;
 };
 
 function Section({
@@ -45,13 +46,14 @@ function Section({
               <th className="pb-3 font-medium">Status</th>
               <th className="pb-3 font-medium">Remarks</th>
               <th className="pb-3 font-medium">Created</th>
+              <th className="pb-3 font-medium">Created by</th>
               <th className="pb-3 font-medium">Action</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-slate-400">
+                <td colSpan={6} className="py-6 text-center text-slate-400">
                   Nothing pending.
                 </td>
               </tr>
@@ -69,6 +71,7 @@ function Section({
                 </td>
                 <td className="py-3 text-slate-600">{r.onboardingRemarks ?? "—"}</td>
                 <td className="py-3 text-slate-600">{formatDate(r.createdAt)}</td>
+                <td className="py-3 text-slate-600">{r.createdByLabel ?? "—"}</td>
                 <td className="py-3">
                   {isAdmin ? (
                     <OnboardingActions type={type} id={r.id} name={r.name} />
@@ -112,6 +115,7 @@ export default async function OnboardingQueuePage() {
           onboardingStatus: c.onboardingStatus,
           onboardingRemarks: c.onboardingRemarks,
           createdAt: c.createdAt,
+          createdByLabel: c.createdByLabel,
         }))}
       />
       <Section

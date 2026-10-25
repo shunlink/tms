@@ -10,6 +10,9 @@ export const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
 /** Indian GSTIN (15 chars). */
 export const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 
+/** Indian bank IFSC (11 chars). */
+export const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+
 /** Indian pincode: 6 digits, does not start with 0. */
 export const PINCODE_RE = /^[1-9][0-9]{5}$/;
 
@@ -27,6 +30,10 @@ export function normalizePan(value: string): string {
 }
 
 export function normalizeGstin(value: string): string {
+  return value.replace(/\s+/g, "").toUpperCase();
+}
+
+export function normalizeIfsc(value: string): string {
   return value.replace(/\s+/g, "").toUpperCase();
 }
 
@@ -65,6 +72,11 @@ export function isValidPan(value: string | null | undefined): boolean {
 export function isValidGstin(value: string | null | undefined): boolean {
   if (!value) return false;
   return GSTIN_RE.test(normalizeGstin(value));
+}
+
+export function isValidIfsc(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return IFSC_RE.test(normalizeIfsc(value));
 }
 
 export function isValidPincode(value: string | null | undefined): boolean {
@@ -156,6 +168,24 @@ export const optionalGstinSchema = z
   .transform((v) => (v === "" || v == null ? null : normalizeGstin(v)))
   .refine((v) => v == null || GSTIN_RE.test(v), {
     message: "Please enter a valid 15-character GSTIN.",
+  });
+
+export const ifscSchema = z
+  .string()
+  .trim()
+  .min(1, "IFSC is required")
+  .transform(normalizeIfsc)
+  .refine((v) => IFSC_RE.test(v), {
+    message: "Please enter a valid 11-character IFSC code.",
+  });
+
+export const optionalIfscSchema = z
+  .string()
+  .optional()
+  .nullable()
+  .transform((v) => (v === "" || v == null ? null : normalizeIfsc(v)))
+  .refine((v) => v == null || IFSC_RE.test(v), {
+    message: "Please enter a valid 11-character IFSC code.",
   });
 
 export const pincodeSchema = z

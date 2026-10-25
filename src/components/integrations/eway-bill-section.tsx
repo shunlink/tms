@@ -4,8 +4,9 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
-import { parseApiError } from "@/lib/toast-utils";
-
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+import { dateInputMinForField } from "@/lib/date-input";
 export type EwayBillFormState = {
   mode: "EXISTING" | "NONE" | "MANUAL";
   ewayBillNumber: string;
@@ -60,11 +61,15 @@ export default function EwayBillSection({
   value,
   onChange,
   indentId,
+  blockPastDates = false,
 }: {
   value: EwayBillFormState;
   onChange: (v: EwayBillFormState) => void;
   indentId?: string;
+  /** When true, “Valid until” cannot be before today (indent create). */
+  blockPastDates?: boolean;
 }) {
+  const toast = useToast();
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState("");
 
@@ -87,12 +92,12 @@ export default function EwayBillSection({
           persist: false,
         }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await readJsonBody(res);
       if (!res.ok) {
-        setError(parseApiError(data, "Failed to fetch E-Way Bill"));
+        reportApiFailure(res, data, { toast, setError, fallback: "Failed to fetch E-Way Bill" });
         return;
       }
-      const d = data.data as Record<string, string | number | null>;
+      const d = (data as { data: Record<string, string | number | null> }).data;
       onChange({
         ...value,
         mode: "EXISTING",
@@ -122,17 +127,24 @@ export default function EwayBillSection({
     }
   }
 
-  const input = (k: FieldKey, label: string, type = "text") => (
-    <div>
-      <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
-      <input
-        type={type}
-        className="w-full border rounded-md px-3 py-2 text-sm"
-        value={value[k] as string}
-        onChange={(e) => set(k, e.target.value)}
-      />
-    </div>
-  );
+  const input = (k: FieldKey, label: string, type = "text") => {
+    const minDate =
+      type === "date" && blockPastDates && k === "validUntil"
+        ? dateInputMinForField(value.validUntil, "create")
+        : undefined;
+    return (
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
+        <input
+          type={type}
+          className="w-full border rounded-md px-3 py-2 text-sm"
+          value={value[k] as string}
+          onChange={(e) => set(k, e.target.value)}
+          min={minDate}
+        />
+      </div>
+    );
+  };
 
   const showFields = value.mode !== "NONE";
 

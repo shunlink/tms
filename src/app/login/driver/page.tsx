@@ -10,10 +10,11 @@ import PortalAuthPageFooter from "@/components/auth/portal-auth-page-footer";
 import { Button } from "@/components/ui/button";
 import { authInputClass, authLabelClass } from "@/components/auth-shell";
 import { useToast } from "@/components/toast";
-import { homePathForRole } from "@/lib/auth-home";
+import { LOGIN_PORTAL_MISMATCH_MESSAGE } from "@/lib/login-portal";
 import { driverLoginOtpRequestSchema, otpSchema } from "@/lib/validation";
 import { otpErrorMessage, parseApiError } from "@/lib/toast-utils";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 export default function DriverLoginPage() {
   const router = useRouter();
   const toast = useToast();
@@ -49,16 +50,11 @@ export default function DriverLoginPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(parsed.data),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJsonBody(res);
     setLoading(false);
-
     if (!res.ok) {
-      const msg = otpErrorMessage(data) || parseApiError(data, "Failed to send OTP");
-      setError(msg);
-      toast.push({ title: msg, variant: "error" });
-      if (typeof data.retryAfter === "number" && data.retryAfter > 0) {
-        setResendCooldown(data.retryAfter);
-      }
+      const err = reportApiFailure(res, data, { toast, setError, fallback: "Failed to send OTP" });
+      if (err.retryAfter && err.retryAfter > 0) setResendCooldown(err.retryAfter);
       return;
     }
 
@@ -84,17 +80,23 @@ export default function DriverLoginPage() {
       email: dlNumber,
       password: parsed.data,
       driverLogin: "1",
+      loginPortal: "driver",
       redirect: false,
     });
     setLoading(false);
     if (res?.error) {
-      const msg = "Incorrect OTP. Please try again.";
+      const msg =
+        res.error.includes(LOGIN_PORTAL_MISMATCH_MESSAGE) || res.error.includes("authorized")
+          ? LOGIN_PORTAL_MISMATCH_MESSAGE
+          : "Incorrect OTP. Please try again.";
       setError(msg);
       toast.push({ title: msg, variant: "error" });
       return;
     }
     toast.push({ title: "Signed in successfully", variant: "success" });
-    router.push(homePathForRole("DRIVER"));
+    const destRes = await fetch("/api/auth/post-login-destination");
+    const dest = await destRes.json().catch(() => ({}));
+    router.push(typeof dest.path === "string" ? dest.path : "/driver");
     router.refresh();
   }
 

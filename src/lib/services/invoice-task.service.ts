@@ -2,6 +2,7 @@ import { prisma } from "../prisma";
 import { logAudit } from "../audit";
 import { AUDIT_ACTIONS } from "../audit-actions";
 import { INVOICE_SLA_MS } from "../constants";
+import { computeTripCustomerRevenue } from "../finance-reconciliation";
 const taskInclude = {
   trip: {
     select: {
@@ -11,6 +12,8 @@ const taskInclude = {
       routeTo: true,
       status: true,
       clientRate: true,
+      clientLoadingCharge: true,
+      clientUnloadingCharge: true,
       podVerifiedAt: true,
       tripClosedAt: true,
     },
@@ -54,6 +57,13 @@ function mapTask(
           routeTo: row.trip.routeTo,
           status: row.trip.status,
           clientRate: n(row.trip.clientRate),
+          clientLoadingCharge: n(row.trip.clientLoadingCharge),
+          clientUnloadingCharge: n(row.trip.clientUnloadingCharge),
+          billableTotal: computeTripCustomerRevenue({
+            clientRate: n(row.trip.clientRate),
+            clientLoadingCharge: n(row.trip.clientLoadingCharge),
+            clientUnloadingCharge: n(row.trip.clientUnloadingCharge),
+          }),
           podVerifiedAt: row.trip.podVerifiedAt,
           tripClosedAt: row.trip.tripClosedAt,
         }

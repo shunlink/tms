@@ -6,18 +6,24 @@ const {
   createMock,
   indentUpdateMock,
   allocFindFirstMock,
+  allocUpdateMock,
   transactionMock,
   logAuditMock,
   autoMockVerifyVehicleOnAssignMock,
+  resolveTargetLineMock,
+  syncIndentHeaderFromLinesMock,
 } = vi.hoisted(() => ({
   findUniqueMock: vi.fn(),
   findFirstMock: vi.fn(),
   createMock: vi.fn(),
   indentUpdateMock: vi.fn(),
   allocFindFirstMock: vi.fn(),
+  allocUpdateMock: vi.fn(),
   transactionMock: vi.fn(),
   logAuditMock: vi.fn(),
   autoMockVerifyVehicleOnAssignMock: vi.fn().mockResolvedValue(undefined),
+  resolveTargetLineMock: vi.fn(),
+  syncIndentHeaderFromLinesMock: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -43,6 +49,11 @@ vi.mock("./indent.service", () => ({
 
 vi.mock("../integrations/auto-mock-verify", () => ({
   autoMockVerifyVehicleOnAssign: autoMockVerifyVehicleOnAssignMock,
+}));
+
+vi.mock("../indent-line-rollup", () => ({
+  resolveTargetLine: resolveTargetLineMock,
+  syncIndentHeaderFromLines: syncIndentHeaderFromLinesMock,
 }));
 
 import {
@@ -135,6 +146,11 @@ describe("lookupVehicleByRegistration", () => {
 describe("assignVehicleToIndent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resolveTargetLineMock.mockResolvedValue({
+      id: "line-1",
+      lineNumber: 1,
+      placementStatus: "VEHICLE_REACHED",
+    });
     findFirstMock.mockResolvedValue({
       id: "ind-1",
       vendorId: "vendor-1",
@@ -144,10 +160,10 @@ describe("assignVehicleToIndent", () => {
     transactionMock.mockImplementation(async (fn: (tx: unknown) => Promise<void>) =>
       fn({
         indent: { update: indentUpdateMock },
-        indentAllocation: { findFirst: allocFindFirstMock, update: vi.fn() },
+        indentAllocation: { findFirst: allocFindFirstMock, update: allocUpdateMock },
       })
     );
-    allocFindFirstMock.mockResolvedValue(null);
+    allocFindFirstMock.mockResolvedValue({ id: "alloc-1" });
   });
 
   it("reuses existing vehicle without creating a duplicate", async () => {
@@ -159,8 +175,8 @@ describe("assignVehicleToIndent", () => {
       where: { registrationNumber: "MH12AB1234" },
     });
     expect(createMock).not.toHaveBeenCalled();
-    expect(indentUpdateMock).toHaveBeenCalledWith({
-      where: { id: "ind-1" },
+    expect(allocUpdateMock).toHaveBeenCalledWith({
+      where: { id: "alloc-1" },
       data: { vehicleId: "veh-1" },
     });
     expect(autoMockVerifyVehicleOnAssignMock).toHaveBeenCalledWith(
@@ -205,7 +221,7 @@ describe("assignVehicleToIndent", () => {
     await assignVehicleToIndent("ind-1", { registrationNumber: "MH12AB1234" });
 
     expect(createMock).not.toHaveBeenCalled();
-    expect(indentUpdateMock).toHaveBeenCalled();
+    expect(allocUpdateMock).toHaveBeenCalled();
     const complianceUpdateCalls = indentUpdateMock.mock.calls.filter(
       (call) => call[0]?.data?.compliance
     );

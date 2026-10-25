@@ -1,13 +1,17 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import {
-  buildOutstandingAgeing,
+  buildReportOutstandingAgeing,
   OUTSTANDING_INVOICE_STATUSES,
-  splitDetailedAgeingBuckets,
-  type DetailedAgeingBuckets,
+  type ReportAgeingBuckets,
 } from "../receivables";
 import { computeMargin } from "../logic";
-import { computeCashMargin, computeTripCustomerSettlement } from "../finance-reconciliation";
+import {
+  computeCashMargin,
+  computeTripCustomerRevenue,
+  computeTripCustomerSettlement,
+  resolveTripInvoiceBilling,
+} from "../finance-reconciliation";
 import { sumTripCharges } from "../vendor-balance";
 import { NON_PAYABLE_INVOICE_STATUSES } from "../invoice-payment";
 import { sumOutstandingVendorPayables } from "./vendor-payables.service";
@@ -34,7 +38,7 @@ export type FinanceDashboardFilters = {
   status?: string;
 };
 
-export type { DetailedAgeingBuckets };
+export type { ReportAgeingBuckets };
 
 export type FinanceSummaryMetric = {
   key: string;
@@ -83,7 +87,7 @@ export type FinanceDashboardMetrics = {
   summary: FinanceSummaryMetric[];
   receivables: {
     total: number;
-    buckets: DetailedAgeingBuckets;
+    buckets: ReportAgeingBuckets;
     href: string;
   };
   payables: {
@@ -291,7 +295,12 @@ export async function getFinanceDashboardMetrics(
   ] = await Promise.all([
     prisma.trip.aggregate({
       where: tripWhere,
-      _sum: { clientRate: true, vendorRate: true },
+      _sum: {
+        clientRate: true,
+        clientLoadingCharge: true,
+        clientUnloadingCharge: true,
+        vendorRate: true,
+      },
     }),
     prisma.clientInvoice.findMany({
       where: invoiceScope(filters),
@@ -439,7 +448,16 @@ export async function getFinanceDashboardMetrics(
         invoiceLines: {
           select: {
             amount: true,
-            invoice: { select: { totalAmount: true, paidAmount: true, status: true } },
+            invoice: {
+              select: {
+                id: true,
+                totalAmount: true,
+                paidAmount: true,
+                status: true,
+                issueDate: true,
+                createdAt: true,
+              },
+            },
           },
         },
         vendorPayments: {
@@ -467,7 +485,7 @@ export async function getFinanceDashboardMetrics(
     }),
   ]);
 
-  const ageing = buildOutstandingAgeing(
+  const ageing = buildReportOutstandingAgeing(
     invoices.map((inv) => ({
       clientName: inv.client.name,
       invoiceNumber: inv.invoiceNumber,
@@ -476,13 +494,18 @@ export async function getFinanceDashboardMetrics(
       status: inv.status,
       dueDate: inv.dueDate,
       issueDate: inv.issueDate,
+      finalizedAt: inv.finalizedAt,
     }))
   );
-  const receivableBuckets = splitDetailedAgeingBuckets(ageing.rows);
+  const receivableBuckets = ageing.buckets;
 
-  const totalRevenue = n(tripAgg._sum.clientRate);
+  const totalRevenue = computeTripCustomerRevenue({
+    clientRate: n(tripAgg._sum.clientRate),
+    clientLoadingCharge: n(tripAgg._sum.clientLoadingCharge),
+    clientUnloadingCharge: n(tripAgg._sum.clientUnloadingCharge),
+  });
   const expectedMargin =
-    Math.round((n(tripAgg._sum.clientRate) - n(tripAgg._sum.vendorRate)) * 100) / 100;
+    Math.round((totalRevenue - n(tripAgg._sum.vendorRate)) * 100) / 100;
   const customerReceivables = ageing.total;
   const customerCollected = n(clientPaymentsAgg._sum.amount);
   const vendorPaid = n(vendorPaidAgg._sum.netPayable);
@@ -640,20 +663,40 @@ export async function getFinanceDashboardMetrics(
   const tripProfitability: TripProfitabilityRow[] = profitabilityTrips.map((trip) => {
     const { additionalCharges, deductions } = sumTripCharges(trip.charges);
     const charges = additionalCharges - deductions;
-    const revenue = n(trip.clientRate);
+    const revenue = computeTripCustomerRevenue({
+      clientRate: n(trip.clientRate),
+      clientLoadingCharge: n(trip.clientLoadingCharge),
+      clientUnloadingCharge: n(trip.clientUnloadingCharge),
+    });
     const vendorCost = n(trip.vendorRate);
     const tds = n(trip.balancePaymentTask?.tdsAmount);
     const expectedMargin = computeMargin(revenue, vendorCost);
-    const invoiceLine = trip.invoiceLines[0];
-    const invoice = invoiceLine?.invoice ?? null;
-    const invoicePayable =
-      invoice != null && !NON_PAYABLE_INVOICE_STATUSES.includes(invoice.status);
+    const billing = resolveTripInvoiceBilling(
+      trip.invoiceLines.map((line) => ({
+        amount: n(line.amount),
+        invoice: line.invoice
+          ? {
+              id: line.invoice.id,
+              status: line.invoice.status,
+              totalAmount: n(line.invoice.totalAmount),
+              paidAmount: n(line.invoice.paidAmount),
+              issueDate: line.invoice.issueDate,
+              createdAt: line.invoice.createdAt,
+            }
+          : null,
+      })),
+      (status) => !NON_PAYABLE_INVOICE_STATUSES.includes(status)
+    );
+    const invoice = billing.invoice;
+    const invoicePayable = billing.invoicePayable;
+    const expectedBillable = revenue;
     const tripCustomer = computeTripCustomerSettlement({
-      lineAmount: invoiceLine ? n(invoiceLine.amount) : null,
+      lineAmount: billing.tripLineAmount,
       invoiceTotal: invoice ? n(invoice.totalAmount) : null,
       invoicePaid: invoice ? n(invoice.paidAmount) : null,
       invoicePayable,
       tripClientPayments: trip.clientPayments.reduce((s, p) => s + n(p.amount), 0),
+      expectedBillableTotal: invoicePayable || invoice ? undefined : expectedBillable,
     });
     const clientReceived = tripCustomer.collected;
     const vendorPaidTrip = trip.vendorPayments.reduce((s, p) => s + n(p.netPayable), 0);

@@ -1,22 +1,19 @@
-import Link from "next/link";
 import PageHeader from "@/components/page-header";
+import AdminSettingsNav from "@/components/settings/admin-settings-nav";
 import PortalAccessForm from "@/components/superadmin/portal-access-form";
-import MasterOtpSettings from "@/components/superadmin/master-otp-settings";
+import { requireSuperAdminActor } from "@/lib/page-auth";
 
-export default function SuperadminPortalAccessPage() {
+export default async function SuperadminPortalAccessPage() {
+  await requireSuperAdminActor();
+
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-8">
+    <div className="max-w-3xl mx-auto pb-12">
       <PageHeader
         title="Superadmin portal access"
         description="Support and audit employee portals without using employee passwords."
       />
-      <p className="text-sm text-slate-600">
-        <Link href="/" className="text-teal-700 hover:underline">Back to dashboard</Link>
-        {" · "}
-        <Link href="/settings/security" className="text-teal-700 hover:underline">Security settings</Link>
-      </p>
+      <AdminSettingsNav active="portal" />
       <PortalAccessForm />
-      <MasterOtpSettings />
     </div>
   );
 }

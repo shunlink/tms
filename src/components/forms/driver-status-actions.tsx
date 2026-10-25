@@ -4,6 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 const NEXT: Record<string, { label: string; status: string }> = {
   PENDING: { label: "Start Trip (Dispatch)", status: "DISPATCHED" },
   DISPATCHED: { label: "Mark In Transit", status: "IN_TRANSIT" },
@@ -17,6 +20,7 @@ export default function DriverStatusActions({
   tripId: string;
   status: string;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -31,9 +35,9 @@ export default function DriverStatusActions({
       body: JSON.stringify({ status: newStatus }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Could not update status");
+      reportApiFailure(res, data, { toast, setError, fallback: "Could not update status" });
       return;
     }
     router.refresh();

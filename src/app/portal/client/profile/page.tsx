@@ -32,7 +32,7 @@ export default async function ClientProfilePage() {
   const showCommercials = c.onboardingStatus === "APPROVED";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full max-w-6xl mx-auto">
       {/* =========================================================================
           PAGE HEADER
           ========================================================================= */}
@@ -74,23 +74,11 @@ export default async function ClientProfilePage() {
               <h2 className="text-lg sm:text-xl font-bold text-gray-950">
                 {formatProfileValue(c.name)}
               </h2>
-              {c.legalName && c.legalName !== c.name && (
-                <p className="text-xs text-gray-500 mt-0.5">{c.legalName}</p>
-              )}
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-5">
-          <div>
-            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-              Legal Business Name
-            </p>
-            <p className="text-xs sm:text-sm font-semibold text-gray-900 mt-1">
-              {formatProfileValue(c.legalName)}
-            </p>
-          </div>
-
           <div>
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
               Industry / Sector

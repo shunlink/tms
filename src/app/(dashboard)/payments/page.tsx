@@ -37,7 +37,7 @@ const columns: DataColumn[] = [
 
 export default async function PaymentsPage() {
   const user = await requirePagePermission("payment.view");
-  const canManage = user.role === "SUPER_ADMIN" || (user.id ? await hasPermission(user.id, "payment.create") : false);
+  const canManage = user.id ? await hasPermission(user.id, "payment.create") : false;
 
   const [payments, monthStats, formOptions, queueCounts, trips] = await Promise.all([
     listVendorPayments(),

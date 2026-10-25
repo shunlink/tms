@@ -1,5 +1,11 @@
+import { readJsonBody } from "@/lib/api-client";
+
+import { mapsProvider as coreMapsProvider } from "@/lib/maps/config";
+
 export function mapsProvider() {
-  return process.env.MAPS_PROVIDER ?? "nominatim";
+  const p = coreMapsProvider();
+  if (p === "google") return "google";
+  return process.env.MAPS_PROVIDER === "google" ? "google" : "nominatim";
 }
 
 export type GeocodeResult = {
@@ -30,7 +36,7 @@ async function nominatimReverse(lat: number, lng: number): Promise<GeocodeResult
     next: { revalidate: 60 * 60 },
   });
   if (!res.ok) return null;
-  const data = await res.json();
+  const data = await readJsonBody(res);
   const label = pickAddress(data);
   if (!label) return null;
   return { label, lat, lng, raw: data };
@@ -42,7 +48,9 @@ async function googleReverse(lat: number, lng: number): Promise<GeocodeResult | 
   const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${key}`;
   const res = await fetch(url, { next: { revalidate: 60 * 60 } });
   if (!res.ok) return null;
-  const data = await res.json();
+  const data = (await readJsonBody(res)) as {
+    results?: { formatted_address?: string }[];
+  };
   const label = data.results?.[0]?.formatted_address ?? null;
   if (!label) return null;
   return { label, lat, lng, raw: data };
@@ -67,7 +75,12 @@ export async function forwardGeocode(query: string): Promise<GeocodeResult | nul
       const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${key}`;
       const res = await fetch(url, { next: { revalidate: 60 * 60 } });
       if (!res.ok) return null;
-      const data = await res.json();
+      const data = (await readJsonBody(res)) as {
+        results?: {
+          formatted_address: string;
+          geometry: { location: { lat: number; lng: number } };
+        }[];
+      };
       const r = data.results?.[0];
       if (!r) return null;
       return {
@@ -87,7 +100,11 @@ export async function forwardGeocode(query: string): Promise<GeocodeResult | nul
       next: { revalidate: 60 * 60 },
     });
     if (!res.ok) return null;
-    const data = await res.json();
+    const data = (await readJsonBody(res)) as {
+      display_name: string;
+      lat: string;
+      lon: string;
+    }[];
     const r = data?.[0];
     if (!r) return null;
     return {

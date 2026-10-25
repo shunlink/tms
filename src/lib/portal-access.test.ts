@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { stripSignupLockedProfileFields } from "./portal-access";
+import {
+  canClientPerformPortalMutations,
+  isClientPortalViewOnly,
+  stripSignupLockedProfileFields,
+} from "./portal-access";
+import { ONBOARDING_CASE_STATUS } from "./onboarding-case-status";
 import { parsePortalAccessIdentifier } from "./superadmin/portal-access-marker";
+
+describe("client portal view-only", () => {
+  it("allows mutations only when approved or actively onboarding", () => {
+    expect(canClientPerformPortalMutations(ONBOARDING_CASE_STATUS.APPROVED)).toBe(true);
+    expect(canClientPerformPortalMutations(ONBOARDING_CASE_STATUS.PENDING)).toBe(true);
+    expect(canClientPerformPortalMutations(ONBOARDING_CASE_STATUS.PENDING_APPROVAL)).toBe(false);
+    expect(isClientPortalViewOnly(ONBOARDING_CASE_STATUS.PARTIAL_SUBMISSION)).toBe(true);
+  });
+});
 
 describe("stripSignupLockedProfileFields", () => {
   it("removes signup fields while onboarding is not approved", () => {
@@ -14,14 +28,17 @@ describe("stripSignupLockedProfileFields", () => {
     };
 
     expect(stripSignupLockedProfileFields(input, "PENDING")).toEqual({
+      contactName: "Jane",
       gstin: "27AAAAA0000A1Z5",
       city: "Mumbai",
     });
     expect(stripSignupLockedProfileFields(input, "SUBMITTED")).toEqual({
+      contactName: "Jane",
       gstin: "27AAAAA0000A1Z5",
       city: "Mumbai",
     });
     expect(stripSignupLockedProfileFields(input, "REJECTED")).toEqual({
+      contactName: "Jane",
       gstin: "27AAAAA0000A1Z5",
       city: "Mumbai",
     });

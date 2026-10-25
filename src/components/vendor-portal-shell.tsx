@@ -22,15 +22,35 @@ import BrandLogo from "./brand-logo";
 import { signOut } from "next-auth/react";
 import { portalUserInitial } from "@/lib/portal-theme";
 
+function NavCountChip({ count, active }: { count: number; active?: boolean }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      className={`ml-auto shrink-0 inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold tabular-nums ${
+        active
+          ? "bg-gray-950 text-[#F5D33C]"
+          : "bg-[#F5D33C] text-gray-950"
+      }`}
+      aria-hidden
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
 type VendorPortalShellProps = {
   vendorName: string;
   userName: string;
+  openIndentCount: number;
+  assignedTripActionCount: number;
   children: React.ReactNode;
 };
 
 export default function VendorPortalShell({
   vendorName,
   userName,
+  openIndentCount,
+  assignedTripActionCount,
   children,
 }: VendorPortalShellProps) {
   const pathname = usePathname();
@@ -45,30 +65,45 @@ export default function VendorPortalShell({
       href: "/portal/vendor",
       icon: Home,
       active: pathname === "/portal/vendor",
+      count: 0 as number,
+      countLabel: undefined as string | undefined,
+      hintWhenCount: false,
     },
     {
       label: "Open Indents",
       href: "/portal/vendor/indents",
       icon: FileSpreadsheet,
       active: pathname.startsWith("/portal/vendor/indents"),
+      count: openIndentCount,
+      countLabel: "open indents",
+      hintWhenCount: true,
     },
     {
       label: "Assigned Trips",
       href: "/portal/vendor/trips",
       icon: Route,
       active: pathname.startsWith("/portal/vendor/trips"),
+      count: assignedTripActionCount,
+      countLabel: "trips need action",
+      hintWhenCount: false,
     },
     {
       label: "Payments",
       href: "/portal/vendor/payments",
       icon: Receipt,
       active: pathname.startsWith("/portal/vendor/payments"),
+      count: 0,
+      countLabel: undefined,
+      hintWhenCount: false,
     },
     {
       label: "Profile",
       href: "/portal/vendor/profile",
       icon: User,
       active: pathname.startsWith("/portal/vendor/profile"),
+      hintWhenCount: false,
+      count: 0,
+      countLabel: undefined,
     },
   ];
 
@@ -99,23 +134,31 @@ export default function VendorPortalShell({
           <nav className="space-y-1.5">
             {navItems.map((item) => {
               const Icon = item.icon;
+              const showHint =
+                item.hintWhenCount && item.count > 0 && !item.active;
               return (
                 <Link
                   key={item.label}
                   href={item.href}
                   onClick={() => setMobileMenuOpen(false)}
+                  aria-label={
+                    item.count > 0 && item.countLabel
+                      ? `${item.label}, ${item.count} ${item.countLabel}`
+                      : item.label
+                  }
                   className={`group flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm transition-all ${
                     item.active
-                      ? "bg-[#F5D33C] text-gray-950 font-bold shadow-sm"
+                      ? "portal-nav-active bg-[#F5D33C] text-gray-950 font-bold shadow-sm"
                       : "text-neutral-300 hover:bg-neutral-900 hover:text-white font-medium"
-                  }`}
+                  } ${showHint ? "portal-nav-open-indents-hint" : ""}`}
                 >
                   <Icon
                     className={`h-4 w-4 shrink-0 transition-colors ${
                       item.active ? "text-gray-950" : "text-neutral-400 group-hover:text-white"
                     }`}
                   />
-                  <span className="truncate">{item.label}</span>
+                  <span className="truncate flex-1 min-w-0">{item.label}</span>
+                  <NavCountChip count={item.count} active={item.active} />
                 </Link>
               );
             })}

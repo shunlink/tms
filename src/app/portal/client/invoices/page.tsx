@@ -12,6 +12,8 @@ import {
 import { getSessionUser } from "@/lib/auth";
 import { getClientInvoices } from "@/lib/queries";
 import { formatINR, formatDate } from "@/lib/utils";
+import PortalPage from "@/components/portal/portal-page";
+import PortalTableExport from "@/components/portal/portal-table-export";
 
 export const dynamic = "force-dynamic";
 
@@ -27,8 +29,35 @@ export default async function ClientInvoicesPage() {
     .reduce((s, i) => s + ((Number(i.totalAmount) || 0) - (Number(i.paidAmount) || 0)), 0);
   const paidCount = invoices.filter((i) => ["PAID", "SETTLED"].includes(i.status)).length;
 
+  const invoiceExportColumns = [
+    { key: "invoiceNumber", header: "Invoice Number" },
+    { key: "tripCount", header: "Trips" },
+    { key: "freight", header: "Freight" },
+    { key: "gst", header: "GST" },
+    { key: "total", header: "Total" },
+    { key: "dueDate", header: "Due Date" },
+    { key: "status", header: "Status" },
+    { key: "paid", header: "Paid" },
+    { key: "outstanding", header: "Outstanding" },
+  ];
+  const invoiceExportRows = invoices.map((inv) => {
+    const total = Number(inv.totalAmount) || 0;
+    const paid = Number(inv.paidAmount) || 0;
+    return {
+      invoiceNumber: inv.invoiceNumber,
+      tripCount: String(inv.trips ?? ""),
+      freight: formatINR(Number(inv.subTotal) || 0),
+      gst: formatINR(Number(inv.gstAmount) || 0),
+      total: formatINR(total),
+      dueDate: inv.dueDate ? formatDate(inv.dueDate) : "",
+      status: inv.status,
+      paid: formatINR(paid),
+      outstanding: formatINR(Math.max(0, total - paid)),
+    };
+  });
+
   return (
-    <div className="space-y-6">
+    <PortalPage>
       {/* =========================================================================
           PAGE HEADER
           ========================================================================= */}
@@ -46,7 +75,7 @@ export default async function ClientInvoicesPage() {
       {/* =========================================================================
           METRICS CARDS
           ========================================================================= */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         {/* Outstanding Balance */}
         <div className="bg-white rounded-2xl border border-gray-200/80 p-5 flex items-center justify-between shadow-2xs">
           <div className="flex items-center gap-3.5">
@@ -104,6 +133,7 @@ export default async function ClientInvoicesPage() {
               Statement of accounts and statutory tax invoices
             </p>
           </div>
+          <PortalTableExport fileName="client-invoices" columns={invoiceExportColumns} rows={invoiceExportRows} />
         </div>
 
         {invoices.length === 0 ? (
@@ -209,6 +239,6 @@ export default async function ClientInvoicesPage() {
           </div>
         )}
       </div>
-    </div>
+    </PortalPage>
   );
 }

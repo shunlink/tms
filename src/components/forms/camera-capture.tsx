@@ -6,6 +6,9 @@ import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
 import { Camera, UploadCloud, CheckCircle2, Loader2 } from "lucide-react";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 function isMobileDevice() {
   if (typeof window === "undefined") return false;
   if (/Android|iPhone|iPad|iPod|webOS|Windows Phone/i.test(navigator.userAgent)) return true;
@@ -24,6 +27,7 @@ export default function CameraCapture({
   docType?: string;
   alwaysCamera?: boolean;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -52,9 +56,9 @@ export default function CameraCapture({
       body: fd,
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Upload failed");
+      reportApiFailure(res, data, { toast, setError, fallback: "Upload failed" });
       return;
     }
     setOk(true);

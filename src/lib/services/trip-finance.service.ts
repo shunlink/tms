@@ -15,6 +15,7 @@ import {
   computeTripCustomerSettlement,
   computeVendorOutstanding,
   resolveAdvanceApproved,
+  resolveTripInvoiceBilling,
   round2,
 } from "../finance-reconciliation";
 import {
@@ -85,19 +86,31 @@ export type TripFinanceDto = {
     indent: { id: string; indentNumber: string } | null;
   };
   commercialSummary: {
+    /** Contracted freight (client rate) — excludes loading/unloading. */
     sellRate: number;
+    customerLoadingCharge: number;
+    customerUnloadingCharge: number;
+    /** Freight + client loading + unloading before invoice adjustments. */
+    customerBillableTotal: number;
     buyRate: number;
     expectedMargin: number;
     expectedMarginPercent: number;
     vendorAdvance: number;
     vendorBalance: number;
     vendorOutstanding: number;
+    /** Invoiced amount for this trip when finalized (may include GST lines). */
     customerInvoice: number | null;
     customerReceivable: number;
     customerCollected: number;
   };
   financialBreakdown: {
-    revenue: { customerSellRate: number };
+    revenue: {
+      customerFreight: number;
+      customerLoadingCharge: number;
+      customerUnloadingCharge: number;
+      customerBillableTotal: number;
+      customerSellRate: number;
+    };
     vendorCost: {
       baseFreight: number;
       additionalCharges: number;
@@ -113,6 +126,9 @@ export type TripFinanceDto = {
     };
     customerSettlement: {
       invoiceAmount: number;
+      customerFreight: number;
+      customerLoadingCharge: number;
+      customerUnloadingCharge: number;
       customerPaid: number;
       customerOutstanding: number;
     };
@@ -148,6 +164,9 @@ export type TripFinanceDto = {
     invoiceStatus: string | null;
     displayStatus: string | null;
     invoiceTotal: number;
+    customerFreight: number;
+    customerLoadingCharge: number;
+    customerUnloadingCharge: number;
     amountCollected: number;
     outstanding: number;
     ageingDays: number | null;
@@ -435,6 +454,9 @@ export async function getTripFinance(tripId: string): Promise<TripFinanceDto | n
   }
 
   const sellRate = n(trip.clientRate);
+  const customerLoadingCharge = n(trip.clientLoadingCharge);
+  const customerUnloadingCharge = n(trip.clientUnloadingCharge);
+  const customerBillableTotal = round2(sellRate + customerLoadingCharge + customerUnloadingCharge);
   const buyRate = n(trip.vendorRate);
   const { expectedMargin, expectedMarginPercent } = computeExpectedMargin(sellRate, buyRate);
 
@@ -549,13 +571,30 @@ export async function getTripFinance(tripId: string): Promise<TripFinanceDto | n
 
   const vendorOutstanding = computeVendorOutstanding(advanceOutstanding, balanceOutstanding);
 
-  const invoiceLine = trip.invoiceLines[0];
-  const invoice = invoiceLine?.invoice ?? null;
+  const tripInvoiceBilling = resolveTripInvoiceBilling(
+    trip.invoiceLines.map((line) => ({
+      amount: n(line.amount),
+      invoice: line.invoice
+        ? {
+            id: line.invoice.id,
+            status: line.invoice.status,
+            totalAmount: n(line.invoice.totalAmount),
+            paidAmount: n(line.invoice.paidAmount),
+            issueDate: line.invoice.issueDate,
+            createdAt: line.invoice.createdAt,
+          }
+        : null,
+    })),
+    (status) => !NON_PAYABLE_INVOICE_STATUSES.includes(status)
+  );
+  const invoice = tripInvoiceBilling.invoice
+    ? trip.invoiceLines.find((l) => l.invoice?.id === tripInvoiceBilling.invoice?.id)?.invoice ??
+      null
+    : null;
   const invoiceFinalized = Boolean(invoice?.finalizedAt);
-  const invoiceIsPayable =
-    invoice != null && !NON_PAYABLE_INVOICE_STATUSES.includes(invoice.status);
+  const invoiceIsPayable = tripInvoiceBilling.invoicePayable;
 
-  const lineAmount = invoiceLine ? n(invoiceLine.amount) : null;
+  const lineAmount = tripInvoiceBilling.tripLineAmount;
   const invoiceTotal = invoice ? n(invoice.totalAmount) : null;
   const tripCustomer = computeTripCustomerSettlement({
     lineAmount,
@@ -563,6 +602,8 @@ export async function getTripFinance(tripId: string): Promise<TripFinanceDto | n
     invoicePaid: invoice ? n(invoice.paidAmount) : null,
     invoicePayable: invoiceIsPayable,
     tripClientPayments: trip.clientPayments.reduce((s, p) => s + n(p.amount), 0),
+    expectedBillableTotal:
+      invoiceIsPayable || invoice ? undefined : customerBillableTotal,
   });
   const tripInvoiceAmount = tripCustomer.invoiceAmount;
   const amountCollected = tripCustomer.collected;
@@ -789,6 +830,9 @@ export async function getTripFinance(tripId: string): Promise<TripFinanceDto | n
     },
     commercialSummary: {
       sellRate,
+      customerLoadingCharge,
+      customerUnloadingCharge,
+      customerBillableTotal,
       buyRate,
       expectedMargin,
       expectedMarginPercent,
@@ -800,7 +844,13 @@ export async function getTripFinance(tripId: string): Promise<TripFinanceDto | n
       customerCollected: amountCollected,
     },
     financialBreakdown: {
-      revenue: { customerSellRate: sellRate },
+      revenue: {
+        customerFreight: sellRate,
+        customerLoadingCharge,
+        customerUnloadingCharge,
+        customerBillableTotal,
+        customerSellRate: sellRate,
+      },
       vendorCost: {
         baseFreight: freight,
         additionalCharges,
@@ -816,6 +866,9 @@ export async function getTripFinance(tripId: string): Promise<TripFinanceDto | n
       },
       customerSettlement: {
         invoiceAmount: invoiceIsPayable ? tripInvoiceAmount : 0,
+        customerFreight: sellRate,
+        customerLoadingCharge,
+        customerUnloadingCharge,
         customerPaid: amountCollected,
         customerOutstanding,
       },
@@ -851,6 +904,9 @@ export async function getTripFinance(tripId: string): Promise<TripFinanceDto | n
       invoiceStatus: invoice?.status ?? null,
       displayStatus,
       invoiceTotal: invoiceIsPayable ? tripInvoiceAmount : 0,
+      customerFreight: sellRate,
+      customerLoadingCharge,
+      customerUnloadingCharge,
       amountCollected: invoiceIsPayable ? amountCollected : 0,
       outstanding: customerOutstanding,
       ageingDays,

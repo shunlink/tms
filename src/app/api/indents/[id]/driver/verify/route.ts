@@ -7,6 +7,7 @@ import { friendlyValidationError } from "@/lib/api-errors";
 const indentDriverVerifySchema = z.object({
   driverId: z.string().min(1, "Driver id is required"),
   otp: otpSchema,
+  indentLineId: z.string().optional(),
 });
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
@@ -27,7 +28,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       params.id,
       parsed.data.driverId,
       parsed.data.otp,
-      auth!.user
+      auth!.user,
+      parsed.data.indentLineId
     );
     if (!indent) return notFound("Indent not found");
     return ok(indent);

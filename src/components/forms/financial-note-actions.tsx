@@ -4,20 +4,20 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
+import { readJsonBody, resolveApiError } from "@/lib/api-client";
 type Props = {
   noteId: string;
   status: string;
 };
 
-async function postAction(path: string, body?: object) {
+async function postAction(path: string, body?: object): Promise<void> {
   const res = await fetch(path, {
     method: "POST",
     headers: body ? { "Content-Type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? data.message ?? "Request failed");
-  return data;
+  const data = await readJsonBody(res);
+  if (!res.ok) throw new Error(resolveApiError(res, data, "Request failed").message);
 }
 
 export default function FinancialNoteActions({ noteId, status }: Props) {

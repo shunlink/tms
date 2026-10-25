@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { isInternalRole } from "@/lib/teams";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type Option = { id: string; name: string };
 type DriverOption = { id: string; name: string; phone: string };
 type TeamOption = { id: string; code: string; name: string };
@@ -44,6 +47,7 @@ export default function UserForm({
   suggestedEmployeeCode?: string;
   actorRole?: string;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [teams, setTeams] = useState<TeamOption[]>(initialTeams ?? []);
   const [form, setForm] = useState({
@@ -123,9 +127,9 @@ export default function UserForm({
       body: JSON.stringify(form),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to create user");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to create user" });
       return;
     }
     setOkMsg(`${mode === "employee" ? "Employee" : "Portal user"} ${form.email} created`);

@@ -82,8 +82,8 @@ export default async function InvoicesPage() {
                   </div>
                   <div className="text-right space-y-1">
                     <StatusBadge status={task.slaBreached ? "SLA_BREACHED" : "PENDING"} />
-                    {task.trip?.clientRate != null && (
-                      <p className="text-sm font-medium">{formatINR(task.trip.clientRate)}</p>
+                    {task.trip?.billableTotal != null && (
+                      <p className="text-sm font-medium">{formatINR(task.trip.billableTotal)}</p>
                     )}
                   </div>
                 </div>

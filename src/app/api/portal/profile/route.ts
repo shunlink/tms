@@ -3,6 +3,7 @@ import { clientSchema, vendorSchema, driverSchema, validate } from "@/lib/valida
 import { logAudit } from "@/lib/audit";
 import { updateClientProfile, updateVendorProfile } from "@/lib/services/profile.service";
 import { getOnboardingStatus } from "@/lib/services/onboarding.service";
+import { denyUnapprovedClientMutation } from "@/lib/client-portal-mutation-guard";
 import { canSelfServiceEditPortalProfile, stripSignupLockedProfileFields } from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 
@@ -15,6 +16,8 @@ export async function PATCH(req: Request) {
 
     if (user.role === "CLIENT") {
       if (!user.clientId) return forbidden("No client account linked");
+      const viewOnlyDenied = await denyUnapprovedClientMutation(auth);
+      if (viewOnlyDenied) return viewOnlyDenied;
       const onboardingStatus = await getOnboardingStatus("CLIENT", user.clientId);
       if (!canSelfServiceEditPortalProfile(onboardingStatus)) {
         return forbidden("Profile is read-only. Contact your administrator to make changes.");

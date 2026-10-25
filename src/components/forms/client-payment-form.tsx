@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type Option = { id: string; label: string };
 
 const ELECTRONIC = new Set(["Bank Transfer", "NEFT", "RTGS", "UPI"]);
@@ -23,6 +26,7 @@ export default function ClientPaymentForm({
   invoices?: { id: string; invoiceNumber: string; clientId: string; totalAmount: number; paidAmount: number }[];
   onSuccess?: () => void;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [form, setForm] = useState({
@@ -78,9 +82,9 @@ export default function ClientPaymentForm({
 
     const res = await fetch("/api/client-payments", { method: "POST", body: fd });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to record payment");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to record payment" });
       return;
     }
     onSuccess?.();

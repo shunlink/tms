@@ -10,9 +10,26 @@ export function assertVehicleDriverAssignable(indent: {
   if (!indent.vendorId) {
     throw new Error("Vendor must be allocated before assigning a vehicle or driver");
   }
-  if (!isVehicleReached(indent.placementStatus)) {
+  if (
+    !isVehicleReached(indent.placementStatus) &&
+    indent.placementStatus !== "PARTIALLY_REACHED"
+  ) {
     throw new Error(
       "Vehicle and driver can only be assigned after the vehicle has reached placement"
+    );
+  }
+}
+
+export function assertVehicleDriverAssignableForLine(
+  indent: { vendorId: string | null },
+  line: { placementStatus: string }
+) {
+  if (!indent.vendorId) {
+    throw new Error("Vendor must be allocated before assigning a vehicle or driver");
+  }
+  if (!isVehicleReached(line.placementStatus)) {
+    throw new Error(
+      "Vehicle and driver can only be assigned after this vehicle has reached placement"
     );
   }
 }

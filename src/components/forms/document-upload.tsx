@@ -4,6 +4,9 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type Doc = { id: string; type: string; url: string; name: string | null; createdAt: string };
 
 const DOC_TYPES: [string, string][] = [
@@ -27,6 +30,7 @@ export default function DocumentUpload({
   allowedTypes?: string[];
   allowDelete?: boolean;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const types = allowedTypes
@@ -53,9 +57,9 @@ export default function DocumentUpload({
       body: fd,
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Upload failed");
+      reportApiFailure(res, data, { toast, setError, fallback: "Upload failed" });
       return;
     }
     if (fileRef.current) fileRef.current.value = "";

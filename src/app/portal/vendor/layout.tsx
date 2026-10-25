@@ -7,6 +7,7 @@ import { getOnboardingStatus } from "@/lib/queries";
 import { isProfileOnlyStatus, shouldCompleteOnboarding } from "@/lib/portal-access";
 import { prisma } from "@/lib/prisma";
 import VendorPortalShell from "@/components/vendor-portal-shell";
+import { vendorOpenIndentWhere, vendorTripActionWhere } from "@/lib/services/work-queues.service";
 
 export default async function VendorPortalLayout({
   children,
@@ -18,9 +19,11 @@ export default async function VendorPortalLayout({
   if (user.role !== "VENDOR") redirect("/");
   if (!user.vendorId) redirect("/login?portal=transporter");
 
-  const [onboarding, vendor] = await Promise.all([
+  const [onboarding, vendor, openIndentCount, assignedTripActionCount] = await Promise.all([
     getOnboardingStatus("VENDOR", user.vendorId),
     prisma.vendor.findFirst({ where: { id: user.vendorId }, select: { name: true } }),
+    prisma.indent.count({ where: vendorOpenIndentWhere(user.vendorId) }),
+    prisma.trip.count({ where: vendorTripActionWhere(user.vendorId) }),
   ]);
   const status = onboarding?.onboardingStatus ?? "PENDING";
   const vendorName = vendor?.name || user.name || "Sharma Transport";
@@ -44,6 +47,8 @@ export default async function VendorPortalLayout({
         <VendorPortalShell
           vendorName={vendorName}
           userName={user.email ?? ""}
+          openIndentCount={openIndentCount}
+          assignedTripActionCount={assignedTripActionCount}
         >
           {profileOnly && (
             <OnboardingStatusBanner

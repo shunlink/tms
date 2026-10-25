@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { ArrowLeft, Plus } from "lucide-react";
 import RequirementForm from "@/components/forms/requirement-form";
 import { getSessionUser } from "@/lib/auth";
-import { getClientDetail } from "@/lib/queries";
+import { getClientDetail, getOnboardingStatus } from "@/lib/queries";
+import { isClientPortalViewOnly } from "@/lib/portal-access";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +12,13 @@ export default async function ClientNewRequirementPage() {
   const user = await getSessionUser();
   if (!user?.clientId) redirect("/login?portal=client");
 
-  const client = await getClientDetail(user.clientId);
+  const [client, onboarding] = await Promise.all([
+    getClientDetail(user.clientId),
+    getOnboardingStatus("CLIENT", user.clientId),
+  ]);
   if (!client) redirect("/portal/client");
+  const status = onboarding?.onboardingStatus ?? "PENDING";
+  if (isClientPortalViewOnly(status)) redirect("/portal/client/requirements");
 
   return (
     <div className="space-y-6 max-w-5xl w-full mx-auto">

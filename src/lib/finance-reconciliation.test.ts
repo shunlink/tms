@@ -5,11 +5,14 @@ import {
   computeExpectedMargin,
   computeLiveVendorSettlement,
   computeSettlementMargin,
+  computeTripCustomerRevenue,
   computeTripCustomerSettlement,
   computeVendorSettlement,
   reconcileInvoiceOutstanding,
   reconcilePayablesTotal,
   reconcileVendorOutstanding,
+  resolveTripInvoiceBilling,
+  sumTripInvoiceLinesForInvoice,
 } from "./finance-reconciliation";
 import { validateInvoicePaymentAmount } from "./invoice-payment";
 import { sumOutstandingVendorPayables } from "./services/vendor-payables.service";
@@ -261,6 +264,68 @@ describe("expected vs settlement vs cash margin", () => {
 
   it("settlement unavailable without finalized invoice", () => {
     expect(computeSettlementMargin(100000, 81400, false, true)).toBeNull();
+  });
+});
+
+describe("trip invoice line aggregation", () => {
+  it("sums freight, loading, and unloading on the same invoice", () => {
+    const inv = { id: "inv-1", status: "UNPAID", totalAmount: 200_680 };
+    const lines = [
+      { amount: 200_000, invoice: inv },
+      { amount: 340, invoice: inv },
+      { amount: 340, invoice: inv },
+    ];
+    expect(sumTripInvoiceLinesForInvoice(lines, "inv-1")).toBe(200_680);
+    const billing = resolveTripInvoiceBilling(lines, (s) => s === "UNPAID");
+    expect(billing.tripLineAmount).toBe(200_680);
+    expect(billing.invoicePayable).toBe(true);
+  });
+
+  it("allocates customer outstanding on full trip line amount", () => {
+    const result = computeTripCustomerSettlement({
+      lineAmount: 200_680,
+      invoiceTotal: 200_680,
+      invoicePaid: 0,
+      invoicePayable: true,
+      tripClientPayments: 0,
+    });
+    expect(result.invoiceAmount).toBe(200_680);
+    expect(result.outstanding).toBe(200_680);
+  });
+
+  it("uses expected billable before any invoice exists", () => {
+    const result = computeTripCustomerSettlement({
+      lineAmount: null,
+      invoiceTotal: null,
+      invoicePaid: null,
+      invoicePayable: false,
+      tripClientPayments: 0,
+      expectedBillableTotal: 200_680,
+    });
+    expect(result.outstanding).toBe(200_680);
+  });
+
+  it("does not treat draft invoice as pre-invoice receivable", () => {
+    const result = computeTripCustomerSettlement({
+      lineAmount: 200_000,
+      invoiceTotal: 200_000,
+      invoicePaid: 0,
+      invoicePayable: false,
+      tripClientPayments: 0,
+    });
+    expect(result.outstanding).toBe(0);
+  });
+});
+
+describe("computeTripCustomerRevenue", () => {
+  it("includes loading and unloading with freight", () => {
+    expect(
+      computeTripCustomerRevenue({
+        clientRate: 200_000,
+        clientLoadingCharge: 340,
+        clientUnloadingCharge: 340,
+      })
+    ).toBe(200_680);
   });
 });
 

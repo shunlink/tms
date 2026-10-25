@@ -1,18 +1,14 @@
 "use client";
 
 import type { ToastInput } from "@/components/toast";
+import { resolveApiError } from "./api-client";
 import type { ApiErrorBody } from "./api-errors";
 
 type ToastPush = (t: ToastInput) => void;
 
 /** Parse API error JSON into a user-friendly message. Never surfaces raw backend errors. */
 export function parseApiError(data: unknown, fallback = "Something went wrong. Please try again."): string {
-  if (!data || typeof data !== "object") return fallback;
-  const body = data as Partial<ApiErrorBody>;
-  if (typeof body.error === "string" && body.error.trim()) {
-    return body.error;
-  }
-  return fallback;
+  return resolveApiError({ status: 400, ok: false }, data, fallback).message;
 }
 
 export function showApiError(
@@ -20,10 +16,21 @@ export function showApiError(
   data: unknown,
   fallback?: string
 ) {
+  const message = parseApiError(data, fallback);
   toast.push({
-    title: parseApiError(data, fallback),
+    title: message,
     variant: "error",
   });
+}
+
+export function showApiErrorFromResponse(
+  toast: { push: ToastPush },
+  res: Response,
+  body?: unknown,
+  fallback?: string
+) {
+  const message = resolveApiError(res, body, fallback).message;
+  toast.push({ title: message, variant: "error" });
 }
 
 export function showSuccess(toast: { push: ToastPush }, title: string, description?: string) {

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 export type KanbanColumn = { key: string; label: string };
 export type KanbanItem = {
   id: string;
@@ -47,10 +48,10 @@ export default function Kanban({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ [bodyKey]: column, ...(extraBody ?? {}) }),
     });
+    const data = await readJsonBody(res);
     if (!res.ok) {
       setLocal(prev);
-      const data = await res.json().catch(() => ({}));
-      toast.push({ title: data.error || "Move failed", variant: "error" });
+      reportApiFailure(res, data, { toast, fallback: "Move failed" });
       return;
     }
     toast.push({ title: "Updated", description: `${item.title} → ${column.replace(/_/g, " ")}`, variant: "success" });

@@ -65,13 +65,30 @@ export async function uploadDocument(opts: {
   const exists = await ownerExists(opts.ownerType, opts.ownerId);
   if (!exists) throw new Error("Owner not found");
 
-  const safeName = opts.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const key = `${opts.ownerType}/${opts.ownerId}/${Date.now()}-${safeName}`;
-  const { url } = await putObject(key, opts.buffer);
-
   const docType = ALLOWED_DOCUMENT_TYPES.includes(opts.documentType)
     ? opts.documentType
     : "OTHER";
+
+  const singleFileOwners = new Set<DocumentEntityType>(["CLIENT", "VENDOR", "DRIVER", "VEHICLE"]);
+  if (singleFileOwners.has(entityType)) {
+    const existing = await prisma.documentAttachment.findFirst({
+      where: {
+        entityType,
+        entityId: opts.ownerId,
+        documentType: docType,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new Error(
+        `A ${docType.replace(/_/g, " ")} file is already on record. Delete it before uploading another.`
+      );
+    }
+  }
+
+  const safeName = opts.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const key = `${opts.ownerType}/${opts.ownerId}/${Date.now()}-${safeName}`;
+  const { url } = await putObject(key, opts.buffer);
 
   const stored = await prisma.storedFile.create({
     data: {

@@ -2,7 +2,13 @@ import { requireAuth, authorize, ok, badRequest, serverError } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
 import { AUDIT_ACTIONS } from "@/lib/audit-actions";
-import { listPermissions, getGrantedPermissions, DEFAULT_ROLE_PERMISSIONS, PERMISSION_KEYS } from "@/lib/services/permission.service";
+import {
+  listPermissions,
+  getGrantedPermissions,
+  DEFAULT_ROLE_PERMISSIONS,
+  PERMISSION_KEYS,
+  ensurePermissionRowsForKeys,
+} from "@/lib/services/permission.service";
 
 export async function GET() {
   const auth = await requireAuth();
@@ -33,7 +39,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const role = String(body.role ?? "");
-    const grantedKeys = Array.isArray(body.permissions) ? body.permissions.map(String) : [];
+    const grantedKeys: string[] = Array.isArray(body.permissions) ? body.permissions.map(String) : [];
     if (!role) return badRequest("role is required");
 
     const previous = await prisma.rolePermission.findMany({
@@ -45,9 +51,16 @@ export async function POST(req: Request) {
         ? previous.map((r) => r.permission.key)
         : DEFAULT_ROLE_PERMISSIONS[role] ?? [];
 
+    await ensurePermissionRowsForKeys(grantedKeys);
+
     await prisma.$transaction(async (tx) => {
       await tx.rolePermission.deleteMany({ where: { role } });
       const perms = await tx.permission.findMany({ where: { key: { in: grantedKeys } } });
+      const foundKeys = new Set(perms.map((p) => p.key));
+      const missingInDb = grantedKeys.filter((k: string) => !foundKeys.has(k));
+      if (missingInDb.length) {
+        throw new Error(`Permission rows missing in database: ${missingInDb.join(", ")}`);
+      }
       for (const p of perms) {
         await tx.rolePermission.create({ data: { role, permissionId: p.id } });
       }

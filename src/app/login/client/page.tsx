@@ -8,7 +8,7 @@ export default function ClientLoginPage() {
       variant="client"
       icon={Building2}
       iconClassName="bg-[#FFF4D6] text-[#B45309]"
-      title="Client Login"
+      title="Signin"
       subtitle="Access your ShunLink TMS workspace."
       supportFooter={
         <p className="text-center text-sm text-slate-500 pt-2">

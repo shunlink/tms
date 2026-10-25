@@ -4,6 +4,7 @@ import { requireAuth, authorize, ok, created, badRequest, unauthorized, serverEr
 import { requirementSchema, validate } from "@/lib/validation";
 import { logAudit } from "@/lib/audit";
 import { AUDIT_ACTIONS } from "@/lib/audit-actions";
+import { denyUnapprovedClientMutation } from "@/lib/client-portal-mutation-guard";
 
 function combineDateTime(date?: Date | null, time?: string | null): Date | undefined {
   if (!date) return undefined;
@@ -37,6 +38,9 @@ export async function POST(req: Request) {
   if (auth.user.role !== "CLIENT") {
     const denied = await authorize(auth, "requirement.create");
     if (denied) return denied;
+  } else {
+    const viewOnlyDenied = await denyUnapprovedClientMutation(auth);
+    if (viewOnlyDenied) return viewOnlyDenied;
   }
   try {
     const body = await req.json();

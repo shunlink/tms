@@ -1,11 +1,20 @@
 import { z } from "zod";
+import { getPortalPasswordValidationError } from "./portal-password";
+import { BUSINESS_TYPE_VALUES } from "./client-business-types";
+import { VENDOR_PAYMENT_TERMS_TYPE_VALUES } from "./vendor-payment-terms";
+import { DELIVERY_ZONE_VALUES, RELEASE_FILTER_ZONE_VALUES } from "./delivery-zones";
 import { normalizePhone, normalizePhoneOrOriginal } from "./phone";
 import {
   emailSchema,
   optionalEmailSchema,
   optionalGstinSchema,
+  gstinSchema,
   optionalPanSchema,
+  panSchema,
+  optionalIfscSchema,
+  ifscSchema,
   optionalPincodeSchema,
+  pincodeSchema,
   otpSchema,
   vehicleRegSchema,
   isValidIndianMobile,
@@ -86,9 +95,17 @@ export const TEAM_CODES = [
   "VENDOR_TEAM",
 ] as const;
 
+const businessTypeEnum = z.enum(BUSINESS_TYPE_VALUES);
+
+/** Empty string from HTML selects → null (optional field). */
+const optionalBusinessType = z.preprocess(
+  (v) => (v === "" || v == null ? null : v),
+  businessTypeEnum.nullable().optional()
+);
+
 export const clientSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
-  legalName: optStr,
+  businessType: optionalBusinessType,
   pan: optionalPanSchema,
   cin: optStr,
   msme: optStr,
@@ -116,11 +133,42 @@ export const clientSchema = z.object({
   securityDeposit: optNum,
   bankName: optStr,
   bankAccount: optStr,
-  bankIfsc: optStr,
+  bankIfsc: optionalIfscSchema,
   bankBranch: optStr,
   accountHolder: optStr,
   notes: optStr,
 });
+
+export const clientOnboardingPreferenceSchema = z.object({
+  preference: z.enum(["SELF", "SHUNLINK"]),
+});
+
+/** Minimum client profile required to submit onboarding (PAN, GST, bank). */
+export const clientOnboardingMandatorySchema = z.object({
+  gstin: gstinSchema,
+  pan: panSchema,
+  bankName: z.string().trim().min(1, "Bank name is required"),
+  bankAccount: z.string().trim().min(1, "Account number is required"),
+  bankIfsc: ifscSchema,
+  accountHolder: z.string().trim().min(1, "Account holder name is required"),
+  bankBranch: optStr,
+});
+
+export const clientShunlinkAssistSchema = z.object({
+  pan: panSchema,
+  gstin: gstinSchema,
+  businessType: businessTypeEnum,
+  bankName: z.string().trim().min(1, "Bank name is required"),
+  bankAccount: z.string().trim().min(1, "Account number is required"),
+  bankIfsc: ifscSchema,
+  bankBranch: optStr,
+  accountHolder: z.string().trim().min(1, "Account holder name is required"),
+});
+
+export const clientOpsCompletionSchema = clientSchema.partial();
+
+const deliveryZoneEnum = z.enum(DELIVERY_ZONE_VALUES);
+const releaseFilterZoneEnum = z.enum(RELEASE_FILTER_ZONE_VALUES);
 
 export const vendorSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
@@ -145,9 +193,37 @@ export const vendorSchema = z.object({
   accountHolder: optStr,
   upiId: optStr,
   paymentTerms: optInt,
+  paymentTermsType: z.preprocess(
+    (v) => (v === "" || v == null ? null : v),
+    z.enum(VENDOR_PAYMENT_TERMS_TYPE_VALUES).nullable().optional()
+  ),
   tdsApplicable: optBool,
   notes: optStr,
+  deliveryZones: z.array(deliveryZoneEnum).optional(),
 });
+
+const partnerPortalPasswordSchema = z.string().trim().superRefine((pwd, ctx) => {
+  const err = getPortalPasswordValidationError(pwd);
+  if (err) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: err });
+  }
+});
+
+const partnerPortalCredentialsSchema = z.object({
+  email: emailSchema,
+  password: partnerPortalPasswordSchema,
+  phone: phoneStr,
+});
+
+export const provisionClientPartnerSchema = clientSchema.extend({
+  portal: partnerPortalCredentialsSchema.optional(),
+});
+
+export const provisionVendorPartnerSchema = vendorSchema.extend({
+  portal: partnerPortalCredentialsSchema.optional(),
+});
+
+export const partnerPortalCredentialsOnlySchema = partnerPortalCredentialsSchema;
 
 export const vehicleSchema = z.object({
   registrationNumber: vehicleRegSchema,
@@ -283,6 +359,90 @@ export const indentSchema = z.object({
 
 export type IndentInput = z.infer<typeof indentSchema>;
 
+const reqStr = (message: string) => z.string().trim().min(1, message);
+
+const requiredDate = (label: string) =>
+  z.preprocess(
+    (v) => {
+      if (v === "" || v == null) return undefined;
+      if (v instanceof Date) return v;
+      const d = new Date(v as string);
+      return Number.isNaN(d.getTime()) ? undefined : d;
+    },
+    z.date({ required_error: `${label} is required`, invalid_type_error: `${label} is required` })
+  );
+
+const positiveClientRate = z.preprocess(
+  (v) => (v === "" || v == null ? undefined : Number(v)),
+  z
+    .number({
+      required_error: "Client rate is required",
+      invalid_type_error: "Client rate is required",
+    })
+    .positive("Client rate must be greater than 0")
+);
+
+/** Strict validation when saving an indent from the admin form (create or full update). */
+export const indentSaveSchema = z.object({
+  clientId: z.string().min(1, "Client is required"),
+  requirementId: z.string().optional().nullable().transform((v) => (v === "" ? null : v)),
+  indentDate: requiredDate("Indent date"),
+  serviceType: reqStr("Service type is required"),
+  transactionType: reqStr("Transaction type is required"),
+  insuranceType: reqStr("Insurance type is required"),
+  cargoType: reqStr("Cargo type is required"),
+  consignorName: reqStr("Consignor name is required"),
+  consignorAddress: reqStr("Consignor address is required"),
+  consignorCity: reqStr("Consignor city is required"),
+  consignorState: reqStr("Consignor state is required"),
+  consignorPincode: pincodeSchema,
+  consignorGstin: gstinSchema,
+  consignorContact: optStr,
+  consignorPhone: phoneStr,
+  pickupDate: requiredDate("Pickup date"),
+  pickupTime: optStr,
+  consigneeName: reqStr("Consignee name is required"),
+  consigneeAddress: reqStr("Consignee address is required"),
+  consigneeCity: reqStr("Consignee city is required"),
+  consigneeState: reqStr("Consignee state is required"),
+  consigneePincode: pincodeSchema,
+  consigneeGstin: gstinSchema,
+  consigneeContact: reqStr("Consignee contact person is required"),
+  consigneePhone: requiredPhone("Consignee phone is required"),
+  deliveryDate: optDate,
+  deliveryTime: optStr,
+  podDueAt: optDate,
+  vehicleType: reqStr("Vehicle type is required"),
+  bodyType: optStr,
+  quantity: z.preprocess(
+    (v) => (v == null || v === "" ? undefined : Number(v)),
+    z
+      .number({ required_error: "Number of vehicles is required", invalid_type_error: "Invalid quantity" })
+      .int()
+      .positive("Number of vehicles must be at least 1")
+  ),
+  capacityCbm: optNum,
+  materialDescription: optStr,
+  packingType: optStr,
+  packageCount: optInt,
+  weightValue: optNum,
+  weightUnit: z.string().default("MT"),
+  weightKg: optNum,
+  materialValue: optNum,
+  hsnCode: optStr,
+  invoiceNumber: optStr,
+  invoiceValue: optNum,
+  clientRate: positiveClientRate,
+  freightType: optStr,
+  paymentMode: optStr,
+  ewayBillRequired: optBool,
+  ewayBill: indentSchema.shape.ewayBill,
+  specialInstructions: optStr,
+  remarks: optStr,
+});
+
+export type IndentSaveInput = z.infer<typeof indentSaveSchema>;
+
 export const requirementSchema = z.object({
   clientId: z.string().optional(),
   routeFrom: z.string().trim().min(1, "Origin is required"),
@@ -343,6 +503,7 @@ export const tripSchema = z.object({
 
 const invoiceLineSchema = z.object({
   tripId: z.string().min(1),
+  lineKind: z.enum(["FREIGHT", "LOADING", "UNLOADING"]).optional(),
   amount: optNum,
   gstRate: optNum,
   description: optStr,
@@ -430,6 +591,7 @@ export const indentWorkflowSchema = z.object({
 
 export const indentReleaseSchema = z.object({
   cities: z.array(z.string().trim().min(1)).min(1, "Select at least one vendor city"),
+  zones: z.array(releaseFilterZoneEnum).optional().default([]),
 });
 
 export const advanceRequestSchema = z.object({
@@ -457,6 +619,26 @@ export const internalAdvanceRaiseSchema = z.object({
   amount: z.coerce.number().positive("Amount must be greater than zero"),
   remarks: optStr,
 });
+
+export const vendorBulkAdvanceBodySchema = z
+  .object({
+    remarks: optStr,
+    items: z
+      .array(
+        z.object({
+          tripId: z.string().min(1),
+          requestedAmount: z.coerce.number().positive("Amount must be greater than zero"),
+        })
+      )
+      .min(1)
+      .optional(),
+    totalAmount: z.coerce.number().positive("Total amount must be greater than zero").optional(),
+    split: z.enum(["equal", "max"]).optional(),
+  })
+  .refine((d) => Boolean(d.items?.length) || (d.totalAmount != null && d.split), {
+    message: "Provide items[] or totalAmount with split (equal or max)",
+    path: ["items"],
+  });
 
 export const tripAdvanceRequestSchema = z.object({
   source: z.enum(["SHUNLINK", "EXTERNAL"]).default("SHUNLINK"),
@@ -565,6 +747,7 @@ export const externalAdvanceUpdateSchema = z.object({
 export const placementSchema = z.object({
   action: z.enum(["vehicle_reached", "reopen"]),
   remarks: optStr,
+  indentLineId: optStr,
 });
 
 export const allocationSchema = z
@@ -593,6 +776,7 @@ export const vehicleAssignmentSchema = z.object({
   capacityTons: optNum,
   capacityCbm: optNum,
   remarks: optStr,
+  indentLineId: optStr,
 });
 
 export const indentDriverSchema = z.object({
@@ -604,6 +788,11 @@ export const indentDriverSchema = z.object({
   city: optStr,
   state: optStr,
   pincode: optionalPincodeSchema,
+  indentLineId: optStr,
+});
+
+export const createTripFromIndentSchema = z.object({
+  indentLineId: optStr,
 });
 
 export const driverLoginOtpRequestSchema = z.object({
@@ -656,18 +845,79 @@ export const trackingPingSchema = z.object({
   provider: optStr,
 });
 
+const cellIdSchema = z.union([
+  z.string().trim().regex(/^\d+$/, "cellId must be a non-negative integer"),
+  z.coerce.number().int().nonnegative(),
+  z.bigint(),
+]);
+
+export const trackingIngestSchema = z
+  .object({
+    tripId: z.string().min(1, "tripId is required"),
+    lat: z.coerce.number().optional(),
+    lng: z.coerce.number().optional(),
+    mcc: z.coerce.number().int().nonnegative().optional(),
+    mnc: z.coerce.number().int().nonnegative().optional(),
+    lac: z.coerce.number().int().nonnegative().optional(),
+    cellId: cellIdSchema.optional(),
+    accuracyMeters: optNum,
+    provider: optStr,
+  })
+  .superRefine((data, ctx) => {
+    const hasGps = data.lat != null && data.lng != null;
+    const hasPartialGps = (data.lat != null) !== (data.lng != null);
+    const hasCell =
+      data.mcc != null && data.mnc != null && data.lac != null && data.cellId != null;
+    const hasPartialCell =
+      [data.mcc, data.mnc, data.lac, data.cellId].some((v) => v != null) && !hasCell;
+
+    if (hasPartialGps) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide both lat and lng for GPS tracking",
+        path: ["lat"],
+      });
+    }
+    if (hasPartialCell) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide mcc, mnc, lac, and cellId together for cell-tower tracking",
+        path: ["mcc"],
+      });
+    }
+    if (!hasGps && !hasCell) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide either lat/lng (GPS) or mcc/mnc/lac/cellId (cell tower)",
+      });
+    }
+    if (hasGps && hasCell) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide GPS or cell-tower fields, not both",
+      });
+    }
+  });
+
 export const signupSchema = z
   .object({
-    name: z.string().trim().min(2, "Full name is required"),
+    name: z.string().trim().optional(),
     email: emailSchema,
     password: z.string().min(8, "Password must be at least 8 characters"),
     phone: requiredPhone(),
     role: z.enum(["CLIENT", "VENDOR"]),
     companyName: optStr,
   })
-  .refine((data) => data.companyName != null && data.companyName.trim().length >= 2, {
-    message: "Company / business name is required",
-    path: ["companyName"],
+  .superRefine((data, ctx) => {
+    const company = data.companyName?.trim() ?? "";
+    if (company.length < 2) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          data.role === "CLIENT" ? "Company name is required" : "Business / fleet name is required",
+        path: ["companyName"],
+      });
+    }
   });
 
 export const vendorQuoteSchema = z

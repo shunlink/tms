@@ -8,13 +8,13 @@ export function inferVendorNoteFromTripCharge(chargeType: TripChargeType): {
 } {
   if (chargeType === "DEDUCTION") {
     return {
-      noteType: "CREDIT_NOTE",
+      noteType: "DEBIT_NOTE",
       businessPurpose: "VENDOR_FREIGHT_REDUCTION",
       payableEffect: "SUBLEDGER_ALREADY_REFLECTED",
     };
   }
   return {
-    noteType: "DEBIT_NOTE",
+    noteType: "CREDIT_NOTE",
     businessPurpose: "VENDOR_FREIGHT_INCREASE",
     payableEffect: "SUBLEDGER_ALREADY_REFLECTED",
   };

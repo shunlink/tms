@@ -7,6 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import { parseApiError } from "@/lib/toast-utils";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 export default function DriverForm({
   driverId,
   initial,
@@ -27,6 +30,7 @@ export default function DriverForm({
     dlVehicleClasses?: string | null;
   };
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [form, setForm] = useState({
     name: initial?.name ?? "",
@@ -72,12 +76,12 @@ export default function DriverForm({
           persist: Boolean(driverId),
         }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await readJsonBody(res);
       if (!res.ok) {
-        setVerifyError(parseApiError(data, "DL verification failed"));
+        reportApiFailure(res, data, { toast, setError: setVerifyError, fallback: "DL verification failed" });
         return;
       }
-      const d = data.data as Record<string, unknown>;
+      const d = (data as { data: Record<string, unknown> }).data;
       setDlMeta({
         verified: true,
         provider: String(d.provider ?? ""),
@@ -112,9 +116,9 @@ export default function DriverForm({
       body: JSON.stringify(form),
     });
     setSaving(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to save driver");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to save driver" });
       return;
     }
     router.push("/drivers");

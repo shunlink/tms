@@ -35,6 +35,7 @@ import BrandLogo from "@/components/brand-logo";
 import NavBadge from "@/components/nav-badge";
 import { useSidebarPendingCounts } from "@/hooks/use-sidebar-pending-counts";
 import { filterNavGroups } from "@/lib/nav-permissions";
+import { PermissionsProvider } from "@/components/permission-context";
 import type { SidebarPendingCountKey } from "@/lib/sidebar-pending-keys";
 
 const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -58,8 +59,9 @@ const ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   "/advance-payments": IndianRupee,
   "/reports": BarChart3,
   "/notifications": Bell,
+  "/onboarding-requests": ClipboardList,
   "/users": UserCog,
-  "/permissions": Settings,
+  "/access-roles": UserCog,
   "/audit": ScrollText,
   "/settings": Settings,
   "/bidding-management": Gavel,
@@ -69,11 +71,13 @@ export default function AppShell({
   user,
   permissions,
   teamCode,
+  accessMode = "INHERIT_ROLE",
   children,
 }: {
   user: { name?: string | null; email?: string | null; role?: string; teamName?: string | null };
   permissions: string[];
   teamCode?: string;
+  accessMode?: "INHERIT_ROLE" | "CUSTOM_ROLES";
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -96,8 +100,13 @@ export default function AppShell({
   const { counts } = useSidebarPendingCounts();
 
   const visibleGroups = useMemo(
-    () => filterNavGroups(permissions, { teamCode: teamCode as import("@/lib/teams").TeamCode | undefined, role: user.role }),
-    [permissions, teamCode, user.role]
+    () =>
+      filterNavGroups(permissions, {
+        teamCode: teamCode as import("@/lib/teams").TeamCode | undefined,
+        role: user.role,
+        accessMode,
+      }),
+    [permissions, teamCode, user.role, accessMode]
   );
 
   const badgeFor = (key?: SidebarPendingCountKey) =>
@@ -260,7 +269,11 @@ export default function AppShell({
           </div>
         </header>
 
-        <main className="flex-1 min-h-0 overflow-y-auto p-6 sm:p-8 print:bg-white print:p-0">{children}</main>
+        <main className="flex-1 min-h-0 overflow-y-auto p-6 sm:p-8 print:bg-white print:p-0">
+          <div className="w-full max-w-[1400px] mx-auto">
+            <PermissionsProvider permissions={permissions}>{children}</PermissionsProvider>
+          </div>
+        </main>
       </div>
     </div>
   );

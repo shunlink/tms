@@ -1,29 +1,21 @@
 import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { submitVendorQuote } from "@/lib/services/quote.service";
-import {
-  parseQuoteAmount,
-  parseQuoteButtonId,
-  parseQuoteMessage,
-} from "@/lib/whatsapp-parse";
-import { sendQuoteAcknowledgement } from "@/lib/adapters/whatsapp";
+import { parseQuoteButtonId, parseQuoteMessage } from "@/lib/whatsapp-parse";
 import { deliverNow } from "@/lib/notify";
 import { normalizePhone, phonesMatch } from "@/lib/phone";
 import { isIndentOpenForVendorQuoting } from "@/lib/indent-vendor-visibility";
 import {
-  buildInvalidAmountMessage,
   buildMultipleIndentsMessage,
   buildNoActiveIndentMessage,
+  buildPortalQuoteRedirectMessage,
   buildQuoteAlreadySubmittedMessage,
-  buildQuoteAmountPromptMessage,
 } from "@/lib/whatsapp-message";
+import { buildVendorOpenIndentsLoginUrl, buildVendorQuoteLoginUrl } from "@/lib/vendor-quote-portal-url";
+import { ensureVendorQuoteAccess } from "@/lib/services/vendor-quote-access.service";
 import {
   claimInboundEvent,
-  closeQuoteSession,
   completeInboundEvent,
-  getSession,
-  markSessionAwaitingAmount,
   resolveIndentForAmountReply,
 } from "@/lib/services/whatsapp-quote-session.service";
 
@@ -100,7 +92,6 @@ type InboundMessage = {
 type InboundResult = {
   from: string;
   ok: boolean;
-  quoteId?: string;
   indentNumber?: string;
   error?: string;
   duplicate?: boolean;
@@ -122,31 +113,22 @@ type MetaValue = {
 };
 
 function extractInboundMessages(body: Record<string, unknown>): InboundMessage[] {
-  const flat = body as { from?: unknown; text?: unknown; buttonId?: unknown };
-  if (flat.from && flat.text) {
-    return [
-      {
-        from: String(flat.from),
-        text: String(flat.text),
-        messageId: null,
-        profileName: null,
-        kind: flat.buttonId ? "button" : "text",
-        buttonId: flat.buttonId ? String(flat.buttonId) : null,
-      },
-    ];
-  }
-
   const out: InboundMessage[] = [];
-  const entries = (body as { entry?: Array<{ changes?: Array<{ value?: MetaValue }> }> }).entry ?? [];
+  const entries = body.entry;
+  if (!Array.isArray(entries)) return out;
+
   for (const entry of entries) {
-    for (const change of entry.changes ?? []) {
-      const value = change.value ?? {};
+    const changes = (entry as { changes?: unknown[] }).changes;
+    if (!Array.isArray(changes)) continue;
+    for (const change of changes) {
+      const value = (change as { value?: MetaValue }).value;
+      if (!value?.messages) continue;
       const profileName = value.contacts?.[0]?.profile?.name ?? null;
-      for (const message of value.messages ?? []) {
+      for (const message of value.messages) {
         if (message.type === "text" && message.text?.body) {
           out.push({
             from: String(message.from ?? ""),
-            text: String(message.text.body),
+            text: message.text.body,
             messageId: message.id ?? null,
             profileName,
             kind: "text",
@@ -221,108 +203,63 @@ async function sendVendorText(to: string, body: string, entityId?: string | null
   });
 }
 
+async function quotePageUrlForVendor(vendorId: string, indentId: string): Promise<string | null> {
+  try {
+    const access = await ensureVendorQuoteAccess(vendorId, indentId);
+    if (access?.url) return access.url;
+    return buildVendorQuoteLoginUrl(indentId);
+  } catch {
+    return null;
+  }
+}
+
 async function handleQuoteButton(
-  vendor: { id: string; name: string },
+  vendor: { id: string },
   message: InboundMessage,
   indentId: string
 ): Promise<InboundResult> {
-  const session = await getSession(vendor.id, indentId);
-  if (!session || session.status === "CLOSED") {
-    const indent = await prisma.indent.findFirst({
-      where: { id: indentId },
-      select: { indentNumber: true },
-    });
-    if (indent) {
-      await sendVendorText(
-        message.from,
-        buildQuoteAlreadySubmittedMessage(indent.indentNumber),
-        indentId
-      );
-      return {
-        from: message.from,
-        ok: false,
-        error: "Quote session closed",
-        indentNumber: indent.indentNumber,
-        duplicate: true,
-      };
-    }
-    return { from: message.from, ok: false, error: "Quote session closed" };
-  }
-
-  const indent = session.indent;
+  const indent = await prisma.indent.findFirst({
+    where: { id: indentId },
+    select: { id: true, indentNumber: true, status: true, vendorId: true },
+  });
   if (!indent || !isIndentOpenForVendorQuoting(indent)) {
     return { from: message.from, ok: false, error: "Indent is no longer open for quoting" };
   }
 
-  await markSessionAwaitingAmount(vendor.id, indentId);
-  await sendVendorText(message.from, buildQuoteAmountPromptMessage(indent.indentNumber), indentId);
+  const existing = await prisma.vendorQuote.findUnique({
+    where: { indentId_vendorId: { indentId: indent.id, vendorId: vendor.id } },
+  });
+  if (existing) {
+    await sendVendorText(message.from, buildQuoteAlreadySubmittedMessage(indent.indentNumber), indent.id);
+    return {
+      from: message.from,
+      ok: false,
+      error: "Quote already submitted",
+      indentNumber: indent.indentNumber,
+      duplicate: true,
+    };
+  }
 
+  const quotePageUrl = await quotePageUrlForVendor(vendor.id, indent.id);
+  if (!quotePageUrl) {
+    await sendVendorText(
+      message.from,
+      "Online quoting is not configured. Please contact ShunLink operations.",
+      indent.id
+    );
+    return { from: message.from, ok: false, error: "Quote page URL not configured" };
+  }
+
+  await sendVendorText(
+    message.from,
+    buildPortalQuoteRedirectMessage(indent.indentNumber, quotePageUrl),
+    indent.id
+  );
   return { from: message.from, ok: true, indentNumber: indent.indentNumber };
 }
 
-async function persistQuote(
-  vendor: { id: string; name: string },
-  message: InboundMessage,
-  indent: { id: string; indentNumber: string },
-  quotedRate: number
-): Promise<InboundResult> {
-  try {
-    const quote = await submitVendorQuote(indent.id, vendor.id, {
-      quotedRate,
-      remarks: null,
-      channel: "WHATSAPP",
-    });
-
-    await closeQuoteSession(vendor.id, indent.id);
-    await sendQuoteAcknowledgement(message.from, {
-      indentNumber: indent.indentNumber,
-      quotedRate,
-      vendorName: vendor.name,
-      entityId: indent.id,
-    });
-
-    console.info(
-      `[whatsapp] quote saved vendor=${vendor.name} indent=${indent.indentNumber} rate=${quotedRate} quoteId=${quote.id}`
-    );
-
-    return {
-      from: message.from,
-      ok: true,
-      quoteId: quote.id,
-      indentNumber: indent.indentNumber,
-    };
-  } catch (e) {
-    const error = e instanceof Error ? e.message : "Quote submission failed";
-    const duplicate =
-      error.includes("already submitted") ||
-      error.includes("already recorded") ||
-      error.includes("already exists");
-
-    if (duplicate) {
-      await closeQuoteSession(vendor.id, indent.id);
-      await sendVendorText(
-        message.from,
-        buildQuoteAlreadySubmittedMessage(indent.indentNumber),
-        indent.id
-      );
-      return {
-        from: message.from,
-        ok: false,
-        error,
-        indentNumber: indent.indentNumber,
-        duplicate: true,
-      };
-    }
-
-    console.error(
-      `[whatsapp] quote persist failed vendor=${vendor.id} indent=${indent.id} amount=${quotedRate}: ${error}`
-    );
-    return { from: message.from, ok: false, error, indentNumber: indent.indentNumber };
-  }
-}
-
 async function handleTextQuote(
-  vendor: { id: string; name: string },
+  vendor: { id: string },
   message: InboundMessage
 ): Promise<InboundResult> {
   const parsedFull = parseQuoteMessage(message.text);
@@ -337,13 +274,7 @@ async function handleTextQuote(
     if (!isIndentOpenForVendorQuoting(indent)) {
       return { from: message.from, ok: false, error: "Indent is no longer open for quoting" };
     }
-    return persistQuote(vendor, message, indent, parsedFull.quotedRate);
-  }
-
-  const amount = parseQuoteAmount(message.text);
-  if (amount == null) {
-    await sendVendorText(message.from, buildInvalidAmountMessage());
-    return { from: message.from, ok: false, error: "Unparseable amount — guidance sent" };
+    return handleQuoteButton(vendor, message, indent.id);
   }
 
   const resolved = await resolveIndentForAmountReply(vendor.id);
@@ -353,24 +284,35 @@ async function handleTextQuote(
       message.from,
       buildMultipleIndentsMessage(resolved.candidates.map((i) => i.indentNumber))
     );
-    return { from: message.from, ok: false, error: "Multiple open indents — clarification sent" };
+    return { from: message.from, ok: false, error: "Multiple open indents — portal link guidance sent" };
   }
 
-  if (!resolved.indent) {
+  if (resolved.indent) {
+    const indentCheck = await prisma.indent.findFirst({
+      where: { id: resolved.indent.id },
+      select: { id: true, indentNumber: true, status: true, vendorId: true },
+    });
+    if (indentCheck && isIndentOpenForVendorQuoting(indentCheck)) {
+      return handleQuoteButton(vendor, message, indentCheck.id);
+    }
+  }
+
+  let fallbackUrl: string | null = null;
+  try {
+    fallbackUrl = buildVendorOpenIndentsLoginUrl();
+  } catch {
+    fallbackUrl = null;
+  }
+
+  if (fallbackUrl) {
+    await sendVendorText(
+      message.from,
+      buildPortalQuoteRedirectMessage("your open load", fallbackUrl)
+    );
+  } else {
     await sendVendorText(message.from, buildNoActiveIndentMessage());
-    return { from: message.from, ok: false, error: "No active quote session for amount-only reply" };
   }
-
-  const indentCheck = await prisma.indent.findFirst({
-    where: { id: resolved.indent.id },
-    select: { id: true, indentNumber: true, status: true, vendorId: true },
-  });
-  if (!indentCheck || !isIndentOpenForVendorQuoting(indentCheck)) {
-    await closeQuoteSession(vendor.id, resolved.indent.id);
-    return { from: message.from, ok: false, error: "Indent is no longer open for quoting" };
-  }
-
-  return persistQuote(vendor, message, resolved.indent, amount);
+  return { from: message.from, ok: true, error: "Portal redirect sent" };
 }
 
 async function handleInbound(message: InboundMessage): Promise<InboundResult> {
@@ -387,7 +329,7 @@ async function handleInbound(message: InboundMessage): Promise<InboundResult> {
 
   const finish = async (result: InboundResult) => {
     await completeInboundEvent(claimedMessageId, {
-      quoteId: result.quoteId ?? null,
+      quoteId: null,
       result: result.ok ? "ok" : result.error ?? "failed",
     });
     return result;
@@ -492,5 +434,5 @@ export async function POST(req: Request) {
     const status = error.includes("not found") || error.includes("Unknown vendor") ? 404 : 400;
     return NextResponse.json({ error }, { status });
   }
-  return NextResponse.json(first, { status: first.quoteId ? 201 : 200 });
+  return NextResponse.json(first, { status: 200 });
 }

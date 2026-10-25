@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button";
 import StatusBadge from "@/components/status-badge";
 import { formatINR, formatDate } from "@/lib/utils";
 import GatewayPaySection, { type GatewayTransfer } from "@/components/payments/gateway-pay-section";
+import { PermissionAction } from "@/components/permission-action";
+
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 
 type Charge = { id: string; chargeType: string; amount: number; description: string | null };
 
@@ -96,16 +100,19 @@ function formatSlaRemaining(ms: number) {
 export default function BalancePaymentDetailDialog({
   task,
   canProcess,
+  canApprove,
   currentUserId,
   open,
   onClose,
 }: {
   task: BalancePaymentRow;
   canProcess: boolean;
+  canApprove: boolean;
   currentUserId?: string | null;
   open: boolean;
   onClose: () => void;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [paymentMode, setPaymentMode] = useState(task.paymentMode ?? "Bank Transfer");
@@ -133,10 +140,14 @@ export default function BalancePaymentDetailDialog({
 
   async function refreshTaskFromServer() {
     const res = await fetch(`/api/balance-payments/${liveTask.id}`);
-    if (!res.ok) return;
-    const data = (await res.json()) as BalancePaymentRow;
-    setLiveTask(data);
-    setAmount(String(data.outstandingBalance));
+    const data = await readJsonBody(res);
+    if (!res.ok) {
+      reportApiFailure(res, data, { silent: true });
+      return;
+    }
+    const row = data as BalancePaymentRow;
+    setLiveTask(row);
+    setAmount(String(row.outstandingBalance));
   }
 
   if (!open) return null;
@@ -165,12 +176,12 @@ export default function BalancePaymentDetailDialog({
       fd.append("proof", proof);
       const res = await fetch(`/api/balance-payments/${view.id}`, { method: "POST", body: fd });
       setBusy(false);
+      const data = await readJsonBody(res);
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error || "Action failed");
+        reportApiFailure(res, data, { toast, setError, fallback: "Action failed" });
         return;
       }
-      await refreshTaskFromServer();
+      onClose();
       router.refresh();
       return;
     }
@@ -181,9 +192,14 @@ export default function BalancePaymentDetailDialog({
       body: JSON.stringify({ action, paymentMode, remarks, ...extra }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Action failed");
+      reportApiFailure(res, data, { toast, setError, fallback: "Action failed" });
+      return;
+    }
+    if (action === "approve" || action === "process") {
+      onClose();
+      router.refresh();
       return;
     }
     await refreshTaskFromServer();
@@ -203,9 +219,9 @@ export default function BalancePaymentDetailDialog({
       }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to add charge");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to add charge" });
       return;
     }
     setChargeAmount("");
@@ -214,7 +230,8 @@ export default function BalancePaymentDetailDialog({
     router.refresh();
   }
 
-  const canApprove = canProcess && ["PENDING_REVIEW", "SLA_BREACHED"].includes(view.status);
+  const showApproveAction = ["PENDING_REVIEW", "SLA_BREACHED"].includes(view.status);
+  const mayApprove = canApprove && showApproveAction;
   const canStartProcessing = canProcess && ["APPROVED", "PARTIALLY_PAID", "SLA_BREACHED"].includes(view.status);
   const canPay = canProcess && ["PROCESSING", "APPROVED", "PARTIALLY_PAID"].includes(view.status) && view.outstandingBalance > 0;
 
@@ -246,7 +263,13 @@ export default function BalancePaymentDetailDialog({
             <div><p className="text-xs text-slate-500">Deductions</p><p className="font-medium text-red-600">- {formatINR(view.deductionsAmount)}</p></div>
             <div><p className="text-xs text-slate-500">TDS</p><p className="font-medium">- {formatINR(view.tdsAmount)}</p></div>
             <div><p className="text-xs text-slate-500">Final Payable</p><p className="font-medium">{formatINR(view.finalPayableAmount)}</p></div>
-            <div><p className="text-xs text-slate-500">Advance Paid</p><p className="font-medium">- {formatINR(view.advanceAmount)}</p></div>
+            <div>
+              <p className="text-xs text-slate-500">Advance Paid</p>
+              <p className="font-medium">- {formatINR(view.advanceAmount)}</p>
+              {view.advanceAmount <= 0 && (
+                <p className="text-xs text-slate-500 mt-0.5">No advance requested — paying full balance.</p>
+              )}
+            </div>
             <div><p className="text-xs text-slate-500">Balance Payable</p><p className="font-medium text-emerald-700">{formatINR(view.balanceAmount)}</p></div>
             <div><p className="text-xs text-slate-500">Amount Paid</p><p className="font-medium">{formatINR(view.paidAmount)}</p></div>
             <div><p className="text-xs text-slate-500">Outstanding</p><p className="font-semibold text-amber-700">{formatINR(view.outstandingBalance)}</p></div>
@@ -332,8 +355,15 @@ export default function BalancePaymentDetailDialog({
           )}
 
           <div className="flex flex-wrap gap-2 border-t pt-4">
-            {canApprove && (
-              <Button size="sm" disabled={busy} onClick={() => act("approve")}>Approve Payable</Button>
+            {showApproveAction && (
+              <PermissionAction
+                size="sm"
+                allowed={mayApprove}
+                disabled={busy}
+                onClick={() => act("approve")}
+              >
+                Approve Payable
+              </PermissionAction>
             )}
             {canStartProcessing && (
               <Button size="sm" variant="outline" disabled={busy} onClick={() => act("process")}>Start Processing</Button>
@@ -347,8 +377,10 @@ export default function BalancePaymentDetailDialog({
               contextId={view.id}
               maxAmount={view.outstandingBalance}
               canProcess={canProcess}
+              canApprove={canApprove}
               currentUserId={currentUserId}
               activeTransfers={view.gatewayTransfers ?? []}
+              onWorkflowComplete={onClose}
             />
           )}
 

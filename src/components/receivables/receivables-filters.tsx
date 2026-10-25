@@ -76,12 +76,11 @@ export default function ReceivablesFilters({ clients }: { clients: ClientOption[
         <Label htmlFor="ageingBucket">Ageing bucket</Label>
         <Select id="ageingBucket" name="ageingBucket" defaultValue={searchParams.get("ageingBucket") ?? ""}>
           <option value="">All buckets</option>
-          <option value="current">Current</option>
-          <option value="d1_30">1–30 days</option>
-          <option value="d31_60">31–60 days</option>
-          <option value="d61_90">61–90 days</option>
-          <option value="d90plus">90+ days</option>
-          <option value="overdue">Any overdue</option>
+          <option value="d0_30">0–30 days since issue</option>
+          <option value="d31_60">31–60 days since issue</option>
+          <option value="d61_90">61–90 days since issue</option>
+          <option value="d90plus">90+ days since issue</option>
+          <option value="overdue">Past payment due date</option>
         </Select>
       </div>
 

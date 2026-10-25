@@ -5,6 +5,8 @@ import StatusBadge from "@/components/status-badge";
 import { getSessionUser } from "@/lib/auth";
 import { getVendorTrips } from "@/lib/queries";
 import { formatINR } from "@/lib/utils";
+import PortalPage from "@/components/portal/portal-page";
+import PortalTableExport from "@/components/portal/portal-table-export";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +16,45 @@ export default async function VendorTripsPage() {
 
   const trips = await getVendorTrips(user.vendorId);
 
+  const bulkAdvanceBanners: { indentId: string; indentNumber: string | null; count: number }[] = [];
+  const indentTripCounts = new Map<string, { indentNumber: string | null; count: number }>();
+  for (const row of trips) {
+    if (row.kind !== "trip" || !row.indentId) continue;
+    const prev = indentTripCounts.get(row.indentId);
+    if (prev) {
+      prev.count += 1;
+    } else {
+      indentTripCounts.set(row.indentId, {
+        indentNumber: row.indentNumber ?? null,
+        count: 1,
+      });
+    }
+  }
+  for (const [indentId, meta] of Array.from(indentTripCounts.entries())) {
+    if (meta.count >= 2) {
+      bulkAdvanceBanners.push({ indentId, indentNumber: meta.indentNumber, count: meta.count });
+    }
+  }
+
+  const tripExportColumns = [
+    { key: "lrNumber", header: "LR No." },
+    { key: "route", header: "Route" },
+    { key: "client", header: "Client" },
+    { key: "vehicle", header: "Vehicle" },
+    { key: "vendorRate", header: "Freight" },
+    { key: "status", header: "Status" },
+  ];
+  const tripExportRows = trips.map((t) => ({
+    lrNumber: t.lrNumber,
+    route: t.route,
+    client: t.client,
+    vehicle: t.vehicle,
+    vendorRate: formatINR(t.vendorRate),
+    status: t.status,
+  }));
+
   return (
-    <div className="space-y-6">
+    <PortalPage>
       {/* Header */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-2xs flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -32,11 +71,36 @@ export default async function VendorTripsPage() {
         </div>
       </div>
 
+      {bulkAdvanceBanners.length > 0 && (
+        <div className="space-y-3">
+          {bulkAdvanceBanners.map((b) => (
+            <div
+              key={b.indentId}
+              className="bg-amber-50 border border-amber-200/80 rounded-2xl px-5 py-4 flex flex-wrap items-center justify-between gap-3"
+            >
+              <p className="text-sm text-amber-950">
+                <span className="font-bold">{b.indentNumber ?? "Indent"}</span> has {b.count} trips — request
+                advance for all LRs at once.
+              </p>
+              <Link
+                href={`/portal/vendor/indents/${b.indentId}/bulk-advance`}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 text-xs font-bold shadow-xs transition-colors"
+              >
+                Request bulk advance
+              </Link>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Trips Card & Table */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-2xs overflow-hidden">
-        <div className="p-5 sm:p-6 border-b border-gray-100 flex items-center justify-between">
+        <div className="p-5 sm:p-6 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base sm:text-lg font-bold text-gray-950">All Assigned Trips</h2>
-          <span className="text-xs text-gray-500 font-medium">Showing {trips.length} entries</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 font-medium">Showing {trips.length} entries</span>
+            <PortalTableExport fileName="vendor-trips" columns={tripExportColumns} rows={tripExportRows} />
+          </div>
         </div>
 
         {trips.length === 0 ? (
@@ -60,8 +124,8 @@ export default async function VendorTripsPage() {
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs sm:text-sm">
+          <div className="overflow-x-auto overscroll-x-contain -mx-5 sm:-mx-6 px-5 sm:px-6">
+            <table className="w-full text-left text-xs sm:text-sm min-w-[720px]">
               <thead className="bg-gray-50/70 border-b border-gray-100 text-gray-500 font-semibold text-[11px] uppercase tracking-wider">
                 <tr>
                   <th className="px-6 py-3.5">LR No.</th>
@@ -117,6 +181,6 @@ export default async function VendorTripsPage() {
           </div>
         )}
       </div>
-    </div>
+    </PortalPage>
   );
 }

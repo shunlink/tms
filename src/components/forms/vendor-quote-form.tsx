@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 export default function VendorQuoteForm({
   indentId,
   existingQuote,
@@ -16,6 +18,7 @@ export default function VendorQuoteForm({
   } | null;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [quotedRate, setQuotedRate] = useState("");
   const [remarks, setRemarks] = useState("");
   const [busy, setBusy] = useState(false);
@@ -45,16 +48,17 @@ export default function VendorQuoteForm({
         remarks: remarks || undefined,
       }),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJsonBody(res);
     setBusy(false);
     if (!res.ok) {
-      setError(data.error || "Failed to submit quote");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to submit quote" });
       return;
     }
+    const body = data as { quotedRate?: number; channel?: string; submittedAt?: string };
     setSubmitted({
-      quotedRate: data.quotedRate ?? Number(quotedRate),
-      channel: data.channel ?? "PORTAL",
-      submittedAt: data.submittedAt ?? new Date().toISOString(),
+      quotedRate: body.quotedRate ?? Number(quotedRate),
+      channel: body.channel ?? "PORTAL",
+      submittedAt: body.submittedAt ?? new Date().toISOString(),
     });
     router.refresh();
   }

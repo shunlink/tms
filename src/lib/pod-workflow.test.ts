@@ -52,15 +52,6 @@ function simReject(pod: SimPod, reason: string, now: Date): SimPod {
   };
 }
 
-function simCorrect(pod: SimPod, newId: string): { badPod: SimPod; newPod: SimPod } {
-  const badPod = { ...pod, resolutionStatus: "CORRECTED" };
-  const newPod: SimPod = {
-    ...simUpload(newId),
-    previousPodId: pod.id,
-  };
-  return { badPod, newPod };
-}
-
 function simVerify(pod: SimPod, now: Date): SimPod {
   assertPodTransition(pod.status, "VERIFIED");
   return { ...pod, status: "VERIFIED", verifiedAt: now };
@@ -99,10 +90,14 @@ describe("POD state machine", () => {
     expect(canPodTransition("PENDING_VERIFICATION", "PENDING_VERIFICATION")).toBe(false);
   });
 
-  it("does not allow transitions from terminal states", () => {
+  it("does not allow transitions from verified", () => {
     expect(POD_TRANSITIONS.VERIFIED).toEqual([]);
-    expect(POD_TRANSITIONS.BAD_POD).toEqual([]);
     expect(canPodTransition("VERIFIED", "BAD_POD")).toBe(false);
+  });
+
+  it("allows BAD_POD → VERIFIED after debit note (mark as good)", () => {
+    expect(POD_TRANSITIONS.BAD_POD).toEqual(["VERIFIED"]);
+    expect(canPodTransition("BAD_POD", "VERIFIED")).toBe(true);
   });
 
   it("rejects illegal transitions", () => {
@@ -118,37 +113,23 @@ describe("POD state machine", () => {
 });
 
 describe("Acceptance: vendor upload → verify workflow", () => {
-  it("vendor uploads POD → operations sees pending → rejects → bad POD task → corrects → verified", () => {
-    const t0 = new Date("2026-10-01T10:00:00Z");
-
-    // 1. Vendor uploads POD
+  it("vendor uploads POD → finance verifies pending POD", () => {
     const uploaded = simUpload("pod-1");
     expect(uploaded.status).toBe("PENDING_VERIFICATION");
-    expect(isPodPendingVerification(uploaded.status)).toBe(true);
-
-    // 2. Operations rejects
-    const rejected = simReject(uploaded, "Signature missing", t0);
-    expect(rejected.status).toBe("BAD_POD");
-    expect(rejected.rejectionReason).toBe("Signature missing");
-    expect(isBadPodUnresolved(rejected.status, rejected.resolutionStatus)).toBe(true);
-    expect(rejected.slaDeadlineAt!.getTime()).toBe(t0.getTime() + POD_SLA_MS);
-
-    // 3. Operations corrects/re-uploads
-    const { badPod, newPod } = simCorrect(rejected, "pod-2");
-    expect(badPod.resolutionStatus).toBe("CORRECTED");
-    expect(badPod.status).toBe("BAD_POD"); // original never deleted
-    expect(newPod.status).toBe("PENDING_VERIFICATION");
-    expect(newPod.previousPodId).toBe("pod-1");
-
-    // 4. Operations verifies corrected POD
-    const verified = simVerify(newPod, new Date("2026-10-01T14:00:00Z"));
+    const verified = simVerify(uploaded, new Date("2026-10-01T14:00:00Z"));
     expect(verified.status).toBe("VERIFIED");
-    expect(verified.verifiedAt).not.toBeNull();
+  });
 
-    // 5. History remains intact — original bad POD still exists
-    expect(badPod.id).toBe("pod-1");
-    expect(badPod.status).toBe("BAD_POD");
-    expect(newPod.previousPodId).toBe("pod-1");
+  it("reject → bad POD resolves only via mark good (not re-upload path)", () => {
+    const t0 = new Date("2026-10-01T10:00:00Z");
+    const rejected = simReject(simUpload("pod-bad"), "Damaged seal", t0);
+    expect(rejected.status).toBe("BAD_POD");
+    expect(canPodTransition("BAD_POD", "VERIFIED")).toBe(true);
+    const resolved = simVerify(
+      { ...rejected, status: "BAD_POD" },
+      new Date("2026-10-02T10:00:00Z")
+    );
+    expect(resolved.status).toBe("VERIFIED");
   });
 });
 

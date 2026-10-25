@@ -62,6 +62,7 @@ export default function PortalRoleLoginPage({
             subtitle={subtitle}
           >
             <PortalCredentialsForm
+              loginPortal={variant}
               emailLabel={emailLabel}
               emailPlaceholder={emailPlaceholder}
               supportFooter={supportFooter}

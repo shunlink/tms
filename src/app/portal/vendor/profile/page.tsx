@@ -16,7 +16,7 @@ export default async function VendorProfilePage() {
   if (!v) redirect("/portal/vendor");
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full max-w-6xl mx-auto">
       {/* Header */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-2xs flex flex-wrap items-center justify-between gap-4">
         <div>

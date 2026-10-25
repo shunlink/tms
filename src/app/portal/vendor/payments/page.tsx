@@ -6,6 +6,8 @@ import { getSessionUser } from "@/lib/auth";
 import { getVendorPayments } from "@/lib/queries";
 import { prisma } from "@/lib/prisma";
 import { formatINR, formatDate } from "@/lib/utils";
+import PortalPage from "@/components/portal/portal-page";
+import PortalTableExport from "@/components/portal/portal-table-export";
 
 export const dynamic = "force-dynamic";
 
@@ -27,8 +29,29 @@ export default async function VendorPaymentsPage() {
     .reduce((s, p) => s + p.paidAmount, 0);
   const balanceAmount = Math.max(0, totalReceivable - totalAdvanceReceived);
 
+  const paymentExportColumns = [
+    { key: "date", header: "Date" },
+    { key: "type", header: "Type" },
+    { key: "lrNumber", header: "LR No." },
+    { key: "route", header: "Route" },
+    { key: "freight", header: "Freight" },
+    { key: "paidAmount", header: "Paid Amount" },
+    { key: "reference", header: "Reference / UTR" },
+    { key: "status", header: "Status" },
+  ];
+  const paymentExportRows = payments.map((p) => ({
+    date: p.paidAt ? formatDate(p.paidAt) : "",
+    type: p.paymentTypeLabel,
+    lrNumber: p.lrNumber,
+    route: p.route,
+    freight: formatINR(p.amount),
+    paidAmount: formatINR(p.paidAmount),
+    reference: p.referenceNo ?? p.chequeNumber ?? "",
+    status: p.status,
+  }));
+
   return (
-    <div className="space-y-6">
+    <PortalPage>
       {/* Header */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-2xs flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -46,7 +69,7 @@ export default async function VendorPaymentsPage() {
       </div>
 
       {/* 3 Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-2xs flex items-center gap-3.5">
           <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100/60">
             <Wallet className="h-5 w-5" />
@@ -86,9 +109,12 @@ export default async function VendorPaymentsPage() {
 
       {/* Table Card */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-2xs overflow-hidden">
-        <div className="p-5 sm:p-6 border-b border-gray-100 flex items-center justify-between">
+        <div className="p-5 sm:p-6 border-b border-gray-100 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base sm:text-lg font-bold text-gray-950">Payment History</h2>
-          <span className="text-xs text-gray-500 font-medium">Showing {payments.length} transactions</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-500 font-medium">Showing {payments.length} transactions</span>
+            <PortalTableExport fileName="vendor-payments" columns={paymentExportColumns} rows={paymentExportRows} />
+          </div>
         </div>
 
         {payments.length === 0 ? (
@@ -185,6 +211,6 @@ export default async function VendorPaymentsPage() {
           </div>
         )}
       </div>
-    </div>
+    </PortalPage>
   );
 }

@@ -8,6 +8,9 @@ import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/utils";
 import ReallocateVendorDialog from "@/components/forms/reallocate-vendor-dialog";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type PlacementItem = {
   id: string;
   indentNumber: string;
@@ -18,6 +21,8 @@ type PlacementItem = {
   deadlineAt: string | Date | null;
   placementStatus: string | null;
   status: string;
+  placementProgress?: string;
+  vehicleQuantity?: number;
 };
 
 function formatCountdown(ms: number) {
@@ -40,6 +45,7 @@ export default function PlacementQueueCard({
   canAct: boolean;
   compact?: boolean;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [remaining, setRemaining] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -48,7 +54,11 @@ export default function PlacementQueueCard({
 
   const deadline = item.deadlineAt ? new Date(item.deadlineAt).getTime() : null;
   const failed = item.placementStatus === "PLACEMENT_FAILED";
-  const vehicleReached = item.placementStatus === "VEHICLE_REACHED" || item.status === "VEHICLE_PLACED";
+  const multiVehicle = (item.vehicleQuantity ?? 1) > 1;
+  const vehicleReached =
+    item.placementStatus === "VEHICLE_REACHED" ||
+    item.status === "VEHICLE_PLACED" ||
+    item.placementStatus === "PARTIALLY_REACHED";
 
   useEffect(() => {
     if (!deadline || failed) {
@@ -70,9 +80,9 @@ export default function PlacementQueueCard({
       body: JSON.stringify({ action: "vehicle_reached" }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Action failed");
+      reportApiFailure(res, data, { toast, setError, fallback: "Action failed" });
       return;
     }
     router.refresh();
@@ -109,6 +119,11 @@ export default function PlacementQueueCard({
         <p className={compact ? "text-xs" : undefined}>
           Allocated: {item.allocatedAt ? formatDate(item.allocatedAt) : "—"}
         </p>
+        {item.placementProgress && (
+          <p className={compact ? "text-xs text-slate-600" : "text-sm text-slate-600"}>
+            Placement: {item.placementProgress}
+          </p>
+        )}
         <p className={failed ? "text-red-600 font-medium text-xs" : compact ? "font-mono text-sm" : "font-mono text-lg"}>
           {failed
             ? "Deadline exceeded"
@@ -122,16 +137,23 @@ export default function PlacementQueueCard({
         <div className="mt-auto pt-2 space-y-2">
           {canAct && !vehicleReached && (
             <div className="flex flex-col gap-1.5">
-              <Button size="sm" variant="outline" disabled={busy} onClick={markReached} className="w-full">
-                Vehicle Reached
-              </Button>
+              {!multiVehicle && (
+                <Button size="sm" variant="outline" disabled={busy} onClick={markReached} className="w-full">
+                  Vehicle Reached
+                </Button>
+              )}
+              {multiVehicle && (
+                <Link href={`/indents/${item.id}`} className="block">
+                  <Button size="sm" variant="outline" className="w-full">Manage vehicles</Button>
+                </Link>
+              )}
               <Button size="sm" variant="outline" disabled={busy} onClick={() => setReallocateOpen((v) => !v)} className="w-full">
                 Reallocate
               </Button>
             </div>
           )}
 
-          {canAct && vehicleReached && (
+          {canAct && vehicleReached && !multiVehicle && (
             <Link href={`/indents/${item.id}`} className="block">
               <Button size="sm" className="w-full">Create Trip</Button>
             </Link>

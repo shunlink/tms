@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type Field = "name" | "phone" | "dlNumber" | "dlExpiry" | "address" | "city" | "state" | "pincode";
 
 export default function DriverProfileForm({
@@ -12,6 +15,7 @@ export default function DriverProfileForm({
 }: {
   initial?: Partial<Record<Field, string>>;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [form, setForm] = useState<Record<Field, string>>({
     name: initial?.name ?? "",
@@ -39,9 +43,9 @@ export default function DriverProfileForm({
       body: JSON.stringify(form),
     });
     setSaving(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to save profile");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to save profile" });
       return;
     }
     setOkMsg("Profile updated");

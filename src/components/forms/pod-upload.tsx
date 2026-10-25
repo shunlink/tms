@@ -4,8 +4,12 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/toast";
-import { showApiError, showSuccess } from "@/lib/toast-utils";
+import { showSuccess } from "@/lib/toast-utils";
 import { Camera, CheckCircle2, Loader2, UploadCloud } from "lucide-react";
+
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { POD_UPLOAD_LOCKED_MESSAGE } from "@/lib/pod-upload-eligibility";
+import { cn } from "@/lib/utils";
 
 const MAX_SIZE = 10 * 1024 * 1024;
 
@@ -14,9 +18,14 @@ type Side = "front" | "back";
 export default function PodUpload({
   tripId,
   alwaysCamera = false,
+  uploadEnabled = true,
+  lockedMessage = POD_UPLOAD_LOCKED_MESSAGE,
 }: {
   tripId: string;
   alwaysCamera?: boolean;
+  /** When false, UI is visible but inputs and submit are disabled */
+  uploadEnabled?: boolean;
+  lockedMessage?: string;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -38,6 +47,7 @@ export default function PodUpload({
   }
 
   async function submit() {
+    if (!uploadEnabled) return;
     if (!frontFile || !backFile) {
       toast.push({
         title: "Both front and back POD images are required",
@@ -55,9 +65,9 @@ export default function PodUpload({
     const res = await fetch(`/api/trips/${tripId}/documents`, { method: "POST", body: fd });
     setBusy(false);
 
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      showApiError(toast, data, "POD upload failed");
+      reportApiFailure(res, data, { toast, fallback: "POD upload failed" });
       return;
     }
 
@@ -72,7 +82,18 @@ export default function PodUpload({
   const inputClass = alwaysCamera ? "environment" : undefined;
 
   return (
-    <div className="space-y-4">
+    <div
+      className={cn(
+        "space-y-4 rounded-xl",
+        !uploadEnabled && "opacity-75 pointer-events-none select-none"
+      )}
+      aria-disabled={!uploadEnabled}
+    >
+      {!uploadEnabled && (
+        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200/80 rounded-lg px-3 py-2 pointer-events-auto">
+          {lockedMessage}
+        </p>
+      )}
       <p className="text-sm text-slate-600">
         Upload clear photos of both sides of the POD — front and back are required.
       </p>
@@ -83,6 +104,7 @@ export default function PodUpload({
           file={frontFile}
           inputRef={frontRef}
           capture={inputClass}
+          disabled={!uploadEnabled}
           onChange={(e) => onPick("front", e)}
         />
         <PodSidePicker
@@ -90,11 +112,17 @@ export default function PodUpload({
           file={backFile}
           inputRef={backRef}
           capture={inputClass}
+          disabled={!uploadEnabled}
           onChange={(e) => onPick("back", e)}
         />
       </div>
 
-      <Button type="button" className="w-full sm:w-auto" onClick={submit} disabled={busy}>
+      <Button
+        type="button"
+        className="w-full sm:w-auto pointer-events-auto"
+        onClick={submit}
+        disabled={busy || !uploadEnabled}
+      >
         {busy ? (
           <>
             <Loader2 className="h-4 w-4 mr-2 animate-spin" /> Uploading…
@@ -114,12 +142,14 @@ function PodSidePicker({
   file,
   inputRef,
   capture,
+  disabled,
   onChange,
 }: {
   label: string;
   file: File | null;
   inputRef: React.RefObject<HTMLInputElement>;
   capture?: boolean | "user" | "environment";
+  disabled?: boolean;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }) {
   return (
@@ -131,9 +161,16 @@ function PodSidePicker({
         accept="image/*"
         capture={capture}
         className="hidden"
+        disabled={disabled}
         onChange={onChange}
       />
-      <Button type="button" variant="outline" className="w-full" onClick={() => inputRef.current?.click()}>
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full"
+        disabled={disabled}
+        onClick={() => inputRef.current?.click()}
+      >
         <Camera className="h-4 w-4 mr-2" />
         {file ? "Change photo" : "Choose photo"}
       </Button>

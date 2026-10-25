@@ -12,6 +12,10 @@ prisma/*.db-journal
 # Uploaded documents
 public/uploads/
 
+# Local / server Compose (production compose lives only on VPS)
+docker-compose.yml
+docker-compose.override.yml
+
 # Env
 .env
 .env.production

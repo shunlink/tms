@@ -8,6 +8,8 @@ import { PLACEMENT_DEADLINE_MS } from "../constants";
 import { resolveWhatsAppRecipient } from "../phone";
 import { labelOf, resolveLookupLabels } from "../lookup";
 import { isAllocatableStatus } from "../indent-allocation";
+import { reconcileIndentLines } from "../indent-line-sync";
+import { assertVendorEligibleForIndentOps } from "../vendor-onboarding-eligibility";
 
 const REALLOCATABLE_STATUSES = [
   "VENDOR_ALLOCATED",
@@ -96,6 +98,8 @@ export async function resolveVendorAllocation(
     throw new Error("Vendor rate is required for manual allocation");
   }
 
+  await assertVendorEligibleForIndentOps(vendorId);
+
   return { vendorId, vendorRate, acceptedQuoteId };
 }
 
@@ -108,9 +112,11 @@ export async function allocateVendorInTransaction(
   data: AllocateVendorInput,
   actor?: SessionUser | null
 ) {
+  await reconcileIndentLines(indentId, tx);
+
   const indent = await tx.indent.findFirst({
     where: { id: indentId },
-    include: { lines: { orderBy: { lineNumber: "asc" }, take: 1 } },
+    include: { lines: { orderBy: { lineNumber: "asc" } } },
   });
   if (!indent) throw new Error("Indent not found");
 
@@ -120,42 +126,52 @@ export async function allocateVendorInTransaction(
     throw new Error(`Indent in status ${indent.status} cannot be allocated`);
   }
 
-  const line = indent.lines[0];
-  if (!line) throw new Error("Indent has no lines");
+  const lines = indent.lines.filter((l) => !l.tripId);
+  if (!lines.length) throw new Error("Indent has no open vehicle slots");
 
   const now = new Date();
   const deadlineAt = placementDeadline();
   const isReallocation = Boolean(indent.vendorId);
 
-  const activeAlloc = await tx.indentAllocation.findFirst({
-    where: { indentId, status: "ACTIVE" },
-    orderBy: { allocatedAt: "desc" },
-  });
-  if (activeAlloc) {
-    await tx.indentAllocation.update({
-      where: { id: activeAlloc.id },
+  for (const line of lines) {
+    const activeOnLine = await tx.indentAllocation.findFirst({
+      where: { indentLineId: line.id, status: "ACTIVE" },
+    });
+    if (activeOnLine) {
+      await tx.indentAllocation.update({
+        where: { id: activeOnLine.id },
+        data: {
+          status: "RELEASED",
+          reallocatedAt: now,
+          vehicleId: activeOnLine.vehicleId,
+          driverId: activeOnLine.driverId,
+        },
+      });
+    }
+
+    await tx.indentAllocation.create({
       data: {
-        status: "RELEASED",
-        reallocatedAt: now,
-        vehicleId: indent.vehicleId,
-        driverId: indent.driverId,
+        indentId,
+        indentLineId: line.id,
+        vendorId,
+        vendorRate,
+        acceptedQuoteId,
+        status: "ACTIVE",
+        allocatedAt: now,
+        deadlineAt,
+        allocatedById: actor?.id ?? null,
+      },
+    });
+
+    await tx.indentLine.update({
+      where: { id: line.id },
+      data: {
+        status: line.status === "TRIP_CREATED" || line.status === "COMPLETED" ? line.status : "ALLOCATED",
+        placementStatus: "PLACEMENT_PENDING",
+        placementReachedAt: null,
       },
     });
   }
-
-  await tx.indentAllocation.create({
-    data: {
-      indentId,
-      indentLineId: line.id,
-      vendorId,
-      vendorRate,
-      acceptedQuoteId,
-      status: "ACTIVE",
-      allocatedAt: now,
-      deadlineAt,
-      allocatedById: actor?.id ?? null,
-    },
-  });
 
   if (acceptedQuoteId) {
     await tx.vendorQuote.update({ where: { id: acceptedQuoteId }, data: { status: "ACCEPTED" } });
@@ -164,8 +180,6 @@ export async function allocateVendorInTransaction(
       data: { status: "REJECTED" },
     });
   }
-
-  await tx.indentLine.update({ where: { id: line.id }, data: { status: "ALLOCATED" } });
 
   const nextStatus = "PLACEMENT_PENDING";
   if (isReallocation && indent.status !== nextStatus) {
@@ -197,7 +211,7 @@ export async function allocateVendor(
 ) {
   const indent = await prisma.indent.findFirst({
     where: { id: indentId },
-    include: { lines: { orderBy: { lineNumber: "asc" }, take: 1 } },
+    include: { consignment: { select: { vehicleQuantity: true } } },
   });
   if (!indent) return null;
 
@@ -205,6 +219,7 @@ export async function allocateVendor(
     allocateVendorInTransaction(tx, indentId, data, actor)
   );
   const deadlineAt = placementDeadline();
+  const qty = indent.consignment?.vehicleQuantity ?? 1;
 
   const { createImportantEvent, resolveImportantEvents } = await import("./important-event.service");
   await resolveImportantEvents(
@@ -223,7 +238,10 @@ export async function allocateVendor(
     type: "ALLOCATION_PLACEMENT_DEADLINE",
     severity: "INFO",
     title: `Placement timer started for ${indent.indentNumber}`,
-    description: "Vehicle must reach within 24 hours.",
+    description:
+      qty > 1
+        ? `${qty} vehicles must reach placement within 24 hours.`
+        : "Vehicle must reach within 24 hours.",
     indentId,
     dueAt: deadlineAt,
   });
@@ -233,10 +251,9 @@ export async function allocateVendor(
     action: "indent.vendor_allocated",
     entity: "INDENT",
     entityId: indentId,
-    meta: { vendorId, vendorRate },
+    meta: { vendorId, vendorRate, vehicleQuantity: qty },
   });
 
-  // Tell the vendor they won the bid (best-effort; never blocks the allocation).
   const [vendor, route] = await Promise.all([
     prisma.vendor.findFirst({
       where: { id: vendorId },
@@ -297,27 +314,28 @@ export async function reallocateVendor(
     where: { id: indentId },
     select: {
       status: true,
-      lines: { select: { tripId: true }, take: 1 },
+      lines: { select: { tripId: true } },
     },
   });
   if (!indent) return null;
   if (!REALLOCATABLE_STATUSES.includes(indent.status as (typeof REALLOCATABLE_STATUSES)[number])) {
     throw new Error(`Indent in status ${indent.status} cannot be reallocated`);
   }
-  if (indent.lines[0]?.tripId) {
+  if (indent.lines.some((l) => l.tripId)) {
     throw new Error("Cannot reallocate after a trip has been created");
   }
 
   const result = await allocateVendor(indentId, data, actor);
 
   if (data.reason) {
-    const released = await prisma.indentAllocation.findFirst({
-      where: { indentId, status: "RELEASED" },
+    const released = await prisma.indentAllocation.findMany({
+      where: { indentId, status: "RELEASED", reallocatedAt: { not: null } },
       orderBy: { reallocatedAt: "desc" },
+      take: 20,
     });
-    if (released) {
+    for (const r of released) {
       await prisma.indentAllocation.update({
-        where: { id: released.id },
+        where: { id: r.id },
         data: { reallocationReason: data.reason },
       });
     }

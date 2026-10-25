@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatINR } from "@/lib/utils";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type Option = { id: string; name: string };
 type VehicleOption = { id: string; number: string; type: string };
 type DriverOption = { id: string; name: string; phone: string };
@@ -34,6 +37,7 @@ export default function TripForm({
     routeTo?: string;
   };
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [form, setForm] = useState({
     requirementId: defaults?.requirementId ?? "",
@@ -67,9 +71,9 @@ export default function TripForm({
       body: JSON.stringify(form),
     });
     setSaving(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to create trip");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to create trip" });
       return;
     }
     router.push("/trips");

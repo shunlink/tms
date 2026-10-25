@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DEFAULT_ROLE_PERMISSIONS } from "./permissions";
+import { DEFAULT_ROLE_PERMISSIONS, PERMISSION_KEYS } from "./permissions";
 import { filterNavGroups, getTeamSidebarHrefs, TEAM_NAV_HREFS } from "./nav-permissions";
 
 describe("team sidebar navigation", () => {
@@ -35,18 +35,19 @@ describe("team sidebar navigation", () => {
       "/",
       "/indents",
       "/placement",
-      "/onboarding",
+      "/onboarding-requests",
       "/requirements",
       "/trips",
+      "/clients",
       "/vendors",
       "/vehicles",
       "/drivers",
     ]);
   });
 
-  it("Sales sidebar contains dashboard, indents, and requirements only", () => {
+  it("Sales sidebar contains dashboard, indents, requirements, and assigned onboarding requests", () => {
     const hrefs = getTeamSidebarHrefs(DEFAULT_ROLE_PERMISSIONS.SALES, "SALES", "SALES");
-    expect(hrefs).toEqual(["/", "/indents", "/requirements"]);
+    expect(hrefs).toEqual(["/", "/indents", "/onboarding-requests", "/requirements", "/clients"]);
   });
 
   it("Admin sidebar includes partners, finance, and employees but not roles & permissions", () => {
@@ -66,14 +67,22 @@ describe("team sidebar navigation", () => {
     expect(hrefs).not.toContain("/advance-payments");
     expect(hrefs).not.toContain("/balance-payments");
     expect(hrefs).toContain("/users");
-    expect(hrefs).toContain("/bidding-management");
+    expect(hrefs).not.toContain("/bidding-management");
     expect(hrefs).not.toContain("/permissions");
   });
 
-  it("Super Admin sees roles & permissions and users", () => {
+  it("Super Admin sees access role bundles and users", () => {
     const hrefs = getTeamSidebarHrefs(DEFAULT_ROLE_PERMISSIONS.SUPER_ADMIN, "ADMIN", "SUPER_ADMIN");
-    expect(hrefs).toContain("/permissions");
+    expect(hrefs).toContain("/access-roles");
+    expect(hrefs).not.toContain("/permissions");
     expect(hrefs).toContain("/users");
+  });
+
+  it("Super Admin sees onboarding requests for assignment", () => {
+    const hrefs = filterNavGroups([...PERMISSION_KEYS], { teamCode: "ADMIN", role: "SUPER_ADMIN" }).flatMap((g) =>
+      g.items.map((i) => i.href)
+    );
+    expect(hrefs).toContain("/onboarding-requests");
   });
 
   it("filters empty groups from Finance team nav", () => {
@@ -97,7 +106,40 @@ describe("team sidebar navigation", () => {
       teamCode: "SALES",
       role: "SALES",
     });
-    expect(groups.map((g) => g.title)).toEqual(["Overview", "Operations"]);
+    expect(groups.map((g) => g.title)).toEqual(["Overview", "Operations", "Partners"]);
+  });
+
+  it("inherit role: ops team menu still limits links without matching permissions", () => {
+    const hrefs = getTeamSidebarHrefs(
+      ["dashboard.view", "indent.view", "client.view", "client.edit"],
+      "OPERATIONS",
+      "OPERATIONS"
+    );
+    expect(hrefs).toContain("/clients");
+    expect(hrefs).not.toContain("/vendors");
+  });
+
+  it("custom access roles: sidebar follows bundles only (not team allow-list or job role)", () => {
+    const hrefs = getTeamSidebarHrefs(
+      ["dashboard.view", "client.view", "client.edit", "vendor.view", "vendor.edit"],
+      "SALES",
+      "SALES",
+      "CUSTOM_ROLES"
+    );
+    expect(hrefs).toContain("/clients");
+    expect(hrefs).toContain("/vendors");
+    expect(hrefs).not.toContain("/placement");
+    expect(hrefs).not.toContain("/trips");
+  });
+
+  it("custom access roles: users.manage shows onboarding approval without ADMIN job role", () => {
+    const hrefs = filterNavGroups(["users.manage", "dashboard.view"], {
+      teamCode: "OPERATIONS",
+      role: "OPERATIONS",
+      accessMode: "CUSTOM_ROLES",
+    }).flatMap((g) => g.items.map((i) => i.href));
+    expect(hrefs).toContain("/onboarding");
+    expect(hrefs).toContain("/users");
   });
 
   it("documents team nav href configs", () => {

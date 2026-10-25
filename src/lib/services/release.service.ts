@@ -22,9 +22,9 @@ export type ReleaseResult = {
   };
 };
 
-export async function getReleaseCityOptions() {
+export async function getReleaseCityOptions(zones?: string[]) {
   const { listVendorCitiesWithCounts } = await import("../vendor-eligibility");
-  return listVendorCitiesWithCounts();
+  return listVendorCitiesWithCounts(zones);
 }
 
 /**
@@ -34,6 +34,7 @@ export async function getReleaseCityOptions() {
 export async function releaseIndentToCities(
   indentId: string,
   selectedCities: string[],
+  selectedZones: string[] = [],
   user?: SessionUser
 ): Promise<ReleaseResult | null> {
   const indent = await prisma.indent.findFirst({
@@ -54,7 +55,8 @@ export async function releaseIndentToCities(
     throw new Error("This indent cannot be released to vendors in its current state");
   }
 
-  const { valid, invalid } = await resolveValidReleaseCities(selectedCities);
+  const zoneFilter = selectedZones.filter(Boolean);
+  const { valid, invalid } = await resolveValidReleaseCities(selectedCities, zoneFilter);
   if (valid.length === 0) {
     throw new Error(
       invalid.length > 0
@@ -66,9 +68,13 @@ export async function releaseIndentToCities(
     throw new Error(`Unknown vendor cities: ${invalid.join(", ")}`);
   }
 
-  const vendors = await listVendorsInCities(valid.map((c) => c.city));
+  const vendors = await listVendorsInCities(valid.map((c) => c.city), zoneFilter);
   if (vendors.length === 0) {
-    throw new Error("No eligible vendors found in the selected cities");
+    throw new Error(
+      zoneFilter.length > 0
+        ? "No eligible vendors found in the selected cities and delivery zones"
+        : "No eligible vendors found in the selected cities"
+    );
   }
 
   const existingReleases = await prisma.indentVendorRelease.findMany({
@@ -96,6 +102,19 @@ export async function releaseIndentToCities(
         create: {
           indentId,
           city: city.city,
+          releasedAt: now,
+          releasedById: user?.id ?? null,
+        },
+        update: {},
+      });
+    }
+
+    for (const zone of zoneFilter) {
+      await tx.indentReleaseZone.upsert({
+        where: { indentId_zone: { indentId, zone } },
+        create: {
+          indentId,
+          zone,
           releasedAt: now,
           releasedById: user?.id ?? null,
         },
@@ -131,6 +150,7 @@ export async function releaseIndentToCities(
     entityId: indentId,
     meta: {
       cities: valid.map((c) => c.city),
+      zones: zoneFilter,
       vendorCount: vendors.length,
       newVendorCount: newVendors.length,
       broadcast,
@@ -151,6 +171,15 @@ export async function listReleasedCities(indentId: string) {
     where: { indentId },
     orderBy: { releasedAt: "asc" },
     select: { city: true, releasedAt: true },
+  });
+  return rows;
+}
+
+export async function listReleasedZones(indentId: string) {
+  const rows = await prisma.indentReleaseZone.findMany({
+    where: { indentId },
+    orderBy: { releasedAt: "asc" },
+    select: { zone: true, releasedAt: true },
   });
   return rows;
 }

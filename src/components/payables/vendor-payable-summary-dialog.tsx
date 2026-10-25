@@ -7,6 +7,8 @@ import StatusBadge from "@/components/status-badge";
 import { formatINR, formatDate } from "@/lib/utils";
 import type { VendorPayableSummary } from "@/lib/services/payables.service";
 
+import { readJsonBody, resolveApiError } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 export default function VendorPayableSummaryDialog({
   vendorId,
   vendorName,
@@ -18,6 +20,7 @@ export default function VendorPayableSummaryDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [summary, setSummary] = useState<VendorPayableSummary | null>(null);
@@ -28,13 +31,13 @@ export default function VendorPayableSummaryDialog({
     setError("");
     fetch(`/api/payables/vendor/${vendorId}`)
       .then(async (res) => {
+        const data = await readJsonBody(res);
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || "Failed to load vendor summary");
+          throw new Error(resolveApiError(res, data, "Failed to load vendor summary").message);
         }
-        return res.json();
+        return data;
       })
-      .then((data) => setSummary(data))
+      .then((data) => setSummary(data as VendorPayableSummary))
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
       .finally(() => setLoading(false));
   }, [open, vendorId]);

@@ -21,7 +21,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       if (denied) return denied;
       const parsed = validate(indentReleaseSchema, body);
       if (!parsed.success) return badRequest(parsed.error);
-      const indent = await releaseIndentToVendors(params.id, parsed.data.cities, auth.user);
+      const indent = await releaseIndentToVendors(
+        params.id,
+        parsed.data.cities,
+        parsed.data.zones ?? [],
+        auth.user
+      );
       if (!indent) return notFound("Indent not found");
       return ok(indent);
     }

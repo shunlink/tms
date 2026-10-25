@@ -22,7 +22,7 @@ export default async function VehicleDetailPage({ params }: { params: { id: stri
   if (!v) notFound();
 
   return (
-    <div className="max-w-4xl">
+    <div className="w-full max-w-4xl mx-auto">
       <Link href="/vehicles" className="inline-flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 mb-4">
         <ArrowLeft className="h-4 w-4" /> Back to Vehicles
       </Link>

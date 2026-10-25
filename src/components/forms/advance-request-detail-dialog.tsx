@@ -8,6 +8,10 @@ import StatusBadge from "@/components/status-badge";
 import { formatINR, formatDate } from "@/lib/utils";
 import { ADVANCE_PAYMENT_METHODS } from "@/lib/advance-payment-methods";
 import GatewayPaySection, { type GatewayTransfer } from "@/components/payments/gateway-pay-section";
+import { PermissionAction } from "@/components/permission-action";
+
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 
 type AdvanceRequestRow = {
   id: string;
@@ -81,6 +85,7 @@ export default function AdvanceRequestDetailDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const proofRef = useRef<HTMLInputElement>(null);
   const [liveRequest, setLiveRequest] = useState(request);
@@ -128,19 +133,9 @@ export default function AdvanceRequestDetailDialog({
       body: JSON.stringify({ action, remarks, ...extra }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Action failed");
-      return;
-    }
-    const updated = await res.json();
-    if (action === "approve" || action === "negotiate") {
-      setLiveRequest((prev) => ({ ...prev, ...updated }));
-      setPaidAmount(
-        String(updated.paidAmount ?? updated.approvedAmount ?? updated.negotiatedAmount ?? updated.requestedAmount)
-      );
-      setShowNegotiate(false);
-      router.refresh();
+      reportApiFailure(res, data, { toast, setError, fallback: "Action failed" });
       return;
     }
     onClose();
@@ -171,23 +166,17 @@ export default function AdvanceRequestDetailDialog({
       body: form,
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Payment action failed");
-      return;
-    }
-    const updated = await res.json();
-    if (action === "process") {
-      setLiveRequest((prev) => ({ ...prev, ...updated }));
-      router.refresh();
+      reportApiFailure(res, data, { toast, setError, fallback: "Payment action failed" });
       return;
     }
     onClose();
     router.refresh();
   }
 
-  const canApprove = canDecide && ["PENDING_REVIEW", "SLA_BREACHED"].includes(liveRequest.status);
-  const canNegotiate = canDecide && ["PENDING_REVIEW", "SLA_BREACHED"].includes(liveRequest.status);
+  const showDecideActions = ["PENDING_REVIEW", "SLA_BREACHED"].includes(liveRequest.status);
+  const showRejectAction = ["PENDING_REVIEW", "NEGOTIATED", "SLA_BREACHED"].includes(liveRequest.status);
   const canEnterPayment = ["APPROVED", "VENDOR_ACCEPTED", "SLA_BREACHED", "PROCESSING"].includes(liveRequest.status);
   const isProcessed = liveRequest.status === "PROCESSED";
 
@@ -326,16 +315,37 @@ export default function AdvanceRequestDetailDialog({
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
-              {canApprove && (
-                <Button size="sm" disabled={busy} onClick={() => actJson("approve")}>Approve</Button>
+              {showDecideActions && (
+                <>
+                  <PermissionAction
+                    size="sm"
+                    allowed={canDecide}
+                    disabled={busy}
+                    onClick={() => actJson("approve")}
+                  >
+                    Approve
+                  </PermissionAction>
+                  <PermissionAction
+                    size="sm"
+                    variant="outline"
+                    allowed={canDecide}
+                    disabled={busy}
+                    onClick={() => setShowNegotiate(true)}
+                  >
+                    Negotiate
+                  </PermissionAction>
+                </>
               )}
-              {canNegotiate && (
-                <Button size="sm" variant="outline" disabled={busy} onClick={() => setShowNegotiate(true)}>
-                  Negotiate
-                </Button>
-              )}
-              {canDecide && ["PENDING_REVIEW", "NEGOTIATED", "SLA_BREACHED"].includes(liveRequest.status) && (
-                <Button size="sm" variant="outline" disabled={busy} onClick={() => actJson("reject")}>Reject</Button>
+              {showRejectAction && (
+                <PermissionAction
+                  size="sm"
+                  variant="outline"
+                  allowed={canDecide}
+                  disabled={busy}
+                  onClick={() => actJson("reject")}
+                >
+                  Reject
+                </PermissionAction>
               )}
             </div>
           )}
@@ -347,8 +357,10 @@ export default function AdvanceRequestDetailDialog({
               contextId={liveRequest.id}
               maxAmount={approvedCap}
               canProcess={canProcess || canMarkPaid}
+              canApprove={canDecide}
               currentUserId={currentUserId}
               activeTransfers={liveRequest.gatewayTransfers ?? []}
+              onWorkflowComplete={onClose}
             />
           )}
 

@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button";
 import { formatINR } from "@/lib/utils";
 import ReallocateVendorDialog from "@/components/forms/reallocate-vendor-dialog";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type Quote = {
   id: string;
   vendorId: string;
@@ -38,6 +41,7 @@ export default function IndentQuotes({
   canReallocate?: boolean;
   vendors?: VendorOption[];
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [quotes, setQuotes] = useState<Quote[]>(initialQuotes);
   const [loading, setLoading] = useState(initialQuotes.length === 0);
@@ -72,9 +76,9 @@ export default function IndentQuotes({
       body: JSON.stringify({ quoteId }),
     });
     setBusy(null);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to allocate vendor");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to allocate vendor" });
       return;
     }
     router.refresh();

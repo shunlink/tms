@@ -4,9 +4,9 @@ import {
   Truck,
   Package,
   Wallet,
+  Route,
   ArrowRight,
   ChevronRight,
-  MoreVertical,
   Plus,
   Search,
   Headphones,
@@ -16,6 +16,7 @@ import { getSessionUser } from "@/lib/auth";
 import { getClientPortalOverview } from "@/lib/queries";
 import { formatINR } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
+import PortalPage from "@/components/portal/portal-page";
 
 export const dynamic = "force-dynamic";
 
@@ -93,11 +94,11 @@ export default async function ClientOverviewPage() {
   ].sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
 
   return (
-    <div className="space-y-6">
+    <PortalPage>
       {/* =========================================================================
           HERO BANNER (Panoramic truck background + Greeting + Action Buttons)
           ========================================================================= */}
-      <div className="relative rounded-2xl overflow-hidden border border-gray-200/80 shadow-xs bg-gradient-to-r from-[#CAD4E0] via-[#DCE4EE] to-[#E8EDF3] p-6 sm:p-8 lg:p-9 min-h-[170px] flex items-center justify-between">
+      <div className="relative rounded-2xl overflow-hidden border border-gray-200/80 shadow-xs bg-gradient-to-r from-[#CAD4E0] via-[#DCE4EE] to-[#E8EDF3] p-5 sm:p-8 lg:p-9 min-h-0 sm:min-h-[170px] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         {/* Right truck panorama illustration with subtle soft fade */}
         <div
           className="hidden md:block absolute right-0 top-0 bottom-0 w-3/5 bg-cover bg-right bg-no-repeat pointer-events-none"
@@ -121,10 +122,11 @@ export default async function ClientOverviewPage() {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 pt-1">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 pt-1">
             <Link
               href="/portal/client/requirements/new"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-xs sm:text-sm shadow-xs transition-all active:scale-[0.98]"
+              data-portal-mutate
+              className="inline-flex items-center justify-center gap-2 min-h-[44px] px-5 py-2.5 rounded-full bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-xs sm:text-sm shadow-xs transition-all active:scale-[0.98] w-full sm:w-auto"
             >
               <Plus className="h-4 w-4" />
               <span>Create Requirement</span>
@@ -133,7 +135,7 @@ export default async function ClientOverviewPage() {
 
             <Link
               href="/portal/client/trips"
-              className="inline-flex items-center justify-center px-5 py-2.5 rounded-full bg-white hover:bg-gray-50 text-gray-900 border border-gray-200/90 font-semibold text-xs sm:text-sm shadow-2xs transition-all active:scale-[0.98]"
+              className="inline-flex items-center justify-center min-h-[44px] px-5 py-2.5 rounded-full bg-white hover:bg-gray-50 text-gray-900 border border-gray-200/90 font-semibold text-xs sm:text-sm shadow-2xs transition-all active:scale-[0.98] w-full sm:w-auto"
             >
               My Shipments
             </Link>
@@ -142,9 +144,9 @@ export default async function ClientOverviewPage() {
       </div>
 
       {/* =========================================================================
-          3 KPI CARDS (Real Database Metrics Only)
+          KPI CARDS (Real Database Metrics Only)
           ========================================================================= */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Active Shipments */}
         <Link
           href="/portal/client/trips"
@@ -158,6 +160,25 @@ export default async function ClientOverviewPage() {
               <p className="text-xs font-medium text-gray-500">Active Shipments</p>
               <div className="flex items-baseline gap-2 mt-0.5">
                 <span className="text-2xl font-extrabold text-gray-950">{d.active}</span>
+              </div>
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-gray-400" />
+        </Link>
+
+        {/* In transit */}
+        <Link
+          href="/portal/client/trips"
+          className="bg-white rounded-2xl border border-gray-200/80 p-5 hover:border-gray-300 hover:shadow-xs transition-all flex items-center justify-between"
+        >
+          <div className="flex items-center gap-3.5">
+            <div className="h-11 w-11 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center shrink-0">
+              <Route className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-gray-500">In Transit</p>
+              <div className="flex items-baseline gap-2 mt-0.5">
+                <span className="text-2xl font-extrabold text-gray-950">{d.inTransit}</span>
               </div>
             </div>
           </div>
@@ -238,6 +259,7 @@ export default async function ClientOverviewPage() {
                 </p>
                 <Link
                   href="/portal/client/requirements/new"
+              data-portal-mutate
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-xs shadow-2xs transition-colors"
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -254,7 +276,6 @@ export default async function ClientOverviewPage() {
                       <th className="py-2.5 px-3">Status</th>
                       <th className="py-2.5 px-3">Vehicle</th>
                       <th className="py-2.5 px-3">Vendor</th>
-                      <th className="py-2.5 px-4 text-right"></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50 text-xs">
@@ -284,11 +305,6 @@ export default async function ClientOverviewPage() {
                             {t.vehicle}
                           </td>
                           <td className="py-3 px-3 text-gray-500">{t.vendor}</td>
-                          <td className="py-3 px-4 text-right text-gray-400 hover:text-gray-600">
-                            <Link href={`/portal/client/trips/${t.id}`}>
-                              <MoreVertical className="h-4 w-4 inline" />
-                            </Link>
-                          </td>
                         </tr>
                       );
                     })}
@@ -372,6 +388,7 @@ export default async function ClientOverviewPage() {
               {/* Action 1: Create Requirement */}
               <Link
                 href="/portal/client/requirements/new"
+              data-portal-mutate
                 className="group flex items-center justify-between p-4 rounded-xl bg-[#FFFBEB] border border-[#FDE68A]/70 hover:border-[#F5D33C] transition-all hover:shadow-xs"
               >
                 <div className="flex items-center gap-3.5">
@@ -410,6 +427,6 @@ export default async function ClientOverviewPage() {
           </div>
         </div>
       </div>
-    </div>
+    </PortalPage>
   );
 }

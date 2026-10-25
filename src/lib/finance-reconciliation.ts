@@ -134,6 +134,110 @@ export function computeLiveVendorSettlement(input: {
   };
 }
 
+export type TripInvoiceLineBillingInput = {
+  amount: number;
+  invoice?: {
+    id: string;
+    status: string;
+    totalAmount: number;
+    paidAmount?: number;
+    issueDate?: Date | string | null;
+    createdAt?: Date | string | null;
+  } | null;
+};
+
+function invoiceRecencyMs(inv: {
+  issueDate?: Date | string | null;
+  createdAt?: Date | string | null;
+}): number {
+  const raw = inv.issueDate ?? inv.createdAt;
+  if (!raw) return 0;
+  const t = raw instanceof Date ? raw.getTime() : new Date(raw).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/** Sum all invoice line amounts for one trip on a given client invoice (freight + loading + unloading). */
+export function sumTripInvoiceLinesForInvoice(
+  lines: TripInvoiceLineBillingInput[],
+  invoiceId: string
+): number {
+  return round2(
+    lines
+      .filter((l) => l.invoice?.id === invoiceId)
+      .reduce((s, l) => s + (l.amount ?? 0), 0)
+  );
+}
+
+/**
+ * Pick the active payable invoice for a trip and the trip's total line amount on that invoice.
+ * Never use only the first line — multi-line trips bill freight and accessorials separately.
+ */
+export function resolveTripInvoiceBilling(
+  lines: TripInvoiceLineBillingInput[],
+  isPayableStatus: (status: string) => boolean
+): {
+  invoice: NonNullable<TripInvoiceLineBillingInput["invoice"]> | null;
+  tripLineAmount: number | null;
+  invoicePayable: boolean;
+} {
+  const withInvoice = lines.filter((l) => l.invoice);
+  if (withInvoice.length === 0) {
+    return { invoice: null, tripLineAmount: null, invoicePayable: false };
+  }
+
+  const byInvoiceId = new Map<
+    string,
+    { invoice: NonNullable<TripInvoiceLineBillingInput["invoice"]>; amount: number }
+  >();
+  for (const line of withInvoice) {
+    const inv = line.invoice!;
+    const prev = byInvoiceId.get(inv.id);
+    const amt = line.amount ?? 0;
+    if (prev) {
+      prev.amount = round2(prev.amount + amt);
+    } else {
+      byInvoiceId.set(inv.id, { invoice: inv, amount: amt });
+    }
+  }
+
+  const entries = Array.from(byInvoiceId.values());
+  const payable = entries
+    .filter((e) => isPayableStatus(e.invoice.status))
+    .sort((a, b) => invoiceRecencyMs(b.invoice) - invoiceRecencyMs(a.invoice));
+
+  if (payable.length > 0) {
+    const best = payable[0];
+    return {
+      invoice: best.invoice,
+      tripLineAmount: best.amount,
+      invoicePayable: true,
+    };
+  }
+
+  const sorted = entries.sort(
+    (a, b) => invoiceRecencyMs(b.invoice) - invoiceRecencyMs(a.invoice)
+  );
+  const fallback = sorted[0];
+  return {
+    invoice: fallback.invoice,
+    tripLineAmount: fallback.amount,
+    invoicePayable: isPayableStatus(fallback.invoice.status),
+  };
+}
+
+/** Client revenue for a trip: contracted freight plus POD-verified loading/unloading. */
+export function computeTripCustomerRevenue(input: {
+  clientRate: number;
+  clientLoadingCharge?: number | null;
+  clientUnloadingCharge?: number | null;
+}): number {
+  return round2(
+    input.clientRate +
+      (input.clientLoadingCharge ?? 0) +
+      (input.clientUnloadingCharge ?? 0)
+  );
+}
+
 /**
  * Allocate invoice-level collections to a single trip line (multi-trip invoices).
  * Proportional to line amount; never exceeds line amount or invoice paid total.
@@ -160,6 +264,8 @@ export type TripCustomerSettlementInput = {
   invoicePaid: number | null;
   invoicePayable: boolean;
   tripClientPayments: number;
+  /** When not yet on a payable invoice, expected client billable (freight + loading + unloading). */
+  expectedBillableTotal?: number;
 };
 
 export function computeTripCustomerSettlement(
@@ -173,6 +279,14 @@ export function computeTripCustomerSettlement(
     );
   }
   const collected = input.tripClientPayments;
+  const expectedBillable = input.expectedBillableTotal ?? 0;
+  if (expectedBillable > 0) {
+    return {
+      invoiceAmount: 0,
+      collected,
+      outstanding: Math.max(0, round2(expectedBillable - collected)),
+    };
+  }
   return { invoiceAmount: 0, collected, outstanding: 0 };
 }
 

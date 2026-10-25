@@ -8,13 +8,14 @@ import {
   FileSpreadsheet,
   ArrowRight,
   ChevronRight,
-  MoreVertical,
   Calendar,
   UploadCloud,
   Receipt,
 } from "lucide-react";
 import PodPendingAlert from "@/components/pod-pending-alert";
 import PortalBiddingPromoBanner from "@/components/portal/portal-bidding-promo-banner";
+import ShunlinkIndentButton from "@/components/portal/shunlink-indent-button";
+import PortalPage from "@/components/portal/portal-page";
 import { getSessionUser } from "@/lib/auth";
 import { getVendorPortalOverview, getVendorPayments } from "@/lib/queries";
 import { prisma } from "@/lib/prisma";
@@ -67,6 +68,8 @@ export default async function VendorOverviewPage() {
       _sum: { vendorRate: true },
     }),
   ]);
+
+  const hasOpenIndents = d.availableIndents > 0;
 
   const totalReceivable = Number(tripAgg._sum.vendorRate ?? 0);
   const totalAdvanceReceived = allPayments
@@ -132,11 +135,11 @@ export default async function VendorOverviewPage() {
   const displayedActivity = activityItems.slice(0, 5);
 
   return (
-    <div className="space-y-6">
+    <PortalPage>
       {/* =========================================================================
           HERO BANNER (Panoramic truck background + Greeting + Action Buttons)
           ========================================================================= */}
-      <div className="relative rounded-2xl overflow-hidden border border-gray-200/80 shadow-xs bg-gradient-to-r from-[#CAD4E0] via-[#DCE4EE] to-[#E8EDF3] p-6 sm:p-8 lg:p-9 min-h-[170px] flex items-center justify-between">
+      <div className="relative rounded-2xl overflow-hidden border border-gray-200/80 shadow-xs bg-gradient-to-r from-[#CAD4E0] via-[#DCE4EE] to-[#E8EDF3] p-5 sm:p-8 lg:p-9 min-h-0 sm:min-h-[170px] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         {/* Right truck panorama illustration with subtle soft fade */}
         <div
           className="hidden md:block absolute right-0 top-0 bottom-0 w-3/5 bg-cover bg-right bg-no-repeat pointer-events-none"
@@ -160,23 +163,21 @@ export default async function VendorOverviewPage() {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 pt-1">
-            <Link
-              href="/portal/vendor/indents"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#F5D33C] hover:bg-[#EAC72E] text-gray-950 font-bold text-xs sm:text-sm shadow-xs transition-all active:scale-[0.98]"
-            >
-              <FileSpreadsheet className="h-4 w-4" />
-              <span>View Open Indents</span>
-              <ArrowRight className="h-4 w-4" />
-            </Link>
+          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 pt-1">
+            <ShunlinkIndentButton indentCount={d.availableIndents} />
 
             <Link
               href="/portal/vendor/trips"
-              className="inline-flex items-center justify-center px-5 py-2.5 rounded-full bg-white hover:bg-gray-50 text-gray-900 border border-gray-200/90 font-semibold text-xs sm:text-sm shadow-2xs transition-all active:scale-[0.98]"
+              className="inline-flex items-center justify-center min-h-[44px] px-5 py-2.5 rounded-full bg-white hover:bg-gray-50 text-gray-900 border border-gray-200/90 font-semibold text-xs sm:text-sm shadow-2xs transition-all active:scale-[0.98]"
             >
               My Trips
             </Link>
           </div>
+          {hasOpenIndents && (
+            <p className="text-[11px] sm:text-xs text-gray-600 font-medium">
+              Quote on live loads — tap View Open Indents to start.
+            </p>
+          )}
         </div>
       </div>
 
@@ -189,7 +190,7 @@ export default async function VendorOverviewPage() {
       {/* =========================================================================
           4 METRIC CARDS (Active Trips, Completed, POD Pending, Pending Payment)
           ========================================================================= */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* 1. Active Trips */}
         <Link
           href="/portal/vendor/trips"
@@ -360,12 +361,13 @@ export default async function VendorOverviewPage() {
                           {t.status.replace(/_/g, " ")}
                         </span>
 
-                        <div className="flex items-center gap-1 text-gray-400">
-                          <MoreVertical className="h-4 w-4 hover:text-gray-600 cursor-pointer" />
-                          <Link href={t.href}>
-                            <ChevronRight className="h-4 w-4 hover:text-gray-700 group-hover:translate-x-0.5 transition-all" />
-                          </Link>
-                        </div>
+                        <Link
+                          href={t.href}
+                          className="flex items-center text-gray-400 hover:text-gray-700"
+                          aria-label="View trip"
+                        >
+                          <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-all" />
+                        </Link>
                       </div>
                     </div>
                   );
@@ -493,6 +495,6 @@ export default async function VendorOverviewPage() {
           </div>
         </div>
       </div>
-    </div>
+    </PortalPage>
   );
 }

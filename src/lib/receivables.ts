@@ -31,7 +31,34 @@ export type AgeingInvoiceInput = {
   status: string;
   dueDate: Date | null;
   issueDate: Date;
+  finalizedAt?: Date | null;
 };
+
+/** Days since invoice was issued to the client (finalize date when available). */
+export function invoiceBalanceAgeDays(
+  issueDate: Date,
+  finalizedAt: Date | null | undefined,
+  nowMs = Date.now()
+): number {
+  const anchorMs = (finalizedAt ?? issueDate).getTime();
+  return Math.max(0, Math.floor((nowMs - anchorMs) / (24 * 60 * 60 * 1000)));
+}
+
+export type ReportAgeingBuckets = {
+  d0_30: number;
+  d31_60: number;
+  d61_90: number;
+  d90plus: number;
+};
+
+export type ReceivableBalanceAgeingBucket = keyof ReportAgeingBuckets;
+
+export function balanceAgeBucketForDays(days: number): ReceivableBalanceAgeingBucket {
+  if (days <= 30) return "d0_30";
+  if (days <= 60) return "d31_60";
+  if (days <= 90) return "d61_90";
+  return "d90plus";
+}
 
 export type AgeingRow = {
   client: string;
@@ -89,6 +116,45 @@ export function buildOutstandingAgeing(
   return { buckets, rows, total };
 }
 
+/**
+ * Reports ageing: bucket outstanding by days since invoice issue/finalize
+ * (0–30, 31–60, 61–90, 90+). Unpaid invoices always land in a bucket by age.
+ */
+export function buildReportOutstandingAgeing(
+  invoices: AgeingInvoiceInput[],
+  nowMs = Date.now()
+): { buckets: ReportAgeingBuckets; rows: AgeingRow[]; total: number } {
+  const buckets: ReportAgeingBuckets = { d0_30: 0, d31_60: 0, d61_90: 0, d90plus: 0 };
+  const rows: AgeingRow[] = [];
+
+  for (const inv of invoices) {
+    if (!isOutstandingInvoiceStatus(inv.status)) continue;
+
+    const balance = invoiceOutstanding(inv.totalAmount, inv.paidAmount);
+    if (balance <= 0) continue;
+
+    const days = invoiceBalanceAgeDays(inv.issueDate, inv.finalizedAt, nowMs);
+    if (days <= 30) buckets.d0_30 += balance;
+    else if (days <= 60) buckets.d31_60 += balance;
+    else if (days <= 90) buckets.d61_90 += balance;
+    else buckets.d90plus += balance;
+
+    rows.push({
+      client: inv.clientName,
+      invoiceNumber: inv.invoiceNumber,
+      balance,
+      days,
+    });
+  }
+
+  rows.sort((a, b) => b.days - a.days);
+  for (const key of Object.keys(buckets) as (keyof ReportAgeingBuckets)[]) {
+    buckets[key] = Math.round(buckets[key] * 100) / 100;
+  }
+  const total = Math.round(rows.reduce((s, r) => s + r.balance, 0) * 100) / 100;
+  return { buckets, rows, total };
+}
+
 /** Map coarse ageing rows into five finance dashboard buckets (incl. 90+). */
 export function splitDetailedAgeingBuckets(rows: AgeingRow[]): DetailedAgeingBuckets {
   const buckets: DetailedAgeingBuckets = {
@@ -141,16 +207,21 @@ export function buildReceivablesSummary(
 ): {
   total: number;
   totalOverdue: number;
-  buckets: DetailedAgeingBuckets;
+  buckets: ReportAgeingBuckets;
 } {
-  const ageing = buildOutstandingAgeing(invoices, nowMs);
-  const buckets = splitDetailedAgeingBuckets(ageing.rows);
-  const totalOverdue = ageing.rows
-    .filter((r) => r.days > 0)
-    .reduce((s, r) => s + r.balance, 0);
+  const report = buildReportOutstandingAgeing(invoices, nowMs);
+  let totalOverdue = 0;
+  for (const inv of invoices) {
+    if (!isOutstandingInvoiceStatus(inv.status)) continue;
+    const outstanding = invoiceOutstanding(inv.totalAmount, inv.paidAmount);
+    if (outstanding <= 0) continue;
+    if (invoiceAgeingDays(inv.dueDate, inv.issueDate, nowMs) > 0) {
+      totalOverdue += outstanding;
+    }
+  }
   return {
-    total: ageing.total,
+    total: report.total,
     totalOverdue: Math.round(totalOverdue * 100) / 100,
-    buckets,
+    buckets: report.buckets,
   };
 }

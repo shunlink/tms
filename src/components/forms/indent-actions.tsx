@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import ReleaseVendorsDialog from "@/components/forms/release-vendors-dialog";
+import { useToast } from "@/components/toast";
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 
 export default function IndentActions({
   indentId,
@@ -16,8 +18,9 @@ export default function IndentActions({
   hasDriver = false,
   driverVerified = false,
   vendorAllocated = false,
-  advanceClearedForTransit = true,
   canReleasePermission = true,
+  vehicleQuantity = 1,
+  perSlotPlacement = false,
 }: {
   indentId: string;
   indentNumber: string;
@@ -29,10 +32,12 @@ export default function IndentActions({
   hasDriver?: boolean;
   driverVerified?: boolean;
   vendorAllocated?: boolean;
-  advanceClearedForTransit?: boolean;
   canReleasePermission?: boolean;
+  vehicleQuantity?: number;
+  perSlotPlacement?: boolean;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [releaseOpen, setReleaseOpen] = useState(false);
@@ -51,9 +56,9 @@ export default function IndentActions({
       body: JSON.stringify({ action, ...payload }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Action failed");
+      reportApiFailure(res, data, { toast, setError, fallback: "Action failed" });
       return;
     }
     router.refresh();
@@ -68,9 +73,9 @@ export default function IndentActions({
       body: JSON.stringify({ action: "vehicle_reached" }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Action failed");
+      reportApiFailure(res, data, { toast, setError, fallback: "Action failed" });
       return;
     }
     router.refresh();
@@ -81,9 +86,9 @@ export default function IndentActions({
     setBusy(true);
     const res = await fetch(`/api/indents/${indentId}/create-trip`, { method: "POST" });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to create trip");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to create trip" });
       return;
     }
     router.refresh();
@@ -96,7 +101,7 @@ export default function IndentActions({
       onClick: () => setReleaseOpen(true),
     });
   }
-  if (status === "PLACEMENT_PENDING") {
+  if (status === "PLACEMENT_PENDING" && !perSlotPlacement && vehicleQuantity <= 1) {
     buttons.push({ label: "Mark Vehicle Reached", onClick: placement });
   }
   const tripReady =
@@ -106,7 +111,10 @@ export default function IndentActions({
     hasDriver &&
     driverVerified;
 
-  if (tripReady) {
+  const showIndentLevelCreateTrip =
+    tripReady && !perSlotPlacement && vehicleQuantity <= 1;
+
+  if (showIndentLevelCreateTrip) {
     buttons.push({
       label: "Create Trip & Generate LR",
       onClick: createTrip,
@@ -114,10 +122,7 @@ export default function IndentActions({
     });
   }
   if (status === "DRIVER_ASSIGNED") {
-    const transitBlocked = vendorAllocated && !advanceClearedForTransit;
-    if (!transitBlocked) {
-      buttons.push({ label: "Start Transit", onClick: () => act("transition", { status: "IN_TRANSIT" }) });
-    }
+    buttons.push({ label: "Start Transit", onClick: () => act("transition", { status: "IN_TRANSIT" }) });
   }
   if (status === "IN_TRANSIT") buttons.push({ label: "Mark Delivered", onClick: () => act("transition", { status: "DELIVERED" }) });
   if (status === "DELIVERED") buttons.push({ label: "Move to POD", onClick: () => act("transition", { status: "POD_PENDING" }) });
@@ -128,16 +133,8 @@ export default function IndentActions({
 
   if (buttons.length === 0 && !releaseOpen) return null;
 
-  const transitBlocked =
-    status === "DRIVER_ASSIGNED" && vendorAllocated && !advanceClearedForTransit;
-
   return (
     <div className="space-y-3">
-      {transitBlocked && (
-        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-          Start Transit is blocked until the vendor submits an advance payment request.
-        </p>
-      )}
       {error && <p className="text-sm text-red-600">{error}</p>}
       <div className="flex flex-wrap gap-2">
         {buttons.map((b) => (

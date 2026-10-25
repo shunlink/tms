@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import type { z } from "zod";
 import type { clientSchema, vendorSchema } from "../validation";
+import { normalizeVendorDeliveryZones } from "../delivery-zones";
 
 type ClientInput = z.infer<typeof clientSchema>;
 type VendorInput = z.infer<typeof vendorSchema>;
@@ -108,8 +109,7 @@ export async function updateClientProfile(clientId: string, input: Partial<Clien
     const client = await tx.client.update({
       where: { id: clientId },
       data: {
-        ...(input.name != null ? { name: input.name } : {}),
-        ...(input.legalName !== undefined ? { legalName: input.legalName } : {}),
+        ...(input.name != null ? { name: input.name, legalName: input.name } : {}),
         ...(input.contactName !== undefined ? { contactName: input.contactName } : {}),
         ...(input.phone !== undefined ? { phone: input.phone } : {}),
         ...(input.altPhone !== undefined ? { altPhone: input.altPhone } : {}),
@@ -121,6 +121,7 @@ export async function updateClientProfile(clientId: string, input: Partial<Clien
         ...(input.msme !== undefined ? { msme: input.msme } : {}),
         ...(input.industry !== undefined ? { industry: input.industry } : {}),
         ...(input.website !== undefined ? { website: input.website } : {}),
+        ...(input.businessType !== undefined ? { businessType: input.businessType } : {}),
         ...(input.notes !== undefined ? { notes: input.notes } : {}),
       },
     });
@@ -196,6 +197,19 @@ export async function updateClientProfile(clientId: string, input: Partial<Clien
   });
 }
 
+async function syncVendorDeliveryZones(
+  tx: Prisma.TransactionClient,
+  vendorId: string,
+  zones: string[]
+) {
+  const normalized = normalizeVendorDeliveryZones(zones);
+  await tx.vendorDeliveryZone.deleteMany({ where: { vendorId } });
+  if (normalized.length === 0) return;
+  await tx.vendorDeliveryZone.createMany({
+    data: normalized.map((zone) => ({ vendorId, zone })),
+  });
+}
+
 export async function updateVendorProfile(vendorId: string, input: Partial<VendorInput>) {
   const existing = await prisma.vendor.findFirst({
     where: { id: vendorId },
@@ -211,7 +225,10 @@ export async function updateVendorProfile(vendorId: string, input: Partial<Vendo
     existing.addresses.find((a) => a.type === "BILLING") ??
     null;
 
-  const hasCommercial = input.paymentTerms != null || input.tdsApplicable != null;
+  const hasCommercial =
+    input.paymentTerms != null ||
+    input.paymentTermsType !== undefined ||
+    input.tdsApplicable != null;
 
   return prisma.$transaction(async (tx) => {
     const vendor = await tx.vendor.update({
@@ -262,6 +279,7 @@ export async function updateVendorProfile(vendorId: string, input: Partial<Vendo
         where: { vendorId },
         create: {
           vendorId,
+          paymentTermsType: input.paymentTermsType ?? null,
           paymentTermsDays: input.paymentTerms ?? null,
           tdsApplicable: input.tdsApplicable ?? false,
           bankAccountId: bankAccountId ?? null,
@@ -269,6 +287,9 @@ export async function updateVendorProfile(vendorId: string, input: Partial<Vendo
         update: {
           ...(hasCommercial
             ? {
+                ...(input.paymentTermsType !== undefined
+                  ? { paymentTermsType: input.paymentTermsType }
+                  : {}),
                 paymentTermsDays: input.paymentTerms ?? null,
                 tdsApplicable: input.tdsApplicable ?? false,
               }
@@ -278,6 +299,56 @@ export async function updateVendorProfile(vendorId: string, input: Partial<Vendo
       });
     }
 
+    if (input.deliveryZones !== undefined) {
+      await syncVendorDeliveryZones(tx, vendorId, input.deliveryZones ?? []);
+    }
+
     return vendor;
   });
+}
+
+export async function createClientProfile(input: ClientInput) {
+  const d = input;
+  const client = await prisma.client.create({
+    data: {
+      name: d.name,
+      legalName: d.name,
+      contactName: d.contactName,
+      phone: d.phone,
+      altPhone: d.altPhone,
+      email: d.email,
+      accountsEmail: d.accountsEmail,
+      gstin: d.gstin,
+      pan: d.pan,
+      cin: d.cin,
+      msme: d.msme,
+      industry: d.industry,
+      website: d.website,
+      businessType: d.businessType,
+      notes: d.notes,
+    },
+  });
+  await updateClientProfile(client.id, input);
+  return client;
+}
+
+export async function createVendorProfile(input: VendorInput) {
+  const d = input;
+  const vendor = await prisma.vendor.create({
+    data: {
+      name: d.name,
+      type: d.type ?? "FLEET_OWNER",
+      contactName: d.contactName,
+      phone: d.phone,
+      altPhone: d.altPhone,
+      email: d.email,
+      whatsapp: d.whatsapp,
+      gstin: d.gstin,
+      pan: d.pan,
+      msme: d.msme,
+      notes: d.notes,
+    },
+  });
+  await updateVendorProfile(vendor.id, input);
+  return vendor;
 }

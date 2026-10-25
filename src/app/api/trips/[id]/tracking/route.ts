@@ -11,32 +11,34 @@ import {
   serverError,
 } from "@/lib/api";
 import { trackingPingSchema, validate } from "@/lib/validation";
-import { addTrackingPing } from "@/lib/services/tracking.service";
+import { addTrackingPing, listTripTrackingPings } from "@/lib/services/tracking.service";
+
+async function canReadTripTracking(
+  auth: NonNullable<Awaited<ReturnType<typeof requireAuth>>>,
+  trip: { vendorId: string | null; driverId: string | null }
+) {
+  const user = auth.user;
+  if (user.role === "VENDOR" && trip.vendorId === user.vendorId) return true;
+  if (user.role === "DRIVER" && trip.driverId === user.driverId) return true;
+  const denied = await authorize(auth, "tracking.view");
+  return !denied;
+}
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const auth = await requireAuth();
   if (!auth) return unauthorized();
   try {
-    const trip = await prisma.trip.findFirst({ where: { id: params.id }, select: { id: true } });
+    const trip = await prisma.trip.findFirst({
+      where: { id: params.id },
+      select: { id: true, vendorId: true, driverId: true },
+    });
     if (!trip) return notFound("Trip not found");
 
-    const pings = await prisma.trackingPing.findMany({
-      where: { tripId: params.id },
-      orderBy: { recordedAt: "desc" },
-      take: 50,
-    });
-    return ok(
-      pings.map((p) => ({
-        id: p.id,
-        lat: p.lat,
-        lng: p.lng,
-        source: p.source,
-        accuracyMeters: p.accuracyMeters,
-        note: p.note,
-        recordedAt: p.recordedAt.toISOString(),
-        createdAt: p.recordedAt.toISOString(),
-      }))
-    );
+    const allowed = await canReadTripTracking(auth, trip);
+    if (!allowed) return forbidden();
+
+    const pings = await listTripTrackingPings(params.id);
+    return ok(pings);
   } catch (e) {
     return serverError(e);
   }
@@ -68,6 +70,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const ping = await addTrackingPing({
       indentId: trip.indentId,
+      tripId: trip.id,
       driverId,
       lat: d.lat,
       lng: d.lng,

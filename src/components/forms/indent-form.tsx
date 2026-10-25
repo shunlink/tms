@@ -8,6 +8,13 @@ import EwayBillSection, {
   EMPTY_EWAY_BILL,
   type EwayBillFormState,
 } from "@/components/integrations/eway-bill-section";
+import IndentVehicleSlots, { type VehicleSlotView } from "@/components/forms/indent-vehicle-slots";
+import { indentSaveSchema, zodFieldErrors } from "@/lib/validation";
+import { friendlyValidationError } from "@/lib/api-errors";
+
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+import { dateInputMinForField, indentOperationalDateFieldErrors } from "@/lib/date-input";
 
 const vehicleTypes: [string, string][] = [
   ["TEMPO_14FT", "Tempo 14ft"],
@@ -85,6 +92,8 @@ export default function IndentForm({
   initialEwayBillRequired = false,
   initialEwayBill,
   driverAssigned = false,
+  vehicleSlots,
+  canMarkPlacement = false,
 }: {
   clients: { id: string; name: string }[];
   mode?: "create" | "edit";
@@ -102,8 +111,11 @@ export default function IndentForm({
   initialEwayBillRequired?: boolean;
   initialEwayBill?: Partial<EwayBillFormState> | null;
   driverAssigned?: boolean;
+  vehicleSlots?: VehicleSlotView[];
+  canMarkPlacement?: boolean;
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [clientId, setClientId] = useState(lockedClientId ?? clients[0]?.id ?? "");
   const [form, setForm] = useState<IndentFormValues>(() => buildIndentFormDefaults(initialValues));
   const [vehicleReg, setVehicleReg] = useState(initialVehicleReg);
@@ -156,11 +168,35 @@ export default function IndentForm({
     mode: initialEwayBill?.mode ?? "NONE",
   }));
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [vehicleDriverError, setVehicleDriverError] = useState("");
   const [saving, setSaving] = useState(false);
   const [savingVehicleDriver, setSavingVehicleDriver] = useState(false);
   const [verifyingOtp, setVerifyingOtp] = useState(false);
-  const set = (k: Field, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k: Field, v: string) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    if (fieldErrors[k]) {
+      setFieldErrors((fe) => {
+        const next = { ...fe };
+        delete next[k];
+        return next;
+      });
+    }
+  };
+
+  function buildIndentSavePayload() {
+    return {
+      ...form,
+      clientId,
+      requirementId: requirementId ?? null,
+      ewayBillRequired,
+      ewayBill: {
+        ...ewayBill,
+        value: ewayBill.value ? Number(ewayBill.value) : null,
+      },
+      weightKg: form.weightValue || form.weightKg,
+    };
+  }
 
   const inPlacement =
     vendorAllocated && !vehicleReached && placementStatus === "PLACEMENT_PENDING";
@@ -177,14 +213,15 @@ export default function IndentForm({
     const res = await fetch(
       `/api/vehicles/lookup?registrationNumber=${encodeURIComponent(trimmed)}`
     );
-    const data = await res.json().catch(() => ({}));
-    if (res.status === 404 || data.found === false) {
+    const data = await readJsonBody(res);
+    const body = data as { found?: boolean; vehicle?: { registrationNumber?: string } };
+    if (res.status === 404 || body.found === false) {
       setExistingVehicleFound(false);
       setVehicleNotFound(true);
       setVehicleLookup(null);
       return;
     }
-    if (!res.ok || !data.found || !data.vehicle) {
+    if (!res.ok || !body.found || !body.vehicle) {
       setExistingVehicleFound(false);
       setVehicleNotFound(false);
       setVehicleLookup(null);
@@ -192,24 +229,25 @@ export default function IndentForm({
     }
     setExistingVehicleFound(true);
     setVehicleNotFound(false);
-    setVehicleLookup(data.vehicle);
-    setVehicleReg(String(data.vehicle.registrationNumber ?? trimmed).toUpperCase());
+    setVehicleLookup(body.vehicle as NonNullable<typeof vehicleLookup>);
+    setVehicleReg(String(body.vehicle.registrationNumber ?? trimmed).toUpperCase());
   }
 
   async function lookupDriverByDl(dl: string) {
     if (!dl.trim() || dl.trim().length < 4) return;
     const res = await fetch(`/api/drivers/lookup?dl=${encodeURIComponent(dl.trim())}`);
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.found) {
+    const data = await readJsonBody(res);
+    const body = data as { found?: boolean; driver?: { name?: string; phone?: string; deviceType?: string } };
+    if (!res.ok || !body.found) {
       setExistingDriverFound(false);
       return;
     }
     setExistingDriverFound(true);
     setDriver((d) => ({
       ...d,
-      name: data.driver.name ?? d.name,
-      phone: data.driver.phone ?? d.phone,
-      deviceType: data.driver.deviceType ?? d.deviceType,
+      name: body.driver?.name ?? d.name,
+      phone: body.driver?.phone ?? d.phone,
+      deviceType: body.driver?.deviceType ?? d.deviceType,
     }));
   }
 
@@ -298,9 +336,9 @@ export default function IndentForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ driverId: pendingDriverId, otp: otpCode.trim() }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await readJsonBody(res);
       if (!res.ok) {
-        setVehicleDriverError(data.error || "OTP verification failed");
+        reportApiFailure(res, data, { toast, setError: setVehicleDriverError, fallback: "OTP verification failed" });
         return;
       }
       setDriverOtpVerified(true);
@@ -314,19 +352,25 @@ export default function IndentForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    setSaving(true);
+    setFieldErrors({});
 
-    const payload = {
-      ...form,
-      clientId,
-      requirementId: requirementId ?? null,
-      ewayBillRequired,
-      ewayBill: {
-        ...ewayBill,
-        value: ewayBill.value ? Number(ewayBill.value) : null,
-      },
-      weightKg: form.weightValue || form.weightKg,
-    };
+    const payload = buildIndentSavePayload();
+    if (mode === "create") {
+      const pastDateErrors = indentOperationalDateFieldErrors(form);
+      if (Object.keys(pastDateErrors).length > 0) {
+        setFieldErrors(pastDateErrors);
+        setError("Please fix the highlighted fields.");
+        return;
+      }
+    }
+    const parsed = indentSaveSchema.safeParse(payload);
+    if (!parsed.success) {
+      setFieldErrors(zodFieldErrors(parsed.error.issues));
+      setError("Please fix the highlighted fields.");
+      return;
+    }
+
+    setSaving(true);
 
     try {
       if (mode === "create") {
@@ -335,12 +379,13 @@ export default function IndentForm({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        const data = await res.json().catch(() => ({}));
+        const data = await readJsonBody(res);
         if (!res.ok) {
-          setError(data.error || "Failed to save indent");
+          const err = reportApiFailure(res, data, { toast, setError, fallback: "Failed to save indent" });
+          if (err.fieldErrors) setFieldErrors(err.fieldErrors);
           return;
         }
-        router.push(`/indents/${data.id}`);
+        router.push(`/indents/${(data as { id: string }).id}`);
         router.refresh();
         return;
       }
@@ -355,9 +400,10 @@ export default function IndentForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await readJsonBody(res);
       if (!res.ok) {
-        setError(data.error || "Failed to update indent");
+        const err = reportApiFailure(res, data, { toast, setError, fallback: "Failed to update indent" });
+        if (err.fieldErrors) setFieldErrors(err.fieldErrors);
         return;
       }
 
@@ -367,16 +413,53 @@ export default function IndentForm({
     }
   }
 
-  const input = (k: Field, label: string, type = "text") => (
+  const fieldErr = (key: string) => fieldErrors[key];
+  const inputCls = (key: string) =>
+    `w-full border rounded-md px-3 py-2 text-sm ${fieldErr(key) ? "border-red-500 focus:ring-red-500" : ""}`;
+
+  const input = (k: Field, label: string, type = "text", required = false) => (
     <div>
-      <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
-      <input type={type} className="w-full border rounded-md px-3 py-2 text-sm" value={form[k]} onChange={(e) => set(k, e.target.value)} />
+      <label className="block text-sm font-medium text-slate-700 mb-1">
+        {label}
+        {required ? " *" : ""}
+      </label>
+      <input
+        type={type}
+        className={inputCls(k)}
+        value={form[k]}
+        onChange={(e) => set(k, e.target.value)}
+        required={required}
+        min={type === "date" ? dateInputMinForField(form[k], mode) : undefined}
+        aria-invalid={fieldErr(k) ? true : undefined}
+        aria-describedby={fieldErr(k) ? `${k}-error` : undefined}
+      />
+      {fieldErr(k) && (
+        <p id={`${k}-error`} className="text-xs text-red-600 mt-1" role="alert">
+          {fieldErr(k)}
+        </p>
+      )}
     </div>
   );
-  const area = (k: Field, label: string) => (
+  const area = (k: Field, label: string, required = false) => (
     <div className="md:col-span-2">
-      <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
-      <textarea className="w-full border rounded-md px-3 py-2 text-sm" rows={2} value={form[k]} onChange={(e) => set(k, e.target.value)} />
+      <label className="block text-sm font-medium text-slate-700 mb-1">
+        {label}
+        {required ? " *" : ""}
+      </label>
+      <textarea
+        className={inputCls(k)}
+        rows={2}
+        value={form[k]}
+        onChange={(e) => set(k, e.target.value)}
+        required={required}
+        aria-invalid={fieldErr(k) ? true : undefined}
+        aria-describedby={fieldErr(k) ? `${k}-error` : undefined}
+      />
+      {fieldErr(k) && (
+        <p id={`${k}-error`} className="text-xs text-red-600 mt-1" role="alert">
+          {fieldErr(k)}
+        </p>
+      )}
     </div>
   );
 
@@ -390,27 +473,66 @@ export default function IndentForm({
             {lockClientName ? (
               <div className="w-full border rounded-md px-3 py-2 text-sm bg-slate-50 text-slate-700">{lockClientName}</div>
             ) : (
-              <select className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={clientId} onChange={(e) => setClientId(e.target.value)} required>
+              <select
+                className={inputCls("clientId")}
+                value={clientId}
+                onChange={(e) => {
+                  setClientId(e.target.value);
+                  if (fieldErrors.clientId) {
+                    setFieldErrors((fe) => {
+                      const next = { ...fe };
+                      delete next.clientId;
+                      return next;
+                    });
+                  }
+                }}
+                required
+                aria-invalid={fieldErr("clientId") ? true : undefined}
+              >
                 {clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             )}
+            {fieldErr("clientId") && (
+              <p className="text-xs text-red-600 mt-1" role="alert">{fieldErr("clientId")}</p>
+            )}
           </div>
-          {input("indentDate", "Indent Date", "date")}
+          {input("indentDate", "Indent Date", "date", true)}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>E-way Bill</CardTitle>
+          <p className="text-sm text-slate-500 font-normal">
+            Capture e-way details right after client and indent date, before pickup/delivery parties.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={ewayBillRequired} onChange={(e) => setEwayBillRequired(e.target.checked)} />
+            E-way bill required for this indent
+          </label>
+          <EwayBillSection
+            value={ewayBill}
+            onChange={setEwayBill}
+            indentId={indentId}
+            blockPastDates={mode === "create"}
+          />
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader><CardTitle>Consignor (Pickup)</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {input("consignorName", "Consignor Name")}
-          {input("consignorGstin", "Consignor GSTIN")}
-          {area("consignorAddress", "Address")}
-          {input("consignorCity", "City")}
-          {input("consignorState", "State")}
-          {input("consignorPincode", "Pincode")}
+          {input("consignorName", "Consignor Name", "text", true)}
+          {input("consignorGstin", "Consignor GSTIN", "text", true)}
+          {area("consignorAddress", "Address", true)}
+          {input("consignorCity", "City", "text", true)}
+          {input("consignorState", "State", "text", true)}
+          {input("consignorPincode", "Pincode", "text", true)}
           {input("consignorContact", "Contact Person")}
           {input("consignorPhone", "Phone")}
-          {input("pickupDate", "Pickup Date", "date")}
+          {input("pickupDate", "Pickup Date", "date", true)}
           {input("pickupTime", "Pickup Time", "time")}
         </CardContent>
       </Card>
@@ -418,14 +540,14 @@ export default function IndentForm({
       <Card>
         <CardHeader><CardTitle>Consignee (Delivery)</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {input("consigneeName", "Consignee Name")}
-          {input("consigneeGstin", "Consignee GSTIN")}
-          {area("consigneeAddress", "Address")}
-          {input("consigneeCity", "City")}
-          {input("consigneeState", "State")}
-          {input("consigneePincode", "Pincode")}
-          {input("consigneeContact", "Contact Person")}
-          {input("consigneePhone", "Phone")}
+          {input("consigneeName", "Consignee Name", "text", true)}
+          {input("consigneeGstin", "Consignee GSTIN", "text", true)}
+          {area("consigneeAddress", "Address", true)}
+          {input("consigneeCity", "City", "text", true)}
+          {input("consigneeState", "State", "text", true)}
+          {input("consigneePincode", "Pincode", "text", true)}
+          {input("consigneeContact", "Contact Person", "text", true)}
+          {input("consigneePhone", "Phone", "text", true)}
           {input("deliveryDate", "Expected Delivery Date", "date")}
           {input("deliveryTime", "Delivery Time", "time")}
         </CardContent>
@@ -435,24 +557,27 @@ export default function IndentForm({
         <CardHeader><CardTitle>Vehicle Requirement</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Service Type</label>
-            <select className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={form.serviceType} onChange={(e) => set("serviceType", e.target.value)}>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Service Type *</label>
+            <select className={inputCls("serviceType")} value={form.serviceType} onChange={(e) => set("serviceType", e.target.value)}>
               <option value="GTA">GTA</option>
               <option value="COURIER">Courier</option>
             </select>
+            {fieldErr("serviceType") && <p className="text-xs text-red-600 mt-1" role="alert">{fieldErr("serviceType")}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Transaction Type</label>
-            <select className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={form.transactionType} onChange={(e) => set("transactionType", e.target.value)}>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Transaction Type *</label>
+            <select className={inputCls("transactionType")} value={form.transactionType} onChange={(e) => set("transactionType", e.target.value)}>
               <option value="SPOT">Spot</option>
               <option value="CONTRACT">Contract</option>
             </select>
+            {fieldErr("transactionType") && <p className="text-xs text-red-600 mt-1" role="alert">{fieldErr("transactionType")}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Vehicle Type *</label>
-            <select className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={form.vehicleType} onChange={(e) => set("vehicleType", e.target.value)}>
+            <select className={inputCls("vehicleType")} value={form.vehicleType} onChange={(e) => set("vehicleType", e.target.value)}>
               {vehicleTypes.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
+            {fieldErr("vehicleType") && <p className="text-xs text-red-600 mt-1" role="alert">{fieldErr("vehicleType")}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Body Type</label>
@@ -465,23 +590,25 @@ export default function IndentForm({
               <option value="Tanker">Tanker</option>
             </select>
           </div>
-          {input("quantity", "No. of Vehicles", "number")}
+          {input("quantity", "No. of Vehicles", "number", true)}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Insurance Type</label>
-            <select className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={form.insuranceType} onChange={(e) => set("insuranceType", e.target.value)}>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Insurance Type *</label>
+            <select className={inputCls("insuranceType")} value={form.insuranceType} onChange={(e) => set("insuranceType", e.target.value)}>
               <option value="NONE">None</option>
               <option value="OWNER">Owner Risk</option>
               <option value="CARRIER">Carrier Risk</option>
             </select>
+            {fieldErr("insuranceType") && <p className="text-xs text-red-600 mt-1" role="alert">{fieldErr("insuranceType")}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Cargo Type</label>
-            <select className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={form.cargoType} onChange={(e) => set("cargoType", e.target.value)}>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Cargo Type *</label>
+            <select className={inputCls("cargoType")} value={form.cargoType} onChange={(e) => set("cargoType", e.target.value)}>
               <option value="GENERAL">General</option>
               <option value="FRAGILE">Fragile</option>
               <option value="HAZARDOUS">Hazardous</option>
               <option value="PERISHABLE">Perishable</option>
             </select>
+            {fieldErr("cargoType") && <p className="text-xs text-red-600 mt-1" role="alert">{fieldErr("cargoType")}</p>}
           </div>
           {input("capacityCbm", "Capacity (CBM)", "number")}
           {input("podDueAt", "POD Due Date", "date")}
@@ -511,12 +638,10 @@ export default function IndentForm({
         </CardContent>
       </Card>
 
-      <EwayBillSection value={ewayBill} onChange={setEwayBill} indentId={indentId} />
-
       <Card>
         <CardHeader><CardTitle>Freight & Billing</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {input("clientRate", "Client Rate (₹)", "number")}
+          {input("clientRate", "Client Rate (₹)", "number", true)}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Freight Type</label>
             <select className="w-full border rounded-md px-3 py-2 text-sm bg-white" value={form.freightType} onChange={(e) => set("freightType", e.target.value)}>
@@ -532,13 +657,20 @@ export default function IndentForm({
               <option value="CREDIT">Credit</option>
             </select>
           </div>
-          <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input type="checkbox" checked={ewayBillRequired} onChange={(e) => setEwayBillRequired(e.target.checked)} />
-            E-way bill required
-          </label>
         </CardContent>
       </Card>
 
+      {mode === "edit" && indentId && vehicleSlots && vehicleSlots.length > 0 ? (
+        <IndentVehicleSlots
+          indentId={indentId}
+          vendorAllocated={vendorAllocated}
+          vendorName={vendorName}
+          vehicleTypeCode={form.vehicleType}
+          bodyTypeCode={form.bodyType}
+          slots={vehicleSlots}
+          canMarkPlacement={canMarkPlacement}
+        />
+      ) : (
       <Card className={canAssignVehicleDriver ? "border-blue-200" : "border-slate-200"}>
         <CardHeader>
           <CardTitle>Vehicle & Driver Assignment</CardTitle>
@@ -710,6 +842,7 @@ export default function IndentForm({
           {vehicleDriverError && <p className="text-sm text-red-600">{vehicleDriverError}</p>}
         </CardContent>
       </Card>
+      )}
 
       <Card>
         <CardHeader><CardTitle>Instructions</CardTitle></CardHeader>

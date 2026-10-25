@@ -8,7 +8,7 @@ import {
   forgotPasswordRequestSchema,
   forgotPasswordResetSchema,
 } from "@/lib/validation";
-import { otpErrorMessage, parseApiError } from "@/lib/toast-utils";
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 
 const FIELD_ERROR_CLASS =
   "text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl px-4 py-3";
@@ -63,16 +63,12 @@ export default function ForgotPasswordPanel({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(parsed.data),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJsonBody(res);
     setLoading(false);
 
     if (!res.ok) {
-      const msg = otpErrorMessage(data) || parseApiError(data, "Failed to send reset code");
-      setError(msg);
-      toast.push({ title: msg, variant: "error" });
-      setResendCooldown(
-        typeof data.retryAfter === "number" && data.retryAfter > 0 ? data.retryAfter : 60
-      );
+      const err = reportApiFailure(res, data, { toast, setError, fallback: "Failed to send reset code" });
+      setResendCooldown(err.retryAfter && err.retryAfter > 0 ? err.retryAfter : 60);
       return;
     }
 
@@ -113,13 +109,11 @@ export default function ForgotPasswordPanel({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(parsed.data),
     });
-    const data = await res.json().catch(() => ({}));
+    const data = await readJsonBody(res);
     setLoading(false);
 
     if (!res.ok) {
-      const msg = otpErrorMessage(data) || parseApiError(data, "Failed to reset password");
-      setError(msg);
-      toast.push({ title: msg, variant: "error" });
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to reset password" });
       return;
     }
 

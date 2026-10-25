@@ -8,6 +8,9 @@ import { formatDate, formatINR } from "@/lib/utils";
 import { Truck } from "lucide-react";
 import ReallocateVendorDialog from "@/components/forms/reallocate-vendor-dialog";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type VendorOption = { id: string; name: string };
 
 export default function VendorAllocationPanel({
@@ -25,6 +28,7 @@ export default function VendorAllocationPanel({
   canAllocate,
   canReallocate = false,
   allocatedVendorId,
+  vehicleQuantity = 1,
 }: {
   indentId: string;
   indentStatus: string;
@@ -40,7 +44,9 @@ export default function VendorAllocationPanel({
   canAllocate: boolean;
   canReallocate?: boolean;
   allocatedVendorId?: string | null;
+  vehicleQuantity?: number;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [mode, setMode] = useState(allocationMode === "MANUAL" ? "MANUAL" : "BIDDING");
   useEffect(() => {
@@ -70,9 +76,9 @@ export default function VendorAllocationPanel({
       body: JSON.stringify({ mode: next }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to update allocation mode");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to update allocation mode" });
       return;
     }
     setMode(next);
@@ -95,9 +101,9 @@ export default function VendorAllocationPanel({
       }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to allocate vendor");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to allocate vendor" });
       return;
     }
     router.refresh();
@@ -145,6 +151,11 @@ export default function VendorAllocationPanel({
                 ? "Release to vendors and collect quotes"
                 : "Assign vendor and quoted rate directly"}
             </span>
+            {vehicleQuantity > 1 && (
+              <span className="text-xs text-slate-500">
+                Allocates the same vendor to all {vehicleQuantity} vehicle slots.
+              </span>
+            )}
           </div>
         )}
 

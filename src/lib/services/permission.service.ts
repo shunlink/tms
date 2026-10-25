@@ -7,13 +7,33 @@ import {
 
 export { PERMISSION_KEYS, DEFAULT_ROLE_PERMISSIONS, type PermissionKey };
 
+function applyUserPermissionOverrides(
+  granted: Set<string>,
+  userPermissions: { granted: boolean; permission: { key: string } }[]
+) {
+  for (const up of userPermissions) {
+    if (up.granted) granted.add(up.permission.key);
+    else granted.delete(up.permission.key);
+  }
+}
+
 export async function getGrantedPermissions(userId: string): Promise<Set<string>> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
       role: true,
+      accessMode: true,
       userPermissions: {
         select: { permissionId: true, granted: true, permission: { select: { key: true } } },
+      },
+      accessRoles: {
+        include: {
+          accessRole: {
+            include: {
+              permissions: { include: { permission: { select: { key: true } } } },
+            },
+          },
+        },
       },
     },
   });
@@ -23,7 +43,17 @@ export async function getGrantedPermissions(userId: string): Promise<Set<string>
 
   const granted = new Set<string>();
 
-  // Code defaults always apply so new permissions (e.g. pod.view for FINANCE) ship without re-seed.
+  if (user.accessMode === "CUSTOM_ROLES") {
+    for (const uar of user.accessRoles) {
+      for (const arp of uar.accessRole.permissions) {
+        granted.add(arp.permission.key);
+      }
+    }
+    applyUserPermissionOverrides(granted, user.userPermissions);
+    return granted;
+  }
+
+  // INHERIT_ROLE: code defaults + RolePermission + user overrides
   for (const p of DEFAULT_ROLE_PERMISSIONS[user.role] ?? []) granted.add(p);
 
   const rolePerms = await prisma.rolePermission.findMany({
@@ -32,10 +62,7 @@ export async function getGrantedPermissions(userId: string): Promise<Set<string>
   });
   for (const rp of rolePerms) granted.add(rp.permission.key);
 
-  for (const up of user.userPermissions) {
-    if (up.granted) granted.add(up.permission.key);
-    else granted.delete(up.permission.key);
-  }
+  applyUserPermissionOverrides(granted, user.userPermissions);
 
   return granted;
 }
@@ -52,8 +79,7 @@ export async function listPermissions() {
   return permissions;
 }
 
-export async function ensurePermissions() {
-  const definitions: { key: PermissionKey; label: string; module: string }[] = [
+const PERMISSION_DEFINITIONS: { key: PermissionKey; label: string; module: string }[] = [
     { key: "dashboard.view", label: "View Dashboard", module: "Dashboard" },
     { key: "indent.create", label: "Create Indent", module: "Indent" },
     { key: "indent.view", label: "View Indent", module: "Indent" },
@@ -95,9 +121,11 @@ export async function ensurePermissions() {
     { key: "invoice.edit", label: "Edit Invoices", module: "Finance" },
     { key: "payment.view", label: "View Vendor Payments", module: "Finance" },
     { key: "payment.create", label: "Create Vendor Payments", module: "Finance" },
+    { key: "payment.approve", label: "Approve Vendor Payments", module: "Finance" },
     { key: "payment.process", label: "Process Vendor Payments", module: "Finance" },
     { key: "client.payment.manage", label: "Manage Client Payments", module: "Finance" },
     { key: "users.manage", label: "Manage Users", module: "Users" },
+    { key: "onboarding.ops", label: "Handle assisted onboarding requests", module: "Onboarding" },
     { key: "team.manage", label: "Manage Teams", module: "Users" },
     { key: "roles.manage", label: "Manage Roles", module: "Roles" },
     { key: "permissions.manage", label: "Manage Permissions", module: "Permissions" },
@@ -129,13 +157,30 @@ export async function ensurePermissions() {
     { key: "financial_note.approve", label: "Approve Debit/Credit Notes", module: "Finance" },
     { key: "financial_note.issue", label: "Issue Debit/Credit Notes", module: "Finance" },
     { key: "financial_note.reverse", label: "Reverse Issued Notes", module: "Finance" },
-  ];
+];
 
-  for (const d of definitions) {
+const PERMISSION_DEFINITION_BY_KEY = new Map(PERMISSION_DEFINITIONS.map((d) => [d.key, d]));
+
+/** Ensure Permission rows exist for keys before linking roles (fixes keys in PERMISSION_KEYS but not yet seeded). */
+export async function ensurePermissionRowsForKeys(keys: string[]) {
+  const allowed = new Set<string>(PERMISSION_KEYS);
+  for (const key of Array.from(new Set(keys))) {
+    if (!allowed.has(key)) continue;
+    const d = PERMISSION_DEFINITION_BY_KEY.get(key as PermissionKey);
+    if (!d) continue;
+    await prisma.permission.upsert({ where: { key: d.key }, create: d, update: d });
+  }
+}
+
+export async function ensurePermissions() {
+  for (const d of PERMISSION_DEFINITIONS) {
     await prisma.permission.upsert({ where: { key: d.key }, create: d, update: d });
   }
 
   await syncDefaultRolePermissions();
+
+  const { syncDefaultAccessRoles } = await import("./access-role.service");
+  await syncDefaultAccessRoles();
 }
 
 /** Keep RolePermission rows aligned with DEFAULT_ROLE_PERMISSIONS (idempotent). */

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 import {
   Route,
   MapPin,
@@ -56,6 +58,7 @@ export default function RequirementForm({
   clientMode?: boolean;
   consignorDefaults?: Partial<Record<Field, string>>;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [clientId, setClientId] = useState(clients[0]?.id ?? "");
   const [form, setForm] = useState<Record<Field, string>>(() => {
@@ -91,9 +94,9 @@ export default function RequirementForm({
       body: JSON.stringify({ ...form, clientId }),
     });
     setSaving(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to save requirement");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to save requirement" });
       return;
     }
     router.push(clientMode ? "/portal/client/requirements" : "/requirements");

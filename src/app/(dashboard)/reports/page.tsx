@@ -35,26 +35,26 @@ export default async function ReportsPage() {
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-slate-500">Not Due</p>
-            <p className="text-xl font-bold text-slate-700">{formatINR(ageing.buckets.current)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-slate-500">1–30 days</p>
-            <p className="text-xl font-bold text-amber-600">{formatINR(ageing.buckets.d30)}</p>
+            <p className="text-sm text-slate-500">0–30 days</p>
+            <p className="text-xl font-bold text-slate-700">{formatINR(ageing.buckets.d0_30)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-slate-500">31–60 days</p>
-            <p className="text-xl font-bold text-orange-600">{formatINR(ageing.buckets.d60)}</p>
+            <p className="text-xl font-bold text-amber-600">{formatINR(ageing.buckets.d31_60)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-sm text-slate-500">60+ days</p>
-            <p className="text-xl font-bold text-red-600">{formatINR(ageing.buckets.d90)}</p>
+            <p className="text-sm text-slate-500">61–90 days</p>
+            <p className="text-xl font-bold text-orange-600">{formatINR(ageing.buckets.d61_90)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-slate-500">90+ days</p>
+            <p className="text-xl font-bold text-red-600">{formatINR(ageing.buckets.d90plus)}</p>
           </CardContent>
         </Card>
       </div>
@@ -172,7 +172,7 @@ export default async function ReportsPage() {
       {/* Outstanding detail */}
       <Card>
         <CardHeader>
-          <CardTitle>Outstanding Invoices (by age)</CardTitle>
+          <CardTitle>Outstanding Invoices (days since issue)</CardTitle>
         </CardHeader>
         <CardContent>
           <table className="w-full text-sm">

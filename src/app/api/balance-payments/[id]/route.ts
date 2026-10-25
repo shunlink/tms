@@ -117,7 +117,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
 
     if (action === "gateway_approve_execute") {
-      const denied = await authorize(auth, "payment.process");
+      const denied = await authorize(auth, "payment.approve");
       if (denied) return denied;
       if (!paymentId) return badRequest("paymentId is required");
       const payment = await approveAndExecuteGatewayPayment(paymentId, auth.user);
@@ -126,7 +126,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
 
     if (action === "approve") {
-      const denied = await authorize(auth, "payment.process");
+      const denied = await authorize(auth, "payment.approve");
       if (denied) return denied;
       const result = await approveBalancePayable(params.id, auth.user, remarks);
       if (!result) return notFound("Balance payment task not found");

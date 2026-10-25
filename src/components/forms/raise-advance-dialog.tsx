@@ -5,6 +5,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { formatINR } from "@/lib/utils";
 
+import { readJsonBody, reportApiFailure, resolveApiError } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 type TripOption = {
   id: string;
   lrNumber: string;
@@ -43,6 +46,7 @@ export default function RaiseAdvanceDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [tripId, setTripId] = useState("");
   const [vendorId, setVendorId] = useState("");
@@ -82,14 +86,16 @@ export default function RaiseAdvanceDialog({
     setContextError("");
     fetch(`/api/advance-requests?tripId=${encodeURIComponent(tripId)}&vendorId=${encodeURIComponent(vid)}`)
       .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
+        const data = await readJsonBody(res);
         if (cancelled) return;
         if (!res.ok) {
           setContext(null);
-          setContextError(data.error || "Could not load trip details");
+          const err = resolveApiError(res, data, "Could not load trip details");
+          setContextError(err.message);
           return;
         }
-        setContext(data.context ?? null);
+        const body = data as { context?: unknown };
+        setContext((body.context ?? null) as typeof context);
       })
       .catch(() => {
         if (!cancelled) setContextError("Could not load trip details");
@@ -127,9 +133,9 @@ export default function RaiseAdvanceDialog({
       }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to raise advance request");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to raise advance request" });
       return;
     }
     onClose();

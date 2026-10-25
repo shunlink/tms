@@ -1,4 +1,10 @@
 import { prisma } from "./prisma";
+import {
+  formatDocumentNumber,
+  isConfigurableNumberKind,
+  type ConfigurableNumberKind,
+} from "./document-number";
+import { getNumberingPrefixTemplate } from "./services/company-settings.service";
 
 const PREFIX_MAP: Record<string, string> = {
   IND: "indent",
@@ -25,6 +31,11 @@ export async function nextNumber(prefix: string) {
     create: { prefix: key, year, lastValue: 1 },
     update: { lastValue: { increment: 1 } },
   });
+
+  if (isConfigurableNumberKind(prefix)) {
+    const template = await getNumberingPrefixTemplate(prefix as ConfigurableNumberKind);
+    return formatDocumentNumber(template, row.lastValue);
+  }
 
   return `${prefix}-${year}-${String(row.lastValue).padStart(4, "0")}`;
 }

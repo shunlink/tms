@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ComplianceBadges } from "@/components/integrations/compliance-badges";
 import { Loader2 } from "lucide-react";
-import { parseApiError } from "@/lib/toast-utils";
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
 
 const vehicleTypes: [string, string][] = [
   ["TEMPO_8FT", "Tempo 8ft"],
@@ -56,6 +57,7 @@ export default function VehicleForm({
   };
   vehicleId?: string;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [form, setForm] = useState<Record<Field, string>>(() => {
     const base = {} as Record<Field, string>;
@@ -96,12 +98,12 @@ export default function VehicleForm({
           persist: Boolean(vehicleId),
         }),
       });
-      const data = await res.json().catch(() => ({}));
+      const data = await readJsonBody(res);
       if (!res.ok) {
-        setVerifyError(parseApiError(data, "Vehicle verification failed"));
+        reportApiFailure(res, data, { toast, setError: setVerifyError, fallback: "Vehicle verification failed" });
         return;
       }
-      const d = data.data as Record<string, unknown>;
+      const d = (data as { data: Record<string, unknown> }).data;
       const c = d.compliance as Record<string, string> | undefined;
       setCompliance(
         c
@@ -158,13 +160,13 @@ export default function VehicleForm({
       }),
     });
     setSaving(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to save vehicle");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to save vehicle" });
       return;
     }
-    const data = await res.json();
-    router.push(`/vehicles/${vehicleId ?? data.id}`);
+    const saved = data as { id?: string };
+    router.push(`/vehicles/${vehicleId ?? saved.id}`);
     router.refresh();
   }
 

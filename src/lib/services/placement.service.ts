@@ -2,13 +2,15 @@ import { prisma } from "../prisma";
 import { assertTransition } from "../indent-states";
 import { logAudit } from "../audit";
 import type { SessionUser } from "../auth";
+import { resolveTargetLine, syncIndentHeaderFromLines, summarizeLines } from "../indent-line-rollup";
+import { reconcileIndentLines } from "../indent-line-sync";
 
 /** Indents where a vendor is allocated but the vehicle is not yet placed. */
 export async function listPlacementQueue() {
   const indents = await prisma.indent.findMany({
     where: {
       vendorId: { not: null },
-      placementStatus: { in: ["PLACEMENT_PENDING", "PLACEMENT_FAILED"] },
+      placementStatus: { in: ["PLACEMENT_PENDING", "PLACEMENT_FAILED", "PARTIALLY_REACHED"] },
       status: { notIn: ["CANCELLED", "COMPLETED"] },
     },
     orderBy: { vendorAllocatedAt: "asc" },
@@ -17,40 +19,85 @@ export async function listPlacementQueue() {
       vendor: { select: { id: true, name: true, phone: true } },
       loading: { select: { city: true, state: true } },
       unloading: { select: { city: true, state: true } },
+      consignment: { select: { vehicleQuantity: true } },
+      lines: { select: { placementStatus: true, tripId: true, lineNumber: true } },
     },
   });
 
-  return indents.map((i) => ({
-    id: i.id,
-    indentNumber: i.indentNumber,
-    client: i.client.name,
-    route: `${i.loading?.city ?? "—"} → ${i.unloading?.city ?? "—"}`,
-    vendor: i.vendor?.name ?? null,
-    vendorPhone: i.vendor?.phone ?? null,
-    allocatedAt: i.vendorAllocatedAt,
-    deadlineAt: i.placementDeadlineAt,
-    placementStatus: i.placementStatus,
-    status: i.status,
-  }));
+  return indents.map((i) => {
+    const summary = summarizeLines(
+      i.lines.map((l) => ({
+        placementStatus: l.placementStatus,
+        tripId: l.tripId,
+        allocations: [],
+      }))
+    );
+    return {
+      id: i.id,
+      indentNumber: i.indentNumber,
+      client: i.client.name,
+      route: `${i.loading?.city ?? "—"} → ${i.unloading?.city ?? "—"}`,
+      vendor: i.vendor?.name ?? null,
+      vendorPhone: i.vendor?.phone ?? null,
+      allocatedAt: i.vendorAllocatedAt,
+      deadlineAt: i.placementDeadlineAt,
+      placementStatus: i.placementStatus,
+      status: i.status,
+      vehicleQuantity: i.consignment?.vehicleQuantity ?? 1,
+      placementProgress: `${summary.reached}/${summary.total} reached`,
+    };
+  });
 }
 
-export async function markVehicleReached(indentId: string, actor?: SessionUser | null) {
+export async function markVehicleReached(
+  indentId: string,
+  actor?: SessionUser | null,
+  indentLineId?: string | null
+) {
+  await reconcileIndentLines(indentId);
   const indent = await prisma.indent.findFirst({ where: { id: indentId } });
   if (!indent) return null;
+
+  const line = await resolveTargetLine(indentId, indentLineId);
+  const now = new Date();
 
   if (indent.status === "PLACEMENT_PENDING") {
     assertTransition(indent.status, "VEHICLE_PLACED");
   }
 
-  await prisma.indent.update({
-    where: { id: indentId },
-    data: {
-      placementStatus: "VEHICLE_REACHED",
-      ...(indent.status === "PLACEMENT_PENDING" ? { status: "VEHICLE_PLACED" } : {}),
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.indentLine.update({
+      where: { id: line.id },
+      data: {
+        placementStatus: "VEHICLE_REACHED",
+        placementReachedAt: now,
+      },
+    });
+
+    const lines = await tx.indentLine.findMany({
+      where: { indentId },
+      select: { placementStatus: true, tripId: true },
+    });
+    const summary = summarizeLines(
+      lines.map((l) => ({
+        placementStatus: l.placementStatus,
+        tripId: l.tripId,
+        allocations: [],
+      }))
+    );
+
+    const statusPatch =
+      indent.status === "PLACEMENT_PENDING" && summary.reached > 0
+        ? { status: "VEHICLE_PLACED" as const }
+        : {};
+
+    await tx.indent.update({
+      where: { id: indentId },
+      data: statusPatch,
+    });
+    await syncIndentHeaderFromLines(indentId, tx);
   });
 
-  // Resolve any open placement-deadline event.
   await prisma.importantEvent.updateMany({
     where: {
       indentId,
@@ -65,6 +112,7 @@ export async function markVehicleReached(indentId: string, actor?: SessionUser |
     action: "placement.vehicle_reached",
     entity: "INDENT",
     entityId: indentId,
+    meta: { indentLineId: line.id, lineNumber: line.lineNumber },
   });
 
   const { syncTripFromIndent } = await import("../vendor-trip-sync");

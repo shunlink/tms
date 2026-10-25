@@ -6,6 +6,9 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Printer, Send, Receipt } from "lucide-react";
 
+import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { useToast } from "@/components/toast";
+
 export default function InvoiceActions({
   invoiceId,
   status,
@@ -19,6 +22,7 @@ export default function InvoiceActions({
   paidAmount: number;
   clientId: string;
 }) {
+  const toast = useToast();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -33,9 +37,9 @@ export default function InvoiceActions({
       body: JSON.stringify({ action: "finalize" }),
     });
     setBusy(false);
+    const data = await readJsonBody(res);
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error || "Failed to finalize invoice");
+      reportApiFailure(res, data, { toast, setError, fallback: "Failed to finalize invoice" });
       return;
     }
     router.refresh();

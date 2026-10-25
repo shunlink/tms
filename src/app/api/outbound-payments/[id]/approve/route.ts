@@ -8,7 +8,7 @@ type Params = { params: { id: string } };
 export async function POST(req: Request, { params }: Params) {
   const auth = await requireAuth();
   if (!auth) return unauthorized();
-  const denied = await authorize(auth, "payment.process");
+  const denied = await authorize(auth, "payment.approve");
   if (denied) return denied;
 
   try {

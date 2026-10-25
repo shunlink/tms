@@ -31,6 +31,43 @@ export type ApiSuccessBody<T = unknown> = {
   data?: T;
 };
 
+export const DEFAULT_FORBIDDEN_MESSAGE =
+  "You don't have permission to perform this action. Ask your administrator if you need access.";
+
+export const DEFAULT_UNAUTHORIZED_MESSAGE = "Please sign in again to continue.";
+
+export const DEFAULT_NOT_FOUND_MESSAGE = "The requested item could not be found.";
+
+export function forbiddenErrorBody(message?: string): ApiErrorBody {
+  const trimmed = message?.trim();
+  const error =
+    !trimmed || trimmed === "Forbidden" ? DEFAULT_FORBIDDEN_MESSAGE : trimmed;
+  return {
+    success: false,
+    error,
+    code: "FORBIDDEN",
+  };
+}
+
+export function unauthorizedErrorBody(message?: string): ApiErrorBody {
+  return {
+    success: false,
+    error: message?.trim() || DEFAULT_UNAUTHORIZED_MESSAGE,
+    code: "UNAUTHORIZED",
+  };
+}
+
+export function notFoundErrorBody(message?: string): ApiErrorBody {
+  const trimmed = message?.trim();
+  const error =
+    !trimmed || trimmed === "Not found" ? DEFAULT_NOT_FOUND_MESSAGE : trimmed;
+  return {
+    success: false,
+    error,
+    code: "NOT_FOUND",
+  };
+}
+
 export class AppError extends Error {
   readonly status: number;
   readonly code: ApiErrorCode;
