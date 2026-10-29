@@ -43,15 +43,31 @@ async function forward(
     }
 
     const result = await fetchBiddingApi(endpoint, method, body);
-    if (!result.ok && result.data && typeof result.data === "object") {
-      const body = result.data as Record<string, unknown>;
-      if (typeof body.error !== "string" && typeof body.message === "string") {
-        return NextResponse.json(
-          { error: body.message, code: body.code ?? null },
-          { status: result.status }
-        );
-      }
+
+    if (!result.ok || result.parseError) {
+      const payload =
+        result.data && typeof result.data === "object"
+          ? (result.data as Record<string, unknown>)
+          : {};
+      const message =
+        (typeof payload.error === "string" && payload.error) ||
+        (typeof payload.message === "string" && payload.message) ||
+        (result.status === 401
+          ? "Bidding rejected credentials (401). Check BIDDING_TMS_INTEGRATION_SECRET matches the Bidding app."
+          : result.parseError
+            ? "Invalid response from Bidding (expected JSON)."
+            : "Bidding request failed");
+      const status = result.parseError
+        ? 502
+        : result.status === 401
+          ? 401
+          : result.status;
+      return NextResponse.json(
+        { error: message, code: payload.code ?? null, ...(result.parseError ? { parseError: true } : {}) },
+        { status }
+      );
     }
+
     return NextResponse.json(result.data ?? null, { status: result.status });
   } catch (e) {
     if (e instanceof BiddingProxyError) {

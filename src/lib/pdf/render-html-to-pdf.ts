@@ -9,6 +9,7 @@ const DEFAULT_BROWSER_PATHS = [
   "/usr/bin/google-chrome",
   "/usr/bin/chromium",
   "/usr/bin/chromium-browser",
+  "/usr/lib/chromium/chromium",
 ].filter(Boolean) as string[];
 
 export function resolveBrowserExecutable(): string | null {

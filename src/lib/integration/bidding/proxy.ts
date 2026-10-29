@@ -39,7 +39,48 @@ export type FetchBiddingApiResult = {
   ok: boolean;
   status: number;
   data: unknown;
+  /** True when body was HTML or non-JSON (e.g. misconfigured proxy URL). */
+  parseError?: boolean;
 };
+
+function resolveBiddingOutboundSecret(): string {
+  return (
+    process.env.BIDDING_TMS_INTEGRATION_SECRET?.trim() ||
+    process.env.BIDDING_TMS_ADMIN_SECRET?.trim() ||
+    ""
+  );
+}
+
+function parseBiddingResponseBody(
+  text: string,
+  contentType: string | null
+): { data: unknown; parseError: boolean } {
+  if (!text.trim()) return { data: null, parseError: false };
+  const trimmed = text.trim();
+  const looksHtml =
+    trimmed.startsWith("<") || (contentType?.toLowerCase().includes("text/html") ?? false);
+  if (looksHtml) {
+    return {
+      data: {
+        error: "Bidding returned HTML instead of JSON. Check BIDDING_SERVICE_URL includes /bidding if needed.",
+        code: "INVALID_RESPONSE",
+      },
+      parseError: true,
+    };
+  }
+  try {
+    return { data: JSON.parse(text) as unknown, parseError: false };
+  } catch {
+    return {
+      data: {
+        error: "Bidding returned a non-JSON response",
+        code: "INVALID_RESPONSE",
+        raw: trimmed.slice(0, 300),
+      },
+      parseError: true,
+    };
+  }
+}
 
 /**
  * Server-side HTTP client for TMS → Bidding admin/internal APIs.
@@ -50,10 +91,10 @@ export async function fetchBiddingApi(
   method: string,
   body?: unknown
 ): Promise<FetchBiddingApiResult> {
-  const secret = process.env.BIDDING_TMS_INTEGRATION_SECRET?.trim();
+  const secret = resolveBiddingOutboundSecret();
   if (!secret) {
     throw new BiddingProxyError(
-      "Bidding integration is not configured (BIDDING_SERVICE_URL / BIDDING_TMS_INTEGRATION_SECRET)",
+      "Bidding integration is not configured (BIDDING_SERVICE_URL and BIDDING_TMS_INTEGRATION_SECRET or BIDDING_TMS_ADMIN_SECRET)",
       "NOT_CONFIGURED"
     );
   }
@@ -69,6 +110,7 @@ export async function fetchBiddingApi(
   const headers: Record<string, string> = {
     Accept: "application/json",
     "x-tms-integration-secret": secret,
+    Authorization: `Bearer ${secret}`,
   };
 
   const init: RequestInit = {
@@ -91,14 +133,9 @@ export async function fetchBiddingApi(
     throw new BiddingProxyError(`Could not reach Bidding service: ${reason}`, "REQUEST_FAILED");
   }
   const text = await res.text();
-  let data: unknown = null;
-  if (text) {
-    try {
-      data = JSON.parse(text) as unknown;
-    } catch {
-      data = { raw: text };
-    }
-  }
+  const contentType = res.headers.get("content-type");
+  const { data, parseError } = parseBiddingResponseBody(text, contentType);
+  const ok = res.ok && !parseError;
 
-  return { ok: res.ok, status: res.status, data };
+  return { ok, status: res.status, data, parseError };
 }

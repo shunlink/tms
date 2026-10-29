@@ -12,16 +12,28 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# Drop retired sources that may linger on the VPS after overlay deploys (see scripts/deploy-stale-paths.txt).
+RUN rm -f "src/app/(dashboard)/bidding-management/BiddingDashboard.tsx"
 RUN npx prisma generate
 RUN npm run build
 
 # ---- runner ----
 FROM node:20-alpine AS runner
-RUN apk add --no-cache openssl libc6-compat
+# Chromium for LR/invoice PDF (puppeteer-core); not installed on bare Alpine by default.
+RUN apk add --no-cache \
+    openssl \
+    libc6-compat \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
+ENV CHROME_PATH=/usr/bin/chromium
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next

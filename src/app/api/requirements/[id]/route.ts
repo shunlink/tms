@@ -2,7 +2,12 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth, authorize, ok, badRequest, notFound, serverError } from "@/lib/api";
 import { logAudit } from "@/lib/audit";
 import { AUDIT_ACTIONS } from "@/lib/audit-actions";
+import { z } from "zod";
 import { requirementSchema, validate } from "@/lib/validation";
+
+const requirementPatchSchema = requirementSchema.partial().extend({
+  status: z.enum(["OPEN", "CONVERTED", "CANCELLED"]).optional(),
+});
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const auth = await requireAuth();
@@ -26,7 +31,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   if (denied) return denied;
   try {
     const body = await req.json();
-    const parsed = validate(requirementSchema.partial(), body);
+    const parsed = validate(requirementPatchSchema, body);
     if (!parsed.success) return badRequest(parsed.error);
     const d = parsed.data;
 
@@ -43,7 +48,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         cargoSummary: d.cargoDetails,
         expectedAt: d.expectedDate,
         clientRate: d.clientRate,
-        status: body.status,
+        status: d.status,
       },
     });
 

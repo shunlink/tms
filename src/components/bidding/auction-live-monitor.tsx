@@ -20,10 +20,12 @@ import { Button } from "@/components/ui/button";
 
 type AuctionLiveMonitorProps = {
   status: string;
-  bids: AuctionBidRow[];
+  events: AuctionBidRow[];
+  standingBids: AuctionBidRow[];
   loading: boolean;
   error: string;
   liveConnected: boolean;
+  participantCount?: number;
   onCloseAuction?: () => void;
 };
 
@@ -59,16 +61,26 @@ function formatYAxisTick(value: number): string {
 
 export default function AuctionLiveMonitor({
   status,
-  bids,
+  events,
+  standingBids,
   loading,
   error,
   liveConnected,
+  participantCount,
   onCloseAuction,
 }: AuctionLiveMonitorProps) {
   const isLive = status === "AUCTION_LIVE";
 
-  const chartSeries = useMemo(() => buildChartSeries(bids), [bids]);
-  const leaderboardBids = useMemo(() => sortLeaderboardBids(bids), [bids]);
+  const chartSeries = useMemo(() => buildChartSeries(events), [events]);
+  const leaderboardBids = useMemo(() => sortLeaderboardBids(standingBids), [standingBids]);
+  const tapeEvents = useMemo(
+    () =>
+      [...events].sort((a, b) => {
+        if (b.placedAtMs !== a.placedAtMs) return b.placedAtMs - a.placedAtMs;
+        return b.id.localeCompare(a.id);
+      }),
+    [events]
+  );
 
   const yDomain = useMemo((): [number, number] => {
     if (!chartSeries.length) return [0, 100];
@@ -80,14 +92,20 @@ export default function AuctionLiveMonitor({
     return [Math.max(0, min - pad), max + pad];
   }, [chartSeries]);
 
-  const showEmpty = !loading && !error && chartSeries.length === 0 && leaderboardBids.length === 0;
+  const showEmpty =
+    !loading && !error && chartSeries.length === 0 && leaderboardBids.length === 0;
 
   return (
     <div className="space-y-4">
       {isLive && onCloseAuction && (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-xs text-slate-600">
-            {liveConnected ? "Receiving live price drops." : "Live stream offline — showing fetched history."}
+            {liveConnected ? "Receiving live price drops." : "Live stream offline — polling bid history."}
+            {participantCount != null ? (
+              <span className="ml-2 font-medium text-slate-800">
+                · {participantCount} vendor{participantCount === 1 ? "" : "s"} bidding
+              </span>
+            ) : null}
           </p>
           <Button type="button" variant="destructive" className="sm:w-auto w-full shrink-0" onClick={onCloseAuction}>
             Close Auction
@@ -98,7 +116,7 @@ export default function AuctionLiveMonitor({
       <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
         <div className="border-b border-slate-200 px-4 py-2.5 bg-slate-50">
           <h3 className="text-sm font-semibold text-slate-900">Price drop timeline</h3>
-          <p className="text-xs text-slate-500 mt-0.5">Bid amount over time (INR)</p>
+          <p className="text-xs text-slate-500 mt-0.5">Every bid event (INR)</p>
         </div>
         <div className="px-2 py-4 h-56">
           {loading && chartSeries.length === 0 ? (
@@ -137,9 +155,29 @@ export default function AuctionLiveMonitor({
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+        <div className="border-b border-slate-200 px-4 py-2.5 bg-slate-50">
+          <h3 className="text-sm font-semibold text-slate-900">Event tape</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Newest first</p>
+        </div>
+        {tapeEvents.length === 0 ? (
+          <p className="px-4 py-6 text-sm text-slate-500">No events yet.</p>
+        ) : (
+          <ul className="max-h-48 overflow-y-auto divide-y divide-slate-100 text-sm">
+            {tapeEvents.map((bid) => (
+              <li key={bid.id} className="px-4 py-2 flex justify-between gap-3">
+                <span className="text-slate-600 truncate">{bid.vendorName}</span>
+                <span className="shrink-0 tabular-nums font-medium">{formatINR(bid.amount)}</span>
+                <span className="shrink-0 text-xs text-slate-400">{bid.placedAtLabel}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5 bg-slate-50">
-          <h3 className="text-sm font-semibold text-slate-900">Bid leaderboard</h3>
-          <span className="text-xs text-slate-500">Read-only · monitor only</span>
+          <h3 className="text-sm font-semibold text-slate-900">Standing bids</h3>
+          <span className="text-xs text-slate-500">Final bid per vendor (lowest first)</span>
         </div>
         {loading && leaderboardBids.length === 0 ? (
           <p className="px-4 py-6 text-sm text-slate-500">Loading bid history…</p>

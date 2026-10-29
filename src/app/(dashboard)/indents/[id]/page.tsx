@@ -88,7 +88,10 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
       indent.status
     );
   const canMarkPlacement = await userCan("placement.update");
-  const sectionOrder = getIndentSectionOrder(indent.status);
+  const fromBiddingMarketplace = indent.source === "BIDDING";
+  const sectionOrder = getIndentSectionOrder(indent.status, {
+    biddingHandoff: fromBiddingMarketplace && vendorAllocated,
+  });
   const lastPing = indent.lastTracking;
 
   const formClients = clients.some((c) => c.id === indent.client.id)
@@ -97,7 +100,9 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
 
   const sections: Record<IndentDetailSection, React.ReactNode> = {
     quotes:
-      QUOTE_VISIBLE_STATUSES.includes(indent.status) ? (
+      fromBiddingMarketplace && vendorAllocated
+        ? null
+        : QUOTE_VISIBLE_STATUSES.includes(indent.status) ? (
         <Card key="quotes" className="mb-6 border-amber-200">
           <CardHeader>
             <CardTitle>
@@ -372,7 +377,17 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-slate-900">{indent.indentNumber}</h1>
               <StatusBadge status={indent.status} />
+              {fromBiddingMarketplace ? (
+                <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-800">
+                  Bidding marketplace
+                </span>
+              ) : null}
             </div>
+            {fromBiddingMarketplace && indent.biddingLoadRequirementId ? (
+              <p className="text-xs text-indigo-700 mt-1">
+                Bidding load {indent.biddingLoadRequirementId}
+              </p>
+            ) : null}
             <p className="text-slate-500 mt-1">{indent.client.name}</p>
             <p className="text-sm text-slate-600 mt-2 flex items-center gap-2">
               <MapPin className="h-4 w-4 text-slate-400" />

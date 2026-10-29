@@ -20,8 +20,10 @@ bill clients, and pay vendors.
 ## Quick Start
 
 ```bash
-# Optional: copy docker-compose.example.yml → docker-compose.yml for local Docker
-docker compose -f docker-compose.example.yml up -d db
+# Postgres + Redis in Docker; Next.js runs on the host (no app image build)
+npm run docker:dev
+# Or: docker compose -f docker-compose.example.yml up -d
+# Optional: cp docker-compose.example.yml docker-compose.yml  →  docker compose up -d
 npm install
 npm run db:generate        # generate Prisma client
 npm run db:migrate:deploy  # apply migrations to PostgreSQL
@@ -44,8 +46,9 @@ npm run dev                # http://localhost:3000
 ### Database
 The app uses **PostgreSQL**. Set `DATABASE_URL` in `.env` to your connection string
 (default: `postgresql://tms:tms@localhost:5432/tms?schema=public`), then run
-`npm run db:migrate:deploy`. Use `docker-compose.example.yml` for local Postgres
-(see `scripts/package-deploy.ps1` for VPS zip deploy — server `docker-compose.yml` is not bundled).
+`npm run db:migrate:deploy`. Local Docker is **db + redis only** (`docker-compose.example.yml`);
+production uses `docker-compose.production.yml` (full stack with app build). VPS deploy zips
+do not bundle server `docker-compose.yml` — see `scripts/package-deploy.ps1`.
 Enum values are stored as strings for simplicity.
 
 ## Modules

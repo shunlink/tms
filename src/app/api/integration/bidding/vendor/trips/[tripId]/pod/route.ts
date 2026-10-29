@@ -1,10 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { validateBiddingIntegrationRequest } from "@/lib/integration/bidding/auth";
 import { biddingCompanyIdQuerySchema } from "@/lib/integration/bidding/schemas";
-import { resolveVendorIdByBiddingCompany } from "@/lib/services/bidding-integration.service";
+import {
+  resolveBiddingVendorTripId,
+  resolveVendorIdByBiddingCompany,
+  resolveVendorPortalActorForBidding,
+} from "@/lib/services/bidding-integration.service";
 import { uploadDocument } from "@/lib/services/document.service";
 import { uploadPodFromTrip } from "@/lib/services/pod.service";
-import type { SessionUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -49,18 +52,18 @@ export async function POST(req: Request, { params }: { params: { tripId: string 
     return Response.json({ error: "Vendor not linked", code: "VENDOR_NOT_LINKED" }, { status: 404 });
   }
 
+  const resolvedTripId = await resolveBiddingVendorTripId(vendorId, params.tripId.trim());
+  if (!resolvedTripId) {
+    return Response.json({ error: "Trip not found", code: "NOT_FOUND" }, { status: 404 });
+  }
+
   const trip = await prisma.trip.findFirst({
-    where: { id: params.tripId, vendorId },
+    where: { id: resolvedTripId, vendorId },
     select: { id: true, indentId: true, indent: { select: { source: true } } },
   });
   if (!trip || trip.indent?.source !== "BIDDING") {
     return Response.json({ error: "Trip not found", code: "NOT_FOUND" }, { status: 404 });
   }
-
-  const vendorUser = await prisma.user.findFirst({
-    where: { vendorId, role: "VENDOR", isActive: true },
-    select: { id: true },
-  });
 
   const formData = await req.formData();
   const front = formData.get("front");
@@ -77,17 +80,19 @@ export async function POST(req: Request, { params }: { params: { tripId: string 
     return Response.json({ error: "File too large (max 10 MB)", code: "VALIDATION_ERROR" }, { status: 400 });
   }
 
-  const actor: SessionUser = {
-    id: vendorUser?.id ?? "bidding-integration",
-    role: "VENDOR",
-    vendorId,
-  };
+  const requestedByEmailRaw = formData.get("requestedByEmail");
+  const requestedByEmail =
+    typeof requestedByEmailRaw === "string" && requestedByEmailRaw.trim()
+      ? requestedByEmailRaw.trim()
+      : null;
+  const actor = await resolveVendorPortalActorForBidding(vendorId, requestedByEmail);
+  const actorUserId = actor?.id ?? null;
 
-  const frontDoc = await uploadTripFile(params.tripId, front, "front", vendorUser?.id ?? null);
-  const backDoc = await uploadTripFile(params.tripId, back, "back", vendorUser?.id ?? null);
+  const frontDoc = await uploadTripFile(resolvedTripId, front, "front", actorUserId);
+  const backDoc = await uploadTripFile(resolvedTripId, back, "back", actorUserId);
 
   const pod = await uploadPodFromTrip(
-    params.tripId,
+    resolvedTripId,
     frontDoc.fileId,
     backDoc.fileId,
     actor,

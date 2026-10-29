@@ -54,7 +54,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       clientId: parsed.data.clientId,
       vendorId: parsed.data.vendorId,
       driverId: parsed.data.driverId,
-      isActive: body.isActive,
+      isActive: parsed.data.isActive,
     };
 
     if (isInternalRole(nextRole)) {

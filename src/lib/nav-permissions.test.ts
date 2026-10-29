@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSION_KEYS } from "./permissions";
 import { filterNavGroups, getTeamSidebarHrefs, TEAM_NAV_HREFS } from "./nav-permissions";
 
@@ -69,6 +69,13 @@ describe("team sidebar navigation", () => {
     expect(hrefs).toContain("/users");
     expect(hrefs).not.toContain("/bidding-management");
     expect(hrefs).not.toContain("/permissions");
+  });
+
+  it("Admin sidebar includes Bidding System when NEXT_PUBLIC_BIDDING_ADMIN_UI_ENABLED=true", () => {
+    vi.stubEnv("NEXT_PUBLIC_BIDDING_ADMIN_UI_ENABLED", "true");
+    const hrefs = getTeamSidebarHrefs(DEFAULT_ROLE_PERMISSIONS.ADMIN, "ADMIN", "ADMIN");
+    expect(hrefs).toContain("/bidding-management");
+    vi.unstubAllEnvs();
   });
 
   it("Super Admin sees access role bundles and users", () => {

@@ -198,8 +198,10 @@ async function main() {
       jobTitle: "Finance Analyst",
     },
   });
-  const { seedDemoPartners } = await import("./seed-demo-partners");
-  await seedDemoPartners(prisma, password);
+  
+  // ❌ REMOVED: seedDemoPartners call skipped to avoid dummy clients/vendors
+  // const { seedDemoPartners } = await import("./seed-demo-partners");
+  // await seedDemoPartners(prisma, password);
 
   console.log("Seeding demo vehicle/driver...");
   const driver = await prisma.driver.create({
@@ -217,17 +219,7 @@ async function main() {
   await ensureChartOfAccounts();
   await ensureDefaultAccountingPeriods();
 
-  console.log("Seed complete.");
-  console.log("Super Admin: admin@tms.local / admin123");
-  console.log("Admin:       manager@tms.local / admin123");
-  console.log("Sales:       sales@tms.local / admin123");
-  console.log("Operations:  ops@tms.local / admin123");
-  console.log("Finance:     finance@tms.local / admin123");
-  console.log("Clients:     client01@demo.local … client10@demo.local / admin123");
-  console.log("             (client10 onboarding PENDING_APPROVAL for queue testing)");
-  console.log("Vendors:     vendor01@demo.local … vendor10@demo.local / admin123");
-  console.log("             (vendor10 onboarding PENDING_APPROVAL for queue testing)");
-  console.log("Driver:      DL MH0123456789 (OTP login)");
+  console.log("Seed complete (without dummy partners).");
 }
 
 main()

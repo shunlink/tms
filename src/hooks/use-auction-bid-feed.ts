@@ -1,15 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { readJsonBody, resolveApiError } from "@/lib/api-client";
+import { readJsonBody } from "@/lib/api-client";
+import { formatBiddingProxyError } from "@/lib/bidding/admin-api";
 import {
   type AuctionBidRow,
   auctionPusherChannelName,
   extractBidFromPusherPayload,
-  extractBidsPayload,
   normalizeAuctionBid,
-  normalizeBidList,
-  prependAuctionBid,
+  deriveStandingFromEvents,
+  latestAuctionEventId,
+  mergeAuctionEventRows,
+  type AuctionBidsApiMeta,
+  parseAuctionBidsResponse,
 } from "@/lib/bidding/auction-bids";
 
 type PusherChannel = {
@@ -17,10 +20,16 @@ type PusherChannel = {
   unbind: (event?: string, callback?: (data: unknown) => void) => void;
 };
 
+type PusherConnection = {
+  bind: (event: string, callback: () => void) => void;
+  unbind: (event: string, callback: () => void) => void;
+};
+
 type PusherClient = {
   subscribe: (channelName: string) => PusherChannel;
   unsubscribe: (channelName: string) => void;
   disconnect: () => void;
+  connection: PusherConnection;
 };
 
 type PusherConstructor = new (
@@ -57,51 +66,124 @@ type UseAuctionBidFeedOptions = {
   auctionId: string;
   enabled: boolean;
   live: boolean;
+  pollIntervalMs?: number;
 };
 
-export function useAuctionBidFeed({ auctionId, enabled, live }: UseAuctionBidFeedOptions) {
-  const [bids, setBids] = useState<AuctionBidRow[]>([]);
+export function useAuctionBidFeed({
+  auctionId,
+  enabled,
+  live,
+  pollIntervalMs = 5000,
+}: UseAuctionBidFeedOptions) {
+  const [events, setEvents] = useState<AuctionBidRow[]>([]);
+  const [standing, setStanding] = useState<AuctionBidRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [liveConnected, setLiveConnected] = useState(false);
+  const [bidsMeta, setBidsMeta] = useState<AuctionBidsApiMeta>({});
   const pusherRef = useRef<PusherClient | null>(null);
   const channelNameRef = useRef<string | null>(null);
   const priceDropHandlerRef = useRef<((data: unknown) => void) | null>(null);
+  const lastEventIdRef = useRef<string | null>(null);
+  const effectiveLive = live || bidsMeta.requirementStatus === "AUCTION_LIVE";
 
-  const loadHistory = useCallback(async () => {
-    if (!enabled || !auctionId) {
-      setBids([]);
-      setError("");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-    try {
-      const res = await fetch(
-        `/api/bidding-proxy/admin/auctions/${encodeURIComponent(auctionId)}/bids`
-      );
-      const data = await readJsonBody(res);
-      if (!res.ok) {
-        setBids([]);
-        setError(resolveApiError(res, data, "Could not load bid history").message);
+  const loadHistory = useCallback(
+    async (mode: "full" | "incremental" = "full") => {
+      if (!enabled || !auctionId?.trim()) {
+        setEvents([]);
+        setStanding([]);
+        setBidsMeta({});
+        setError("");
+        lastEventIdRef.current = null;
         return;
       }
-      setBids(normalizeBidList(extractBidsPayload(data)));
-    } catch {
-      setBids([]);
-      setError("Network error while loading bids");
-    } finally {
-      setLoading(false);
-    }
-  }, [auctionId, enabled]);
+
+      const incremental =
+        mode === "incremental" && lastEventIdRef.current?.trim();
+      const query = incremental
+        ? `?afterEventId=${encodeURIComponent(lastEventIdRef.current!)}`
+        : "";
+
+      if (!incremental) {
+        setLoading(true);
+      }
+      setError("");
+      try {
+        const res = await fetch(
+          `/api/bidding-proxy/admin/auctions/${encodeURIComponent(auctionId)}/bids${query}`
+        );
+        const data = await readJsonBody(res);
+        if (!res.ok) {
+          if (!incremental) {
+            setEvents([]);
+            setStanding([]);
+            setBidsMeta({});
+          }
+          setError(formatBiddingProxyError(res.status, data, "Could not load bid history"));
+          return;
+        }
+        const parsed = parseAuctionBidsResponse(data);
+        if (incremental && parsed.events.length > 0) {
+          setEvents((prev) => {
+            const merged = mergeAuctionEventRows(prev, parsed.events);
+            const nextId = latestAuctionEventId(merged);
+            if (nextId) lastEventIdRef.current = nextId;
+            return merged;
+          });
+        } else if (!incremental) {
+          setEvents(parsed.events);
+          const nextId = latestAuctionEventId(parsed.events);
+          if (nextId) lastEventIdRef.current = nextId;
+        }
+        setStanding(parsed.standing);
+        setBidsMeta(parsed.meta);
+      } catch {
+        if (!incremental) {
+          setEvents([]);
+          setStanding([]);
+          setError("Network error while loading bids");
+        }
+      } finally {
+        if (!incremental) {
+          setLoading(false);
+        }
+      }
+    },
+    [auctionId, enabled]
+  );
+
+  const loadHistoryFull = useCallback(() => loadHistory("full"), [loadHistory]);
+  const loadHistoryIncremental = useCallback(
+    () => loadHistory("incremental"),
+    [loadHistory]
+  );
 
   useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+    lastEventIdRef.current = null;
+    void loadHistoryFull();
+  }, [auctionId, enabled, loadHistoryFull]);
 
   useEffect(() => {
-    if (!enabled || !live || !auctionId?.trim()) {
+    if (!enabled || !effectiveLive || !auctionId?.trim()) return;
+    const id = window.setInterval(() => {
+      void loadHistoryIncremental();
+    }, pollIntervalMs);
+    return () => window.clearInterval(id);
+  }, [enabled, effectiveLive, auctionId, pollIntervalMs, loadHistoryIncremental]);
+
+  useEffect(() => {
+    if (!enabled || !effectiveLive) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadHistoryFull();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [enabled, effectiveLive, loadHistoryFull]);
+
+  useEffect(() => {
+    if (!enabled || !effectiveLive || !auctionId?.trim()) {
       setLiveConnected(false);
       return;
     }
@@ -109,9 +191,6 @@ export function useAuctionBidFeed({ auctionId, enabled, live }: UseAuctionBidFee
     const key = process.env.NEXT_PUBLIC_BIDDING_PUSHER_KEY?.trim();
     const cluster = process.env.NEXT_PUBLIC_BIDDING_PUSHER_CLUSTER?.trim() || "ap2";
     if (!key) {
-      console.warn(
-        "[auction-bid-feed] NEXT_PUBLIC_BIDDING_PUSHER_KEY is missing — live price_drop updates disabled."
-      );
       setLiveConnected(false);
       return;
     }
@@ -121,18 +200,17 @@ export function useAuctionBidFeed({ auctionId, enabled, live }: UseAuctionBidFee
     let cancelled = false;
 
     const onPriceDrop = (data: unknown) => {
-      console.log("Pusher event received:", data);
       const raw = extractBidFromPusherPayload(data);
-      if (!raw) {
-        console.warn("[auction-bid-feed] price_drop payload could not be parsed", data);
-        return;
-      }
+      if (!raw) return;
       const newBidData = normalizeAuctionBid(raw);
-      if (!newBidData) {
-        console.warn("[auction-bid-feed] price_drop missing bid amount/fields", raw);
-        return;
-      }
-      setBids((prev) => prependAuctionBid(prev, newBidData));
+      if (!newBidData) return;
+      setEvents((prev) => {
+        const merged = mergeAuctionEventRows(prev, [newBidData]);
+        setStanding(deriveStandingFromEvents(merged));
+        const nextId = latestAuctionEventId(merged);
+        if (nextId) lastEventIdRef.current = nextId;
+        return merged;
+      });
     };
 
     priceDropHandlerRef.current = onPriceDrop;
@@ -156,17 +234,19 @@ export function useAuctionBidFeed({ auctionId, enabled, live }: UseAuctionBidFee
         const pusher = new window.Pusher(key, { cluster, forceTLS: true });
         pusherRef.current = pusher;
 
-        console.log("[auction-bid-feed] Pusher subscribing to channel:", channelName, {
-          auctionId,
-          cluster,
-        });
+        const onConnected = () => {
+          if (!cancelled) {
+            setLiveConnected(true);
+            void loadHistoryFull();
+          }
+        };
+        pusher.connection.bind("connected", onConnected);
 
         const channel = pusher.subscribe(channelName);
         channel.bind("price_drop", onPriceDrop);
 
         if (!cancelled) setLiveConnected(true);
-      } catch (e) {
-        console.error("[auction-bid-feed] Pusher setup failed", e);
+      } catch {
         if (!cancelled) setLiveConnected(false);
       }
     })();
@@ -184,14 +264,24 @@ export function useAuctionBidFeed({ auctionId, enabled, live }: UseAuctionBidFee
           pusher.unsubscribe(ch);
           pusher.disconnect();
         } catch {
-          // ignore teardown errors
+          // ignore
         }
       }
       pusherRef.current = null;
       channelNameRef.current = null;
       priceDropHandlerRef.current = null;
     };
-  }, [auctionId, enabled, live]);
+  }, [auctionId, enabled, effectiveLive, loadHistoryFull]);
 
-  return { bids, loading, error, liveConnected, reload: loadHistory };
+  return {
+    events,
+    standing,
+    bids: standing,
+    loading,
+    error,
+    liveConnected,
+    reload: loadHistoryFull,
+    bidsMeta,
+    requirementStatus: bidsMeta.requirementStatus ?? "",
+  };
 }

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import BiddingDashboard from "./BiddingDashboard";
+import AuctionDeskSection from "@/components/bidding/auction-desk-section";
 import { requireInternalSession } from "@/lib/page-auth";
 
 export const dynamic = "force-dynamic";
@@ -10,5 +10,5 @@ export default async function BiddingManagementPage() {
     redirect("/");
   }
 
-  return <BiddingDashboard />;
+  return <AuctionDeskSection />;
 }

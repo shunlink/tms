@@ -1,0 +1,64 @@
+# Local development — Postgres + Redis only. Run the Next app on the host:
+#   docker compose -f docker-compose.example.yml up -d
+#   npm run dev
+#
+# Optional copy (gitignored): cp docker-compose.example.yml docker-compose.yml
+#   docker compose up -d
+#
+# Production full stack: docker-compose.production.yml (app + worker build in Docker).
+
+services:
+  pgbouncer:
+    image: edoburu/pgbouncer:1.21.0-p0
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-tms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-tms}"
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 20
+    ports:
+      - "127.0.0.1:6432:5432"
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - scaled
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--bind", "0.0.0.0", "--port", "6379"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - tms_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tms}
+      POSTGRES_DB: ${POSTGRES_DB:-tms}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - tms_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  tms_db:
+  tms_redis:

@@ -27,7 +27,7 @@ export async function GET(req: Request, { params }: { params: { tripId: string }
     return Response.json({ error: "Vendor not linked", code: "VENDOR_NOT_LINKED" }, { status: 404 });
   }
 
-  const detail = await getBiddingVendorTripDetail(vendorId, params.tripId);
+  const detail = await getBiddingVendorTripDetail(vendorId, params.tripId.trim());
   if (!detail) {
     return Response.json({ error: "Trip not found", code: "NOT_FOUND" }, { status: 404 });
   }

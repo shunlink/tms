@@ -136,6 +136,140 @@ export async function resolveVendorIdByBiddingCompany(biddingCompanyId: string) 
   return vendor?.id ?? null;
 }
 
+/** Map a Bidding vendor submitter to a TMS portal User id (FK-safe). */
+export async function resolveVendorPortalActorForBidding(
+  vendorId: string,
+  requestedByEmail?: string | null,
+): Promise<SessionUser | null> {
+  const email = requestedByEmail?.trim();
+  if (email) {
+    const byEmail = await prisma.user.findFirst({
+      where: {
+        vendorId,
+        role: "VENDOR",
+        isActive: true,
+        email: { equals: email, mode: "insensitive" },
+      },
+      select: { id: true },
+    });
+    if (byEmail) {
+      return { id: byEmail.id, role: "VENDOR", vendorId };
+    }
+  }
+
+  const fallback = await prisma.user.findFirst({
+    where: { vendorId, role: "VENDOR", isActive: true },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  return fallback ? { id: fallback.id, role: "VENDOR", vendorId } : null;
+}
+
+export async function resolveClientIdByBiddingCompany(biddingCompanyId: string) {
+  const client = await prisma.client.findFirst({
+    where: { biddingCompanyId, isActive: true, deletedAt: null },
+    select: { id: true },
+  });
+  return client?.id ?? null;
+}
+
+export async function listBiddingClientInvoices(clientId: string) {
+  const { getClientInvoices } = await import("../queries");
+  const invoices = await getClientInvoices(clientId);
+  return invoices.map((inv) => ({
+    id: inv.id,
+    invoiceNumber: inv.invoiceNumber,
+    tripCount: inv.trips,
+    subTotalInr: inv.subTotal,
+    gstAmountInr: inv.gstAmount,
+    totalAmountInr: inv.totalAmount,
+    paidAmountInr: inv.paidAmount,
+    issueDate: inv.issueDate,
+    dueDate: inv.dueDate,
+    status: inv.status,
+    outstandingInr: Math.max(0, inv.totalAmount - inv.paidAmount),
+  }));
+}
+
+export async function getBiddingClientInvoiceDetail(clientId: string, invoiceId: string) {
+  const { getInvoiceDetail } = await import("../queries");
+  const { buildInvoicePrintHtml, loadInvoicePrintSnapshot } = await import(
+    "./invoice-document.service"
+  );
+  const { CLIENT_HIDDEN_INVOICE_STATUSES } = await import("../client-trip-sync");
+
+  const inv = await getInvoiceDetail(invoiceId.trim());
+  if (!inv || inv.client.id !== clientId || CLIENT_HIDDEN_INVOICE_STATUSES.includes(inv.status)) {
+    return null;
+  }
+
+  const snapshot = await loadInvoicePrintSnapshot(invoiceId.trim());
+  if (!snapshot) return null;
+
+  const printHtml = await buildInvoicePrintHtml(invoiceId.trim());
+
+  return {
+    id: inv.id,
+    invoiceNumber: inv.invoiceNumber,
+    issueDate: inv.issueDate,
+    dueDate: inv.dueDate,
+    status: inv.status,
+    subTotalInr: inv.subTotal,
+    gstAmountInr: inv.gstAmount,
+    totalAmountInr: inv.totalAmount,
+    paidAmountInr: inv.paidAmount,
+    outstandingInr: Math.max(0, inv.totalAmount - inv.paidAmount),
+    printHtml,
+    snapshot: {
+      invoiceNumber: snapshot.invoiceNumber,
+      totalAmount: snapshot.totalAmount,
+      paidAmount: snapshot.paidAmount,
+      status: snapshot.status,
+    },
+    payments: inv.payments.map((p) => ({
+      id: p.id,
+      amount: p.amount,
+      paidAt: p.paidAt instanceof Date ? p.paidAt.toISOString() : String(p.paidAt),
+      paymentMode: p.paymentMode,
+      referenceNo: p.referenceNo,
+      chequeNumber: p.chequeNumber,
+      recordedByName: p.recordedBy?.name ?? null,
+    })),
+  };
+}
+
+export async function getBiddingClientInvoicePdfBytes(clientId: string, invoiceId: string) {
+  const { getInvoiceDetail } = await import("../queries");
+  const { generateInvoicePdfBytes } = await import("./invoice-document.service");
+  const { CLIENT_HIDDEN_INVOICE_STATUSES } = await import("../client-trip-sync");
+
+  const inv = await getInvoiceDetail(invoiceId.trim());
+  if (!inv || inv.client.id !== clientId || CLIENT_HIDDEN_INVOICE_STATUSES.includes(inv.status)) {
+    return null;
+  }
+
+  const pdf = await generateInvoicePdfBytes(invoiceId.trim());
+  return { invoiceNumber: inv.invoiceNumber, pdf };
+}
+
+export async function listBiddingClientPayments(clientId: string) {
+  const { listClientPayments } = await import("./client-payment.service");
+  const payments = await listClientPayments({ clientId, limit: 100 });
+  return payments.map((p) => ({
+    id: p.id,
+    paymentType: p.paymentType,
+    amountInr: p.amount,
+    paidAt: p.paidAt,
+    paymentMode: p.paymentMode,
+    referenceNo: p.referenceNo,
+    invoiceNumber: p.invoice?.invoiceNumber ?? null,
+    invoiceId: p.invoiceId,
+    tripLrNumber: p.trip?.lrNumber ?? null,
+    indentNumber: p.indent?.indentNumber ?? null,
+    notes: p.notes,
+  }));
+}
+
 function syncStatus(payload: OnboardingSyncPayload) {
   return payload.status ?? "APPROVED";
 }
@@ -709,7 +843,38 @@ export async function listBiddingVendorTrips(vendorId: string) {
     .map((r) => mapBiddingVendorRow(r, indentMeta, tripMeta));
 }
 
-export async function getBiddingVendorTripDetail(vendorId: string, tripId: string) {
+/** Trip list links may use indent id before TMS creates a trip row — resolve to trip id. */
+export async function resolveBiddingVendorTripId(
+  vendorId: string,
+  tripOrIndentId: string,
+): Promise<string | null> {
+  const direct = await prisma.trip.findFirst({
+    where: { id: tripOrIndentId, vendorId },
+    select: { id: true },
+  });
+  if (direct) return direct.id;
+
+  const indent = await prisma.indent.findFirst({
+    where: { id: tripOrIndentId, vendorId, source: "BIDDING" },
+    select: { id: true },
+  });
+  if (!indent) return null;
+
+  const { syncTripFromIndent } = await import("../vendor-trip-sync");
+  await syncTripFromIndent(indent.id);
+
+  const synced = await prisma.trip.findFirst({
+    where: { indentId: indent.id, vendorId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  return synced?.id ?? null;
+}
+
+export async function getBiddingVendorTripDetail(vendorId: string, tripOrIndentId: string) {
+  const tripId = await resolveBiddingVendorTripId(vendorId, tripOrIndentId);
+  if (!tripId) return null;
+
   const detail = await getVendorTripDetail(vendorId, tripId);
   if (!detail) return null;
 
@@ -728,11 +893,38 @@ export async function getBiddingVendorTripDetail(vendorId: string, tripId: strin
     select: { id: true, status: true },
   });
 
+  const {
+    getVendorTripAdvanceRequest,
+    isTripAdvanceWindowOpen,
+    advanceWindowClosedReason,
+  } = await import("./trip-advance.service");
+  const { resolveTripPodUploadGate } = await import("../pod-upload-eligibility");
+
+  const advanceRequest = await getVendorTripAdvanceRequest(vendorId, tripId);
+  const advanceWindowOpen = await isTripAdvanceWindowOpen(tripId);
+  const closedReason = advanceWindowClosedReason(detail.rawStatus);
+  const hasLiveRequest = Boolean(
+    advanceRequest && !["REJECTED", "CANCELLED"].includes(advanceRequest.status),
+  );
+  const podUpload = resolveTripPodUploadGate(detail.rawStatus, detail.podState ?? null);
+
   return {
     ...detail,
+    tripId,
+    displayStatus: detail.status,
+    routeSummary: detail.route,
+    clientName: detail.client,
+    vendorRateInr: detail.vendorRate,
     indentNumber: trip.indent.indentNumber,
     biddingLoadRequirementId: trip.indent.biddingLoadRequirementId,
     pod: latestPod ? { id: latestPod.id, status: latestPod.status } : null,
+    podUpload,
+    advance: {
+      request: advanceRequest,
+      canRequestAdvance: advanceWindowOpen && !hasLiveRequest,
+      advanceWindowOpen,
+      advanceWindowClosedReason: closedReason,
+    },
   };
 }
 

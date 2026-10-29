@@ -111,6 +111,8 @@ export function mapIndentToFlat(i: IndentWithRelations) {
     id: i.id,
     indentNumber: i.indentNumber,
     status: i.status,
+    source: i.source ?? "ADMIN",
+    biddingLoadRequirementId: i.biddingLoadRequirementId ?? null,
     allocationMode: i.allocationMode ?? "BIDDING",
     indentDate: i.indentDate,
     remarks: i.remarks,

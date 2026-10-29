@@ -26,11 +26,37 @@ Docker Compose loads `.env.production` for `db`, `app`, and `worker-email`.
 | `S3_BUCKET` / `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | if S3 | Object storage config |
 | `MAPS_PROVIDER` | no | `nominatim` (default, free) or `google` |
 | `GOOGLE_MAPS_API_KEY` | if google | Google Geocoding API key |
+| `CHROME_PATH` | Docker PDFs | Set automatically in the production image (`/usr/bin/chromium`). LR/invoice PDFs use headless Chromium via `puppeteer-core`. On Windows dev, Chrome/Edge is auto-detected; optional override. |
+
+## VPS code deploy (keep `docker-compose.yml` and `.env.production`)
+
+Deploy zips **do not** include `docker-compose.yml` or env files (see `scripts/package-deploy.ps1`).
+If you extract into an empty folder or run `rsync --delete` without those files, production compose is removed.
+
+**Safe update on the server:**
+
+```bash
+cd /path/to/tms
+./scripts/vps-apply-deploy.sh /path/to/tms-deploy-*.zip
+```
+
+**Wrong filename:** `docker.compose.yml` (dot) is **not** used by Docker. Remove it and use `docker-compose.yml` (hyphen).
+
+**If `docker-compose.yml` is missing or empty** (data volumes are usually still fine — do not run `docker compose down -v`):
+
+```bash
+cd /path/to/tms
+cp docker-compose.production.yml docker-compose.yml   # from repo or new zip
+# Restore .env.production from backup if it was lost too
+docker compose up -d --build
+```
 
 ## Option A — Docker (app + PostgreSQL + Redis + email worker)
 ```bash
 cp .env.production.example .env.production
 # Edit .env.production (secrets, URLs, Resend, WhatsApp)
+cp docker-compose.production.yml docker-compose.yml   # first time on VPS
+ln -sf .env.production .env   # so `docker compose` can substitute vars if needed
 
 docker compose up -d --build
 
@@ -41,7 +67,17 @@ docker compose logs -f app worker-email
 ```
 Data persists in `tms_db`, `tms_uploads`, and `tms_redis` volumes.
 The `app` container applies migrations on startup (`prisma migrate deploy`).
-Put HTTPS reverse proxy on the host → `127.0.0.1:3000`.
+Put HTTPS reverse proxy on the host → `http://127.0.0.1:3000` (compose binds app to localhost only).
+
+**HTTP 502 from the domain** usually means the proxy cannot reach the app. On the VPS:
+
+```bash
+curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/api/health   # expect 200
+docker compose ps    # app should be Up (healthy)
+sudo tail -20 /var/log/nginx/error.log   # or: journalctl -u caddy -n 30
+```
+
+If `curl` returns **200** but the browser shows **502**, fix Nginx/Caddy `proxy_pass` to `http://127.0.0.1:3000` and reload the proxy. If `curl` fails, recreate the app: `docker compose up -d --force-recreate app`.
 
 The production `Dockerfile` installs `openssl` on Alpine so Prisma can run migrations and the email worker can use the query engine.
 
@@ -61,6 +97,20 @@ Run under a process manager (systemd/PM2) and put Nginx/Caddy in front for TLS.
 2. Set `DATABASE_URL` to the Postgres connection string, e.g.
    `postgresql://user:pass@host:5432/tms?schema=public`.
 3. Apply migrations: `npx prisma migrate deploy`.
+
+## Database `P1000` / password authentication failed
+
+1. **Compose overrode `DATABASE_URL`** — `environment:` in compose used `${POSTGRES_PASSWORD}` from `.env`, while secrets live in `.env.production`. Fix: update `docker-compose.yml` from `docker-compose.production.yml` (newer file does not override DB URLs), then:
+   ```bash
+   ln -sf .env.production .env
+   docker compose up -d --force-recreate app worker-email
+   ```
+2. **Postgres volume already exists** — log line `Skipping initialization` means changing `POSTGRES_PASSWORD` in env does **not** change the DB password. Either put the **old** password back in `DATABASE_URL`, or align the DB user (data kept):
+   ```bash
+   docker compose exec db psql -U tms -d tms -c "ALTER USER tms WITH PASSWORD 'YOUR_POSTGRES_PASSWORD';"
+   docker compose restart app
+   ```
+3. In `.env.production`, use **unquoted** URLs, e.g. `DATABASE_URL=postgresql://tms:secret@db:5432/tms?schema=public` (no surrounding `"`).
 
 ## Health check
 `GET /api/health` returns `200` with `{ status: "ok", db: "up" }` when the

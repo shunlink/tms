@@ -24,7 +24,13 @@ const DEFAULT_ORDER: IndentDetailSection[] = [
 ];
 
 /** Returns indent detail card order based on current workflow stage. */
-export function getIndentSectionOrder(status: string): IndentDetailSection[] {
+export function getIndentSectionOrder(
+  status: string,
+  options?: { biddingHandoff?: boolean },
+): IndentDetailSection[] {
+  if (options?.biddingHandoff && status === "PLACEMENT_PENDING") {
+    return ["allocation", "form", "release", "tracking", "pod", "events", "history", "advance"];
+  }
   const quoting = ["RELEASED_TO_VENDORS", "QUOTING"];
   const placement = ["PLACEMENT_PENDING", "VENDOR_ALLOCATED"];
   const executed = ["VEHICLE_PLACED", "DRIVER_ASSIGNED", "IN_TRANSIT", "DELIVERED", "POD_PENDING", "POD_RECEIVED", "COMPLETED"];

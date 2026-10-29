@@ -1,0 +1,3 @@
+# Paths removed from the app but often left on the VPS after `unzip -o` (no delete).
+# One path per line, relative to repo root. Used by vps-apply-deploy.sh and Docker build.
+src/app/(dashboard)/bidding-management/BiddingDashboard.tsx

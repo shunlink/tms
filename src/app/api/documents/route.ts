@@ -1,5 +1,6 @@
 import {
   requireAuth,
+  authorize,
   ok,
   created,
   badRequest,
@@ -23,6 +24,8 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   const auth = await requireAuth();
   if (!auth) return unauthorized();
+  const denied = await authorize(auth, "trip.view");
+  if (denied) return denied;
   try {
     const url = new URL(req.url);
     const ownerType = url.searchParams.get("ownerType") ?? "";

@@ -11,6 +11,7 @@ import {
 } from "@/lib/pod-upload-eligibility";
 import {
   requireAuth,
+  authorize,
   ok,
   created,
   badRequest,
@@ -18,6 +19,7 @@ import {
   forbidden,
   notFound,
   serverError,
+  isInternalRole,
 } from "@/lib/api";
 
 export const runtime = "nodejs";
@@ -48,9 +50,19 @@ async function uploadTripFile(
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const auth = await requireAuth();
   if (!auth) return unauthorized();
+  const user = auth.user;
   try {
-    const trip = await prisma.trip.findFirst({ where: { id: params.id }, select: { id: true } });
+    const trip = await prisma.trip.findFirst({
+      where: { id: params.id },
+      select: { id: true, vendorId: true, driverId: true },
+    });
     if (!trip) return notFound("Trip not found");
+    if (user.role === "VENDOR" && trip.vendorId !== user.vendorId) return forbidden();
+    if (user.role === "DRIVER" && trip.driverId !== user.driverId) return forbidden();
+    if (isInternalRole(user.role)) {
+      const denied = await authorize(auth, "trip.view");
+      if (denied) return denied;
+    }
     const documents = await listDocuments("TRIP", params.id);
     return ok(documents);
   } catch (e) {

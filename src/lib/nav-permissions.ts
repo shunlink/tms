@@ -2,6 +2,7 @@ import type { PermissionKey } from "./permissions";
 import type { TeamCode } from "./teams";
 import type { SidebarPendingCountKey } from "./sidebar-pending-keys";
 import type { UserAccessMode } from "./services/access-role.service";
+import { isBiddingAdminUiEnabled } from "./feature-flags";
 
 export type NavItem = {
   href: string;
@@ -98,13 +99,12 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: "Admin",
     items: [
-      // Bidding System — hidden until bidding is fully launched (re-enable for ADMIN / SUPER_ADMIN).
-      // {
-      //   href: "/bidding-management",
-      //   label: "Bidding System",
-      //   permission: "dashboard.view",
-      //   roles: ["ADMIN", "SUPER_ADMIN"],
-      // },
+      {
+        href: "/bidding-management",
+        label: "Bidding System",
+        permission: "dashboard.view",
+        roles: ["ADMIN", "SUPER_ADMIN"],
+      },
       { href: "/users", label: "Employees & Users", permission: "users.manage" },
       { href: "/access-roles", label: "Access Role Bundles", permission: "roles.manage" },
       {
@@ -178,6 +178,7 @@ export function canAccessNavItem(
     !customBundlesOnly && teamCode && !isAdminRole ? TEAM_NAV_HREFS[teamCode] : null;
 
   if (!granted.has(item.permission)) return false;
+  if (item.href === "/bidding-management" && !isBiddingAdminUiEnabled()) return false;
   if (
     !customBundlesOnly &&
     item.roles?.length &&
