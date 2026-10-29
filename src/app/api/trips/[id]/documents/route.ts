@@ -27,6 +27,22 @@ export const runtime = "nodejs";
 const ALLOWED_TYPES = ["LR", "EWAY_BILL", "POD", "DELIVERY_CHALLAN", "GATE_PASS", "INVOICE", "OTHER"];
 const MAX_SIZE = 10 * 1024 * 1024;
 
+/** React Native multipart often yields Blob, not File — normalize before upload. */
+async function readMultipartFile(
+  part: FormDataEntryValue | null,
+  fallbackName: string
+): Promise<File | null> {
+  if (part == null) return null;
+  if (part instanceof File && part.size > 0) return part;
+  if (typeof Blob !== "undefined" && part instanceof Blob) {
+    const buffer = Buffer.from(await part.arrayBuffer());
+    if (buffer.length === 0) return null;
+    const name = part instanceof File && part.name ? part.name : fallbackName;
+    return new File([buffer], name, { type: part.type || "image/jpeg" });
+  }
+  return null;
+}
+
 async function uploadTripFile(
   tripId: string,
   file: File,
@@ -95,12 +111,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       if (tripPodAlreadySubmitted(deriveTripPodQueueState(pods))) {
         return badRequest(POD_ALREADY_SUBMITTED_MESSAGE);
       }
-      const front = formData.get("front");
-      const back = formData.get("back");
+      const front = await readMultipartFile(formData.get("front"), "front-pod.jpg");
+      const back = await readMultipartFile(formData.get("back"), "back-pod.jpg");
       const legacy = formData.get("file");
 
-      if (front instanceof File && back instanceof File) {
-        if (front.size === 0 || back.size === 0) return badRequest("POD files cannot be empty");
+      if (front && back) {
         if (front.size > MAX_SIZE || back.size > MAX_SIZE) return badRequest("File too large (max 10 MB)");
 
         const frontDoc = await uploadTripFile(params.id, front, "POD", user.id, "front");
