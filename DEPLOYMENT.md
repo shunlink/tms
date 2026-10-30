@@ -7,6 +7,8 @@ Interactive runtime requirements:
 - A database reachable via `DATABASE_URL`
 - A persistent location for uploaded documents (local volume or S3)
 
+**Environments:** **Production** uses `docker-compose.production.yml` + `.env.production` (port **3000**). **Staging** uses `docker-compose.staging.yml` + `.env.staging` (port **3001**, separate DB/Redis volumes) for full QA before promoting a deploy zip to live. See [Staging environment](#staging-environment-pre-production) below.
+
 ## Environment variables
 Copy `.env.production.example` to `.env.production` on the server and fill in secrets.
 Docker Compose loads `.env.production` for `db`, `app`, and `worker-email`.
@@ -82,6 +84,47 @@ sudo tail -20 /var/log/nginx/error.log   # or: journalctl -u caddy -n 30
 If `curl` returns **200** but the browser shows **502**, fix Nginx/Caddy `proxy_pass` to `http://127.0.0.1:3000` and reload the proxy. If `curl` fails, recreate the app: `docker compose up -d --force-recreate app`.
 
 The production `Dockerfile` installs `openssl` on Alpine so Prisma can run migrations and the email worker can use the query engine.
+
+## Staging environment (pre-production)
+
+Use staging to run the **full Docker stack** (app, Postgres, Redis, email worker) against **isolated data** before deploying the same zip to production.
+
+| | Production | Staging |
+|---|------------|---------|
+| Compose file | `docker-compose.production.yml` | `docker-compose.staging.yml` |
+| Env file | `.env.production` | `.env.staging` (from `.env.staging.example`) |
+| App port (host) | `127.0.0.1:3000` | `127.0.0.1:3001` |
+| Postgres (host) | `127.0.0.1:5432` | `127.0.0.1:5434` |
+| Redis (host) | `127.0.0.1:6379` | `127.0.0.1:6380` |
+| Volumes | `tms_db`, `tms_uploads`, `tms_redis` | `tms_staging_*` (Compose project `tms-staging`) |
+| DB user / database | `tms` / `tms` | `tms_staging` / `tms_staging` (set in compose + env) |
+
+**First-time setup (staging server or separate directory on same VPS):**
+
+```bash
+cd /opt/tms-staging   # not the live /opt/tms directory
+git clone …           # or extract deploy zip once
+cp .env.staging.example .env.staging
+# Edit: POSTGRES_PASSWORD, DATABASE_URL, DIRECT_URL (same password), NEXTAUTH_*, Resend, URLs
+openssl rand -base64 32   # paste into NEXTAUTH_SECRET
+ln -sf .env.staging .env
+docker compose -f docker-compose.staging.yml up -d --build
+docker compose -f docker-compose.staging.yml exec app npm run db:seed   # empty DB only
+curl -sS http://127.0.0.1:3001/api/health
+```
+
+Point HTTPS staging vhost at `http://127.0.0.1:3001` (e.g. `staging.tms.shunlink.in`). Update `NEXTAUTH_URL` and `PUBLIC_BASE_URL` in `.env.staging` to match.
+
+**Promote a build after QA:**
+
+1. Create deploy zip locally: `npm run package:deploy`
+2. On staging: `./scripts/vps-apply-deploy-staging.sh /path/to/tms-deploy-*.zip`
+3. Run regression / feature tests on staging
+4. On production: `./scripts/vps-apply-deploy.sh` with the **same zip** (live `.env.production` and compose unchanged)
+
+**Local Windows (optional):** copy `.env.staging.example` → `.env.staging`, adjust secrets, then `npm run docker:staging`.
+
+**Password rule:** `POSTGRES_PASSWORD` in `.env.staging` must match the password embedded in `DATABASE_URL` and `DIRECT_URL`. The `db` service also reads `${POSTGRES_PASSWORD}` from that file (compose default `tms_staging_change_me` is for first boot only — change before going shared).
 
 ## Option B — Node on a VM (against managed Postgres)
 ```bash

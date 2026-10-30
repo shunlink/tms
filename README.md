@@ -47,7 +47,8 @@ npm run dev                # http://localhost:3000
 The app uses **PostgreSQL**. Set `DATABASE_URL` in `.env` to your connection string
 (default: `postgresql://tms:tms@localhost:5432/tms?schema=public`), then run
 `npm run db:migrate:deploy`. Local Docker is **db + redis only** (`docker-compose.example.yml`);
-production uses `docker-compose.production.yml` (full stack with app build). VPS deploy zips
+production uses `docker-compose.production.yml` (full stack with app build). **Staging** uses
+`docker-compose.staging.yml` + `.env.staging` (see `DEPLOYMENT.md`). VPS deploy zips
 do not bundle server `docker-compose.yml` — see `scripts/package-deploy.ps1`.
 Enum values are stored as strings for simplicity.
 

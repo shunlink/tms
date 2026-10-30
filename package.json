@@ -31,7 +31,10 @@
     "bidding:smoke": "bash scripts/bidding-integration-smoke.sh",
     "package:deploy": "powershell -ExecutionPolicy Bypass -File scripts/package-deploy.ps1",
     "docker:dev": "docker compose -f docker-compose.example.yml up -d",
-    "docker:dev:down": "docker compose -f docker-compose.example.yml down"
+    "docker:dev:down": "docker compose -f docker-compose.example.yml down",
+    "docker:staging": "docker compose -f docker-compose.staging.yml --env-file .env.staging up -d --build",
+    "docker:staging:down": "docker compose -f docker-compose.staging.yml down",
+    "docker:staging:logs": "docker compose -f docker-compose.staging.yml logs -f app worker-email"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

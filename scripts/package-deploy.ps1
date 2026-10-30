@@ -22,7 +22,7 @@ $excludeDirs = @(
   ".cursor", "terminals", "coverage", "public\uploads"
 )
 
-$excludeFiles = @("docker-compose.yml", ".env", ".env.production", ".env.local")
+$excludeFiles = @("docker-compose.yml", ".env", ".env.production", ".env.staging", ".env.local")
 
 Write-Host "Staging deploy bundle from $Root ..."
 
