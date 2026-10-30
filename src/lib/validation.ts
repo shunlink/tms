@@ -800,6 +800,17 @@ export const driverLoginOtpRequestSchema = z.object({
   phone: requiredPhone(),
 });
 
+/** Sarathi mobile self-registration (public). */
+export const driverMobileRegisterSchema = z.object({
+  name: z.string().trim().min(2, "Full name is required"),
+  dlNumber: z
+    .string()
+    .trim()
+    .min(4, "DL number is required")
+    .transform((v) => v.replace(/\s+/g, "").toUpperCase()),
+  phone: requiredPhone(),
+});
+
 export const driverOtpSendSchema = z.object({
   phone: requiredPhone(),
 });

@@ -10,8 +10,15 @@ import {
   requestDriverLoginOtp,
   verifyDriverOtpSecure,
 } from "./otp.service";
+import { AppError } from "../api-errors";
 
 export { normalizeDl };
+
+export type DriverMobileRegisterInput = {
+  name: string;
+  dlNumber: string;
+  phone: string;
+};
 
 export type IndentDriverInput = {
   name: string;
@@ -40,6 +47,41 @@ export async function lookupDriverByDl(dlNumber: string) {
     },
   });
   return driver;
+}
+
+/** Public mobile app registration — creates driver + linked DRIVER user when DL is new. */
+export async function registerDriverMobile(input: DriverMobileRegisterInput) {
+  const dlNumber = normalizeDl(input.dlNumber);
+  const existing = await prisma.driver.findUnique({ where: { dlNumber } });
+  if (existing) {
+    throw new AppError("A driver is already registered with this DL number.", {
+      status: 409,
+      code: "CONFLICT",
+    });
+  }
+
+  const crypto = await import("crypto");
+  return prisma.$transaction(async (tx) => {
+    const driver = await tx.driver.create({
+      data: {
+        name: input.name.trim(),
+        phone: input.phone,
+        dlNumber,
+        deviceType: "SMARTPHONE",
+        accountStatus: "ACTIVE",
+        kycStatus: "PENDING",
+      },
+    });
+    await tx.user.create({
+      data: {
+        name: input.name.trim(),
+        password: crypto.randomUUID(),
+        role: "DRIVER",
+        driverId: driver.id,
+      },
+    });
+    return driver;
+  });
 }
 
 /**
@@ -355,4 +397,81 @@ export async function getDriverCurrentIndent(driverId: string) {
     podReceivedAt: legacyTrip?.podReceivedAt ?? null,
     pings: legacyTrip ? mapPings(legacyTrip.pings) : [],
   };
+}
+
+export async function getDriverProfile(driverId: string) {
+  const driver = await prisma.driver.findFirst({
+    where: { id: driverId, deletedAt: null },
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      dlNumber: true,
+      dlExpiry: true,
+      deviceType: true,
+      otpVerified: true,
+      accountStatus: true,
+      kycStatus: true,
+    },
+  });
+  if (!driver) return null;
+  return {
+    ...driver,
+    dlExpiry: driver.dlExpiry?.toISOString() ?? null,
+  };
+}
+
+export async function listDriverTrips(
+  driverId: string,
+  opts: { page?: number; limit?: number } = {}
+) {
+  const page = Math.max(1, opts.page ?? 1);
+  const limit = Math.min(50, Math.max(1, opts.limit ?? 20));
+  const skip = (page - 1) * limit;
+
+  const where = { driverId };
+  const [rows, total] = await Promise.all([
+    prisma.trip.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+      skip,
+      take: limit,
+      include: {
+        vehicle: { select: { registrationNumber: true } },
+        indent: {
+          select: {
+            indentNumber: true,
+            loading: { select: { city: true, state: true } },
+            unloading: { select: { city: true, state: true } },
+          },
+        },
+        pods: { select: { status: true, resolutionStatus: true } },
+      },
+    }),
+    prisma.trip.count({ where }),
+  ]);
+
+  const { deriveTripPodQueueState } = await import("../pod-upload-eligibility");
+
+  const items = rows.map((trip) => {
+    const pickup = trip.indent
+      ? `${trip.indent.loading?.city ?? "—"}, ${trip.indent.loading?.state ?? ""}`.trim()
+      : trip.routeFrom;
+    const delivery = trip.indent
+      ? `${trip.indent.unloading?.city ?? "—"}, ${trip.indent.unloading?.state ?? ""}`.trim()
+      : trip.routeTo;
+    return {
+      tripId: trip.id,
+      indentNumber: trip.indent?.indentNumber ?? "—",
+      lrNumber: trip.lrNumber,
+      pickup,
+      delivery,
+      tripDate: (trip.deliveredAt ?? trip.updatedAt).toISOString(),
+      vehicleRegistration: trip.vehicle.registrationNumber,
+      tripStatus: trip.status,
+      podState: deriveTripPodQueueState(trip.pods ?? []),
+    };
+  });
+
+  return { items, page, total };
 }
