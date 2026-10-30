@@ -2,6 +2,7 @@ import { z } from "zod";
 import { requireAuth, authorize, ok, badRequest, notFound, serverError } from "@/lib/api";
 import { otpSchema, validate, zodFieldErrors } from "@/lib/validation";
 import { verifyDriverForIndent } from "@/lib/services/driver.service";
+import { isResourceAssignmentConflictMessage } from "@/lib/resource-assignment-eligibility";
 import { friendlyValidationError } from "@/lib/api-errors";
 
 const indentDriverVerifySchema = z.object({
@@ -38,7 +39,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (
       msg.includes("Invalid or expired") ||
       msg.includes("Vehicle and driver") ||
-      msg.includes("Vendor must be allocated")
+      msg.includes("Vendor must be allocated") ||
+      isResourceAssignmentConflictMessage(msg)
     ) {
       return badRequest(msg);
     }

@@ -62,6 +62,8 @@ export default function TripTracking({
         initialPing={latest}
         live={LIVE_TRIP_STATUSES.has(tripStatus)}
         showHistory
+        tripId={tripId}
+        mapDisplayUrl={`/api/trips/${tripId}/map-display`}
       />
 
       <form onSubmit={add} className="grid grid-cols-2 md:grid-cols-4 gap-3 items-end border-t pt-4">

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, MapPin, IndianRupee, FileText, Navigation } from "lucide-react";
+import { ArrowLeft, MapPin, IndianRupee, FileText } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import IndentActions from "@/components/forms/indent-actions";
 import IndentQuotes from "@/components/forms/indent-quotes";
@@ -10,7 +10,6 @@ import { getSessionUser } from "@/lib/auth";
 import { countBillableTripsForIndent, getIndentDetail, getIndentQuotes, getFormOptions } from "@/lib/queries";
 import { hasPermission, type PermissionKey } from "@/lib/services/permission.service";
 import { indentFlatToFormValues } from "@/lib/mappers/indent-form";
-import IndentLiveTracking from "@/components/forms/indent-live-tracking";
 import StatusBadge from "@/components/status-badge";
 import PodVerificationPanel from "@/components/forms/pod-verification-panel";
 import { isVendorAdvancePaidStatus } from "@/lib/advance";
@@ -92,7 +91,6 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
   const sectionOrder = getIndentSectionOrder(indent.status, {
     biddingHandoff: fromBiddingMarketplace && vendorAllocated,
   });
-  const lastPing = indent.lastTracking;
 
   const formClients = clients.some((c) => c.id === indent.client.id)
     ? clients
@@ -209,19 +207,6 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
       <Card key="form" className="mb-6 border-amber-200">
         <CardContent className="pt-6 text-sm text-slate-500">
           You do not have permission to edit this indent.
-        </CardContent>
-      </Card>
-    ),
-
-    tracking: (
-      <Card key="tracking" className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Navigation className="h-4 w-4 text-teal-600" /> Driver Tracking
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <IndentLiveTracking indentId={indent.id} indentStatus={indent.status} lastPing={lastPing} />
         </CardContent>
       </Card>
     ),

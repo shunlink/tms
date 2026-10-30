@@ -119,8 +119,10 @@ export default async function VendorTripDetailPage({
           </p>
         </div>
         <PortalTripLiveTracking
+          tripId={trip.id}
           tripStatus={trip.rawStatus}
           fetchUrl={`/api/portal/vendor/trips/${trip.id}/tracking`}
+          mapDisplayUrl={`/api/portal/vendor/trips/${trip.id}/map-display`}
           initialPing={trip.latestPing}
         />
       </div>

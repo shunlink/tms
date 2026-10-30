@@ -20,7 +20,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
   if (!isRoutingConfigured()) {
     return badRequest(
-      "Routing is not configured. Set MAPS_PROVIDER=google and GOOGLE_MAPS_API_KEY, or MAPS_PROVIDER=mapbox and MAPBOX_ACCESS_TOKEN."
+      "Routing is not configured. Set MAPS_PROVIDER=google and GOOGLE_MAPS_API_KEY, MAPS_PROVIDER=mapbox and MAPBOX_ACCESS_TOKEN, or MAPS_PROVIDER=here and HERE_API_KEY."
     );
   }
 

@@ -6,6 +6,10 @@ import { indentStatusToTripStatus } from "../vendor-trip-sync";
 import type { SessionUser } from "../auth";
 import { resolveTargetLine, syncIndentHeaderFromLines } from "../indent-line-rollup";
 import { reconcileIndentLines } from "../indent-line-sync";
+import {
+  assertDriverAvailableForIndentLine,
+  assertVehicleAvailableForIndentLine,
+} from "../resource-assignment-eligibility";
 
 const n = (d: { toNumber(): number } | null | undefined) => (d ? d.toNumber() : 0);
 
@@ -76,6 +80,9 @@ export async function createTripFromIndent(
   if (!driverRecord?.otpVerified) {
     throw new Error("Driver OTP verification must be completed before creating a trip");
   }
+
+  await assertDriverAvailableForIndentLine(activeAlloc.driverId, line.id, line.tripId);
+  await assertVehicleAvailableForIndentLine(activeAlloc.vehicleId, line.id, line.tripId);
 
   const vehicleQty = Math.max(1, indent.consignment?.vehicleQuantity ?? indent.lines.length ?? 1);
   const vendorRate = n(activeAlloc.vendorRate) / vehicleQty;

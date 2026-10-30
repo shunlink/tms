@@ -1,6 +1,7 @@
 import { requireAuth, authorize, ok, badRequest, notFound, serverError } from "@/lib/api";
 import { indentDriverSchema, validate } from "@/lib/validation";
 import { registerDriverForIndent } from "@/lib/services/driver.service";
+import { isResourceAssignmentConflictMessage } from "@/lib/resource-assignment-eligibility";
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const auth = await requireAuth();
@@ -18,7 +19,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const msg = e instanceof Error ? e.message : "Driver assignment failed";
     if (
       msg.includes("Vendor must be allocated") ||
-      msg.includes("Vehicle and driver can only be assigned")
+      msg.includes("Vehicle and driver can only be assigned") ||
+      isResourceAssignmentConflictMessage(msg)
     ) {
       return badRequest(msg);
     }

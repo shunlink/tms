@@ -3,6 +3,7 @@ import { logAudit } from "../audit";
 import type { SessionUser } from "../auth";
 import { normalizeVehicleReg } from "../field-validators";
 import { assertVehicleDriverAssignableForLine } from "../indent-placement";
+import { assertVehicleAvailableForIndentLine } from "../resource-assignment-eligibility";
 import { resolveTargetLine, syncIndentHeaderFromLines } from "../indent-line-rollup";
 
 export type VehicleAssignmentInput = {
@@ -166,6 +167,8 @@ export async function assignVehicleToIndent(
       },
     });
   }
+
+  await assertVehicleAvailableForIndentLine(vehicle.id, line.id, line.tripId);
 
   await prisma.$transaction(async (tx) => {
     const alloc = await tx.indentAllocation.findFirst({

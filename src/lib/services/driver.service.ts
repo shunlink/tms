@@ -4,6 +4,7 @@ import { logAudit } from "../audit";
 import type { SessionUser } from "../auth";
 import { normalizeDl } from "../otp";
 import { assertVehicleDriverAssignableForLine } from "../indent-placement";
+import { assertDriverAvailableForIndentLine } from "../resource-assignment-eligibility";
 import { resolveTargetLine, syncIndentHeaderFromLines } from "../indent-line-rollup";
 import {
   issueDriverOtp,
@@ -106,6 +107,8 @@ export async function registerDriverForIndent(
     return d;
   });
 
+  await assertDriverAvailableForIndentLine(driver.id, line.id, line.tripId);
+
   const { createImportantEvent, resolveImportantEvents } = await import("./important-event.service");
   // A new OTP request supersedes earlier pending verifications on this indent.
   await resolveImportantEvents(
@@ -166,6 +169,8 @@ export async function verifyDriverForIndent(
 
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new Error("Driver not found");
+
+  await assertDriverAvailableForIndentLine(driverId, line.id, line.tripId);
 
   await verifyDriverOtpSecure({ driverId, otp, purpose: "driver_verify" });
 
@@ -354,5 +359,131 @@ export async function getDriverCurrentIndent(driverId: string) {
     tripStatus: legacyTrip?.status ?? null,
     podReceivedAt: legacyTrip?.podReceivedAt ?? null,
     pings: legacyTrip ? mapPings(legacyTrip.pings) : [],
+  };
+}
+
+/** Driver mobile app — profile fields (no internal onboarding docs). */
+export async function getDriverMeProfile(driverId: string) {
+  const d = await prisma.driver.findFirst({ where: { id: driverId } });
+  if (!d) return null;
+  return {
+    id: d.id,
+    name: d.name,
+    phone: d.phone,
+    dlNumber: d.dlNumber,
+    dlExpiry: d.dlExpiry?.toISOString() ?? null,
+    deviceType: d.deviceType,
+    otpVerified: d.otpVerified,
+    accountStatus: d.accountStatus,
+    kycStatus: d.kycStatus,
+  };
+}
+
+/** Paginated trip history for the authenticated driver (mobile). */
+export async function listDriverTripHistoryForMobile(driverId: string, page: number, limit: number) {
+  const skip = (page - 1) * limit;
+  const where = { driverId };
+
+  const [total, trips] = await Promise.all([
+    prisma.trip.count({ where }),
+    prisma.trip.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip,
+      take: limit,
+      select: {
+        id: true,
+        lrNumber: true,
+        routeFrom: true,
+        routeTo: true,
+        status: true,
+        createdAt: true,
+        dispatchedAt: true,
+        vehicle: { select: { registrationNumber: true } },
+        indent: { select: { indentNumber: true } },
+        pods: { select: { status: true, resolutionStatus: true } },
+      },
+    }),
+  ]);
+
+  const { deriveTripPodQueueState } = await import("../pod-upload-eligibility");
+
+  return {
+    items: trips.map((t) => ({
+      tripId: t.id,
+      indentNumber: t.indent?.indentNumber ?? "—",
+      lrNumber: t.lrNumber,
+      pickup: t.routeFrom,
+      delivery: t.routeTo,
+      tripDate: (t.dispatchedAt ?? t.createdAt).toISOString(),
+      vehicleRegistration: t.vehicle?.registrationNumber ?? "—",
+      tripStatus: t.status,
+      podState: deriveTripPodQueueState(t.pods ?? []),
+    })),
+    page,
+    total,
+  };
+}
+
+export type DriverMobileSignupInput = {
+  name: string;
+  dlNumber: string;
+  phone: string;
+};
+
+/** Self-service registration from the driver mobile app (no session required). */
+export async function registerDriverMobileSignup(input: DriverMobileSignupInput) {
+  const { AppError } = await import("../api-errors");
+  const dlNumber = normalizeDl(input.dlNumber);
+  const name = input.name.trim();
+  const phone = input.phone;
+
+  const existing = await prisma.driver.findUnique({ where: { dlNumber } });
+  if (existing) {
+    throw new AppError("A driver is already registered with this DL number. Please log in instead.", {
+      status: 409,
+      code: "CONFLICT",
+    });
+  }
+
+  const crypto = await import("crypto");
+  const bcrypt = await import("bcryptjs");
+  const passwordHash = await bcrypt.hash(crypto.randomUUID(), 10);
+
+  const driver = await prisma.$transaction(async (tx) => {
+    const d = await tx.driver.create({
+      data: {
+        name,
+        phone,
+        dlNumber,
+        deviceType: "SMARTPHONE",
+        accountStatus: "ACTIVE",
+        kycStatus: "PENDING",
+      },
+    });
+    await tx.user.create({
+      data: {
+        name,
+        password: passwordHash,
+        role: "DRIVER",
+        driverId: d.id,
+      },
+    });
+    return d;
+  });
+
+  await logAudit({
+    user: null,
+    action: "driver.self_registered",
+    entity: "DRIVER",
+    entityId: driver.id,
+    meta: { source: "mobile" },
+  });
+
+  return {
+    id: driver.id,
+    name: driver.name,
+    dlNumber: driver.dlNumber,
+    phone: driver.phone,
   };
 }

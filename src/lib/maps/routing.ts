@@ -5,6 +5,8 @@ export type RoutePoint = { lat: number; lng: number };
 export type DrivingRouteResult = {
   durationSeconds: number;
   distanceMeters: number;
+  /** HERE flexible polylines per route section (when available). */
+  sectionPolylines?: string[];
 };
 
 async function googleDrivingRoute(from: RoutePoint, to: RoutePoint): Promise<DrivingRouteResult> {
@@ -60,11 +62,79 @@ async function mapboxDrivingRoute(from: RoutePoint, to: RoutePoint): Promise<Dri
   };
 }
 
+function hereTransportMode(): string {
+  const raw = (process.env.HERE_ROUTING_TRANSPORT_MODE ?? "truck").trim().toLowerCase();
+  return raw === "car" ? "car" : "truck";
+}
+
+type HereRouteSection = {
+  polyline?: string;
+  summary?: { duration?: number; length?: number };
+};
+
+async function hereDrivingRouteOnce(
+  from: RoutePoint,
+  to: RoutePoint,
+  transportMode: string
+): Promise<DrivingRouteResult> {
+  const key = process.env.HERE_API_KEY?.trim();
+  if (!key) throw new Error("HERE_API_KEY is not configured");
+
+  const params = new URLSearchParams({
+    transportMode,
+    origin: `${from.lat},${from.lng}`,
+    destination: `${to.lat},${to.lng}`,
+    return: "polyline,summary",
+    routingMode: "fast",
+    apiKey: key,
+  });
+
+  const url = `https://router.hereapi.com/v8/routes?${params.toString()}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) throw new Error(`HERE Routing HTTP ${res.status}`);
+
+  const data = (await res.json()) as {
+    routes?: { sections?: HereRouteSection[] }[];
+    title?: string;
+    cause?: string;
+  };
+
+  const sections = data.routes?.[0]?.sections;
+  if (!sections?.length) {
+    throw new Error(data.cause ?? data.title ?? "HERE Routing returned no routes");
+  }
+
+  let durationSeconds = 0;
+  let distanceMeters = 0;
+  const sectionPolylines: string[] = [];
+
+  for (const section of sections) {
+    durationSeconds += section.summary?.duration ?? 0;
+    distanceMeters += section.summary?.length ?? 0;
+    if (section.polyline) sectionPolylines.push(section.polyline);
+  }
+
+  return { durationSeconds, distanceMeters, sectionPolylines };
+}
+
+async function hereDrivingRoute(from: RoutePoint, to: RoutePoint): Promise<DrivingRouteResult> {
+  const mode = hereTransportMode();
+  try {
+    return await hereDrivingRouteOnce(from, to, mode);
+  } catch (e) {
+    if (mode === "truck") {
+      return hereDrivingRouteOnce(from, to, "car");
+    }
+    throw e;
+  }
+}
+
 export async function fetchDrivingRoute(from: RoutePoint, to: RoutePoint): Promise<DrivingRouteResult> {
   const provider = mapsProvider();
   if (provider === "google") return googleDrivingRoute(from, to);
   if (provider === "mapbox") return mapboxDrivingRoute(from, to);
+  if (provider === "here") return hereDrivingRoute(from, to);
   throw new Error(
-    "Driving routes require MAPS_PROVIDER=google or mapbox with the matching API key/token. OSM tiles do not include routing."
+    "Driving routes require MAPS_PROVIDER=google, mapbox, or here with the matching API key/token. OSM tiles do not include routing."
   );
 }

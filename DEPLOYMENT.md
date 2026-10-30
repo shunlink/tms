@@ -24,8 +24,10 @@ Docker Compose loads `.env.production` for `db`, `app`, and `worker-email`.
 | `INTEGRATION_MODE` | no | `mock` (default) until Surepass is configured |
 | `STORAGE_DRIVER` | no | `local` (default) or `s3` |
 | `S3_BUCKET` / `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | if S3 | Object storage config |
-| `MAPS_PROVIDER` | no | `nominatim` (default, free) or `google` |
-| `GOOGLE_MAPS_API_KEY` | if google | Google Geocoding API key |
+| `MAPS_PROVIDER` | no | `osm` (default tiles), `google`, `mapbox`, or `here` |
+| `GOOGLE_MAPS_API_KEY` | if google | Google Geocoding / Directions |
+| `HERE_API_KEY` | if here | HERE Geocoding + Routing v8 (server) |
+| `NEXT_PUBLIC_HERE_API_KEY` | if here | HERE Maps JS (browser-restricted key) |
 | `CHROME_PATH` | Docker PDFs | Set automatically in the production image (`/usr/bin/chromium`). LR/invoice PDFs use headless Chromium via `puppeteer-core`. On Windows dev, Chrome/Edge is auto-detected; optional override. |
 
 ## VPS code deploy (keep `docker-compose.yml` and `.env.production`)

@@ -2,6 +2,7 @@ import { requireAuth, authorize, ok, notFound, serverError, badRequest } from "@
 import { createTripFromIndent } from "@/lib/services/trip-from-indent.service";
 import { getTripLrDocument, generateTripLrPdf } from "@/lib/services/lr-document.service";
 import { createTripFromIndentSchema, validate } from "@/lib/validation";
+import { isResourceAssignmentConflictMessage } from "@/lib/resource-assignment-eligibility";
 
 export const runtime = "nodejs";
 
@@ -24,7 +25,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (
       msg.includes("Trip can only be created") ||
       msg.includes("must be allocated") ||
-      msg.includes("must be assigned")
+      msg.includes("must be assigned") ||
+      isResourceAssignmentConflictMessage(msg)
     ) {
       return badRequest(msg);
     }

@@ -47,8 +47,6 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const auth = await requireAuth();
   if (!auth) return unauthorized();
-  const denied = await authorize(auth, "tracking.post");
-  if (denied) return denied;
 
   const user = auth.user;
   try {
@@ -59,6 +57,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (!trip) return notFound("Trip not found");
     if (user.role === "VENDOR" && trip.vendorId !== user.vendorId) return forbidden();
     if (user.role === "DRIVER" && trip.driverId !== user.driverId) return forbidden();
+
+    const isPortalDriverOrVendor =
+      (user.role === "DRIVER" && trip.driverId === user.driverId) ||
+      (user.role === "VENDOR" && trip.vendorId === user.vendorId);
+    if (!isPortalDriverOrVendor) {
+      const denied = await authorize(auth, "tracking.post");
+      if (denied) return denied;
+    }
 
     const body = await req.json();
     const parsed = validate(trackingPingSchema, body);

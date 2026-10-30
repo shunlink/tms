@@ -16,12 +16,16 @@ type InitialPing = {
 };
 
 export default function PortalTripLiveTracking({
+  tripId,
   tripStatus,
   fetchUrl,
+  mapDisplayUrl,
   initialPing,
 }: {
+  tripId: string;
   tripStatus: string;
   fetchUrl: string;
+  mapDisplayUrl: string;
   initialPing?: InitialPing | null;
 }) {
   const latest = initialPing
@@ -38,6 +42,8 @@ export default function PortalTripLiveTracking({
       initialPing={latest}
       live={LIVE_TRIP_STATUSES.has(tripStatus)}
       showHistory
+      tripId={tripId}
+      mapDisplayUrl={mapDisplayUrl}
     />
   );
 }

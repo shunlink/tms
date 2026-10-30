@@ -58,6 +58,8 @@ function apiAllowed(role: string, method: string, pathname: string) {
   if (role === "DRIVER") {
     return (
       (method === "GET" && pathname === "/api/drivers/me/current-indent") ||
+      (method === "GET" && pathname === "/api/drivers/me") ||
+      (method === "GET" && pathname === "/api/drivers/me/trips") ||
       (method === "POST" && /^\/api\/drivers\/[^/]+\/(send-otp|verify-otp)$/.test(pathname)) ||
       (method === "POST" && /^\/api\/indents\/[^/]+\/(pod|tracking)$/.test(pathname)) ||
       (method === "GET" && /^\/api\/indents\/[^/]+\/tracking$/.test(pathname)) ||
@@ -157,6 +159,6 @@ export default withAuth(
 
 export const config = {
   matcher: [
-    "/((?!api/auth|api/health|api/webhooks|api/webhook|api/public|api/integration/bidding|api/drivers/otp|login(?:/|$)|signup|welcome|quote(?:/|$)|_next/static|_next/image|favicon.ico|brand/|auth/|images/|portal/[^/]+\\.(?:webp|jpg|jpeg|png|gif|svg)).*)",
+    "/((?!api/auth|api/health|api/webhooks|api/webhook|api/public|api/integration/bidding|api/drivers/otp|api/drivers/register|login(?:/|$)|signup|welcome|quote(?:/|$)|_next/static|_next/image|favicon.ico|brand/|auth/|images/|portal/[^/]+\\.(?:webp|jpg|jpeg|png|gif|svg)).*)",
   ],
 };

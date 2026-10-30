@@ -73,8 +73,10 @@ export default async function ClientTripDetailPage({
             </div>
           </div>
           <PortalTripLiveTracking
+            tripId={trip.id}
             tripStatus={trip.status}
             fetchUrl={`/api/portal/client/trips/${trip.id}/tracking`}
+            mapDisplayUrl={`/api/portal/client/trips/${trip.id}/map-display`}
             initialPing={trip.latestPing}
           />
         </div>
