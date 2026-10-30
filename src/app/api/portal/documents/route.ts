@@ -2,6 +2,7 @@ import { requireAuth, ok, created, badRequest, forbidden, unauthorized, serverEr
 import { logAudit } from "@/lib/audit";
 import { listDocuments, uploadDocument, ALLOWED_DOCUMENT_TYPES, type DocumentEntityType } from "@/lib/services/document.service";
 import { validateUploadedFile } from "@/lib/document-validation";
+import { readMultipartFile } from "@/lib/multipart-file";
 import { denyUnapprovedClientMutation } from "@/lib/client-portal-mutation-guard";
 import { canSelfServiceEditPortalProfile } from "@/lib/portal-access";
 import { getOnboardingStatus } from "@/lib/services/onboarding.service";
@@ -53,11 +54,13 @@ export async function POST(req: Request) {
   }
   try {
     const formData = await req.formData();
-    const file = formData.get("file");
     const rawType = String(formData.get("type") || "OTHER");
     const type = ALLOWED_DOCUMENT_TYPES.includes(rawType) ? rawType : "OTHER";
 
-    if (!(file instanceof File)) return badRequest("No file uploaded");
+    const file =
+      (await readMultipartFile(formData.get("file"), "document.jpg")) ??
+      (await readMultipartFile(formData.get("front"), "document.jpg"));
+    if (!file) return badRequest("No file uploaded");
     const fileCheck = validateUploadedFile({ name: file.name, size: file.size, type: file.type });
     if (!fileCheck.ok) {
       return badRequest(fileCheck.message, { code: "FILE_INVALID" });
@@ -73,6 +76,7 @@ export async function POST(req: Request) {
       sizeBytes: file.size,
       buffer: bytes,
       uploadedById: user.id,
+      replaceExisting: o.type === "DRIVER",
     });
     await logAudit({ user, action: "portal.document.upload", entity: "DocumentAttachment", entityId: doc.id, meta: { ownerType: o.type, type } });
     return created(doc);

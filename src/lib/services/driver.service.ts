@@ -298,6 +298,8 @@ export async function getDriverCurrentIndent(driverId: string) {
       client: indent.client.name,
       pickup: `${indent.loading?.city ?? "—"}, ${indent.loading?.state ?? ""}`.trim(),
       delivery: `${indent.unloading?.city ?? "—"}, ${indent.unloading?.state ?? ""}`.trim(),
+      pickupAt: indent.consignment?.pickupAt?.toISOString() ?? null,
+      deliveryAt: indent.consignment?.deliveryAt?.toISOString() ?? null,
       vehicle: trip.vehicle.registrationNumber,
       cargo: indent.consignment?.cargoTypeCode ?? null,
       status: indent.status,
@@ -319,7 +321,7 @@ export async function getDriverCurrentIndent(driverId: string) {
     include: {
       client: { select: { name: true } },
       vehicle: { select: { registrationNumber: true } },
-      consignment: { select: { cargoTypeCode: true } },
+      consignment: { select: { cargoTypeCode: true, pickupAt: true, deliveryAt: true } },
       loading: { select: { city: true, state: true } },
       unloading: { select: { city: true, state: true } },
       trips: {
@@ -352,6 +354,8 @@ export async function getDriverCurrentIndent(driverId: string) {
     client: indent.client.name,
     pickup: `${indent.loading?.city ?? "—"}, ${indent.loading?.state ?? ""}`.trim(),
     delivery: `${indent.unloading?.city ?? "—"}, ${indent.unloading?.state ?? ""}`.trim(),
+    pickupAt: indent.consignment?.pickupAt?.toISOString() ?? null,
+    deliveryAt: indent.consignment?.deliveryAt?.toISOString() ?? null,
     vehicle: indent.vehicle?.registrationNumber ?? null,
     cargo: indent.consignment?.cargoTypeCode ?? null,
     status: indent.status,
@@ -366,16 +370,160 @@ export async function getDriverCurrentIndent(driverId: string) {
 export async function getDriverMeProfile(driverId: string) {
   const d = await prisma.driver.findFirst({ where: { id: driverId } });
   if (!d) return null;
+  const onboardingComplete = Boolean(
+    d.name?.trim() &&
+      d.phone?.trim() &&
+      d.dlNumber?.trim() &&
+      d.dlExpiry &&
+      d.dlExpiry.getTime() >= Date.now() &&
+      d.address?.trim() &&
+      d.city?.trim() &&
+      d.state?.trim() &&
+      d.pincode?.trim()
+  );
+
   return {
     id: d.id,
     name: d.name,
     phone: d.phone,
     dlNumber: d.dlNumber,
     dlExpiry: d.dlExpiry?.toISOString() ?? null,
+    address: d.address ?? null,
+    city: d.city ?? null,
+    state: d.state ?? null,
+    pincode: d.pincode ?? null,
     deviceType: d.deviceType,
     otpVerified: d.otpVerified,
     accountStatus: d.accountStatus,
     kycStatus: d.kycStatus,
+    onboardingComplete,
+  };
+}
+
+const DRIVER_TRIP_ACCESS_OR = (driverId: string) =>
+  [
+    { driverId },
+    { indent: { is: { driverId } } },
+    { indentLine: { is: { allocations: { some: { driverId, status: "ACTIVE" } } } } },
+    { indent: { is: { allocations: { some: { driverId, status: "ACTIVE" } } } } },
+    { pings: { some: { driverId } } },
+  ] as const;
+
+const driverTripPodSelect = {
+  id: true,
+  status: true,
+  indentId: true,
+  driverId: true,
+} as const;
+
+/**
+ * Resolve a trip the driver may access for mobile POD / trip detail.
+ * Accepts trip id or indent id (some flows still deep-link with indent id).
+ */
+export async function resolveDriverAccessibleTrip(driverId: string, tripOrIndentId: string) {
+  const key = tripOrIndentId.trim();
+  if (!key) return null;
+
+  const directOwned = await prisma.trip.findFirst({
+    where: { id: key, driverId },
+    select: driverTripPodSelect,
+  });
+  if (directOwned) return directOwned;
+
+  const accessOr = DRIVER_TRIP_ACCESS_OR(driverId);
+
+  const byTripId = await prisma.trip.findFirst({
+    where: { AND: [{ id: key }, { OR: [...accessOr] }] },
+    select: driverTripPodSelect,
+  });
+  if (byTripId) return byTripId;
+
+  return prisma.trip.findFirst({
+    where: { AND: [{ indentId: key }, { OR: [...accessOr] }] },
+    orderBy: { updatedAt: "desc" },
+    select: driverTripPodSelect,
+  });
+}
+
+/** Driver id from DB for the signed-in user (prefer over JWT session fields). */
+export async function getDriverIdForAuthUser(user: { id?: string; role?: string }) {
+  if (user.role !== "DRIVER" || !user.id) return null;
+  const row = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { driverId: true },
+  });
+  return row?.driverId ?? null;
+}
+
+/** When header driverId was never set, align trip with the authenticated driver. */
+export async function ensureTripDriverId(tripId: string, driverId: string) {
+  await prisma.trip.updateMany({
+    where: { id: tripId, driverId: null },
+    data: { driverId },
+  });
+}
+
+/** Single trip overview for driver mobile (must belong to driver). */
+export async function getDriverMeTripDetail(driverId: string, tripId: string) {
+  const resolved = await resolveDriverAccessibleTrip(driverId, tripId);
+  if (!resolved) return null;
+
+  const trip = await prisma.trip.findFirst({
+    where: { id: resolved.id },
+    select: {
+      id: true,
+      lrNumber: true,
+      routeFrom: true,
+      routeTo: true,
+      status: true,
+      dispatchedAt: true,
+      deliveredAt: true,
+      podReceivedAt: true,
+      vehicle: { select: { registrationNumber: true } },
+      pods: { select: { status: true, resolutionStatus: true } },
+      indent: {
+        select: {
+          indentNumber: true,
+          status: true,
+          client: { select: { name: true } },
+          consignment: { select: { cargoTypeCode: true, pickupAt: true, deliveryAt: true } },
+          loading: { select: { city: true, state: true } },
+          unloading: { select: { city: true, state: true } },
+        },
+      },
+    },
+  });
+  if (!trip) return null;
+
+  await ensureTripDriverId(trip.id, driverId);
+
+  const { deriveTripPodQueueState } = await import("../pod-upload-eligibility");
+  const indent = trip.indent;
+  const pickup =
+    indent?.loading?.city != null
+      ? `${indent.loading.city ?? "—"}, ${indent.loading.state ?? ""}`.trim()
+      : trip.routeFrom;
+  const delivery =
+    indent?.unloading?.city != null
+      ? `${indent.unloading.city ?? "—"}, ${indent.unloading.state ?? ""}`.trim()
+      : trip.routeTo;
+
+  return {
+    tripId: trip.id,
+    lrNumber: trip.lrNumber,
+    indentNumber: indent?.indentNumber ?? null,
+    client: indent?.client?.name ?? "—",
+    pickup,
+    delivery,
+    pickupAt: indent?.consignment?.pickupAt?.toISOString() ?? null,
+    deliveryAt: indent?.consignment?.deliveryAt?.toISOString() ?? null,
+    vehicle: trip.vehicle?.registrationNumber ?? null,
+    cargo: indent?.consignment?.cargoTypeCode ?? null,
+    assignmentStatus: indent?.status ?? null,
+    tripStatus: trip.status,
+    podState: deriveTripPodQueueState(trip.pods ?? []),
+    dispatchedAt: trip.dispatchedAt?.toISOString() ?? null,
+    deliveredAt: trip.deliveredAt?.toISOString() ?? null,
   };
 }
 
@@ -399,6 +547,9 @@ export async function listDriverTripHistoryForMobile(driverId: string, page: num
         status: true,
         createdAt: true,
         dispatchedAt: true,
+        deliveredAt: true,
+        podReceivedAt: true,
+        tripClosedAt: true,
         vehicle: { select: { registrationNumber: true } },
         indent: { select: { indentNumber: true } },
         pods: { select: { status: true, resolutionStatus: true } },
@@ -416,6 +567,7 @@ export async function listDriverTripHistoryForMobile(driverId: string, page: num
       pickup: t.routeFrom,
       delivery: t.routeTo,
       tripDate: (t.dispatchedAt ?? t.createdAt).toISOString(),
+      tripEndDate: (t.deliveredAt ?? t.podReceivedAt ?? t.tripClosedAt)?.toISOString() ?? null,
       vehicleRegistration: t.vehicle?.registrationNumber ?? "—",
       tripStatus: t.status,
       podState: deriveTripPodQueueState(t.pods ?? []),

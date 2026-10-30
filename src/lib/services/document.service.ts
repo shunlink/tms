@@ -17,6 +17,7 @@ const OWNER_MODEL: Record<string, keyof typeof prisma> = {
 
 export const ALLOWED_DOCUMENT_TYPES = [
   "GST", "PAN", "AADHAAR", "MSME", "CIN", "BANK_PROOF", "AGREEMENT", "LICENSE",
+  "ADDRESS_PROOF", "PROFILE_PHOTO",
   "RC", "INSURANCE", "FITNESS", "PUC", "PERMIT",
   "CLIENT_INVOICE", "VEHICLE_DOC", "APPROVAL",
   "LR", "EWAY_BILL", "POD", "DELIVERY_CHALLAN", "GATE_PASS", "INVOICE", "PAYMENT_PROOF", "OTHER",
@@ -56,6 +57,8 @@ export async function uploadDocument(opts: {
   sizeBytes: number;
   buffer: Buffer;
   uploadedById?: string | null;
+  /** When true, removes an existing attachment of the same type before upload (driver portal replace). */
+  replaceExisting?: boolean;
 }) {
   const entityType = opts.ownerType.toUpperCase() as DocumentEntityType;
   if (!ENTITY_TYPES.includes(entityType)) {
@@ -80,9 +83,13 @@ export async function uploadDocument(opts: {
       select: { id: true },
     });
     if (existing) {
-      throw new Error(
-        `A ${docType.replace(/_/g, " ")} file is already on record. Delete it before uploading another.`
-      );
+      if (opts.replaceExisting) {
+        await deleteDocument(existing.id);
+      } else {
+        throw new Error(
+          `A ${docType.replace(/_/g, " ")} file is already on record. Delete it before uploading another.`
+        );
+      }
     }
   }
 
