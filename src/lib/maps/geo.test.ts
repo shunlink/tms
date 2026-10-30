@@ -11,12 +11,16 @@ describe("hasStartedMainRoute", () => {
   const plannedM = 795_000;
 
   function straightRoute(steps = 24) {
+    return straightRouteBetween(origin, destination, steps);
+  }
+
+  function straightRouteBetween(from: { lat: number; lng: number }, to: { lat: number; lng: number }, steps = 24) {
     const pts = [];
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       pts.push({
-        lat: origin.lat + t * (destination.lat - origin.lat),
-        lng: origin.lng + t * (destination.lng - origin.lng),
+        lat: from.lat + t * (to.lat - from.lat),
+        lng: from.lng + t * (to.lng - from.lng),
       });
     }
     return pts;
@@ -35,6 +39,17 @@ describe("hasStartedMainRoute", () => {
     const current = { lat: 20.015, lng: 73.753 };
     const route = straightRoute();
     expect(hasStartedMainRouteOnPoints(current, origin, destination, plannedM, route)).toBe(false);
+  });
+
+  it("returns false when on corridor but closer to drop than pickup (Nagpur-like)", () => {
+    const pickup = { lat: 13.0827, lng: 80.2707 };
+    const drop = { lat: 21.1702, lng: 72.8311 };
+    const current = { lat: 21.1458, lng: 79.0882 };
+    const route = straightRouteBetween(pickup, drop);
+    const plannedM = 1_673_400;
+    expect(
+      hasStartedMainRouteOnPoints(current, pickup, drop, plannedM, route)
+    ).toBe(false);
   });
 
   it("returns true when well past pickup on planned route", () => {

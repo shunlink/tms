@@ -87,11 +87,14 @@ function loadHereScripts(): Promise<void> {
   );
 }
 
-function polylinesToLine(mapDisplay: TripMapDisplay, key: "plannedRoute" | "remaining"): unknown[] {
+function polylinesFromLeg(polylines: string[]): unknown[] {
   const H = getHere();
   if (!H) return [];
-  const polys = mapDisplay[key]?.polylines ?? [];
-  return polys.map((p) => H.geo.LineString.fromFlexiblePolyline(p));
+  return polylines.map((p) => H.geo.LineString.fromFlexiblePolyline(p));
+}
+
+function polylinesToLine(mapDisplay: TripMapDisplay, key: "plannedRoute" | "remaining"): unknown[] {
+  return polylinesFromLeg(mapDisplay[key]?.polylines ?? []);
 }
 
 function markerWithIcon(
@@ -189,6 +192,22 @@ export default function HereTripMap({
       objects.push(
         new H.map.Polyline(multi, {
           style: { lineWidth: 5, strokeColor: "rgba(37, 99, 235, 0.85)" },
+        })
+      );
+    }
+
+    const approachLines =
+      mapDisplay.remaining?.onMainRoute === false
+        ? polylinesFromLeg(mapDisplay.approachRoute?.polylines ?? [])
+        : [];
+    if (approachLines.length) {
+      const multi = new H.geo.MultiLineString(approachLines);
+      objects.push(
+        new H.map.Polyline(multi, {
+          style: {
+            lineWidth: 4,
+            strokeColor: "rgba(16, 185, 129, 0.9)",
+          },
         })
       );
     }
