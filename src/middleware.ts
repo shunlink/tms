@@ -57,6 +57,8 @@ function apiAllowed(role: string, method: string, pathname: string) {
   }
   if (role === "DRIVER") {
     return (
+      (method === "GET" && pathname === "/api/drivers/me") ||
+      (method === "GET" && pathname === "/api/drivers/me/trips") ||
       (method === "GET" && pathname === "/api/drivers/me/current-indent") ||
       (method === "GET" && pathname === "/api/drivers/me") ||
       (method === "GET" && pathname === "/api/drivers/me/trips") ||
