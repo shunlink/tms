@@ -1,14 +1,7 @@
 import { prisma } from "@/lib/prisma";
-import { logAudit } from "@/lib/audit";
-import { AUDIT_ACTIONS } from "@/lib/audit-actions";
 import { listDocuments, uploadDocument } from "@/lib/services/document.service";
-import { uploadPodFromTrip } from "@/lib/services/pod.service";
-import {
-  canUploadTripPod,
-  deriveTripPodQueueState,
-  POD_ALREADY_SUBMITTED_MESSAGE,
-  tripPodAlreadySubmitted,
-} from "@/lib/pod-upload-eligibility";
+import { getDriverIdForAuthUser, resolveDriverAccessibleTrip } from "@/lib/services/driver.service";
+import { uploadTripPodFromMultipart } from "@/lib/services/trip-pod-document-upload.service";
 import {
   requireAuth,
   authorize,
@@ -27,59 +20,67 @@ export const runtime = "nodejs";
 const ALLOWED_TYPES = ["LR", "EWAY_BILL", "POD", "DELIVERY_CHALLAN", "GATE_PASS", "INVOICE", "OTHER"];
 const MAX_SIZE = 10 * 1024 * 1024;
 
-/** React Native multipart often yields Blob, not File — normalize before upload. */
-async function readMultipartFile(
-  part: FormDataEntryValue | null,
-  fallbackName: string
-): Promise<File | null> {
-  if (part == null) return null;
-  if (part instanceof File && part.size > 0) return part;
-  if (typeof Blob !== "undefined" && part instanceof Blob) {
-    const buffer = Buffer.from(await part.arrayBuffer());
-    if (buffer.length === 0) return null;
-    const name = part instanceof File && part.name ? part.name : fallbackName;
-    return new File([buffer], name, { type: part.type || "image/jpeg" });
-  }
-  return null;
+function tripIdFromDocumentsRequest(req: Request, params: { id?: string }) {
+  const fromPath = new URL(req.url).pathname.match(/\/api\/trips\/([^/]+)\/documents\/?$/i)?.[1];
+  const fromParams = params.id?.trim();
+  const id = (fromPath ?? fromParams ?? "").trim();
+  if (id === "documents" || id === "[id]") return fromPath?.trim() ?? "";
+  return id;
 }
 
-async function uploadTripFile(
-  tripId: string,
-  file: File,
-  type: string,
-  userId: string,
-  suffix?: string
+async function loadTripForDriverDocuments(
+  user: { id?: string; role?: string; driverId?: string | null; vendorId?: string | null },
+  tripOrIndentId: string
 ) {
-  const bytes = Buffer.from(await file.arrayBuffer());
-  return uploadDocument({
-    ownerType: "trip",
-    ownerId: tripId,
-    documentType: type,
-    fileName: suffix ? `${suffix}-${file.name}` : file.name,
-    mimeType: file.type,
-    sizeBytes: file.size,
-    buffer: bytes,
-    uploadedById: userId,
+  const key = tripOrIndentId.trim();
+  if (!key) return { error: notFound("Trip not found") };
+
+  if (user.role === "DRIVER") {
+    const driverId = await getDriverIdForAuthUser(user);
+    if (!driverId) {
+      return { error: forbidden("Your account is not linked to a driver profile. Contact dispatch.") };
+    }
+    const resolved = await resolveDriverAccessibleTrip(driverId, key);
+    if (!resolved) {
+      const exists = await prisma.trip.findFirst({
+        where: { OR: [{ id: key }, { indentId: key }] },
+        select: { id: true },
+      });
+      if (exists) return { error: forbidden("This trip is not assigned to you") };
+      return { error: notFound("Trip not found") };
+    }
+    const trip = await prisma.trip.findFirst({
+      where: { id: resolved.id },
+      select: { id: true, vendorId: true, driverId: true, status: true, indentId: true },
+    });
+    if (!trip) return { error: notFound("Trip not found") };
+    return { trip };
+  }
+
+  const trip = await prisma.trip.findFirst({
+    where: { id: key },
+    select: { id: true, vendorId: true, driverId: true, status: true, indentId: true },
   });
+  if (!trip) return { error: notFound("Trip not found") };
+  if (user.role === "VENDOR" && trip.vendorId !== user.vendorId) {
+    return { error: forbidden() };
+  }
+  return { trip };
 }
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, { params }: { params: { id: string } }) {
   const auth = await requireAuth();
   if (!auth) return unauthorized();
   const user = auth.user;
   try {
-    const trip = await prisma.trip.findFirst({
-      where: { id: params.id },
-      select: { id: true, vendorId: true, driverId: true },
-    });
-    if (!trip) return notFound("Trip not found");
-    if (user.role === "VENDOR" && trip.vendorId !== user.vendorId) return forbidden();
-    if (user.role === "DRIVER" && trip.driverId !== user.driverId) return forbidden();
+    const loaded = await loadTripForDriverDocuments(user, tripIdFromDocumentsRequest(req, params));
+    if ("error" in loaded && loaded.error) return loaded.error;
+    const trip = loaded.trip!;
     if (isInternalRole(user.role)) {
       const denied = await authorize(auth, "trip.view");
       if (denied) return denied;
     }
-    const documents = await listDocuments("TRIP", params.id);
+    const documents = await listDocuments("TRIP", trip.id);
     return ok(documents);
   } catch (e) {
     return serverError(e);
@@ -91,56 +92,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!auth) return unauthorized();
   const user = auth.user;
   try {
-    const trip = await prisma.trip.findFirst({ where: { id: params.id } });
-    if (!trip) return notFound("Trip not found");
-    if (user.role === "VENDOR" && trip.vendorId !== user.vendorId) return forbidden();
-    if (user.role === "DRIVER" && trip.driverId !== user.driverId) return forbidden();
-
+    const tripKey = tripIdFromDocumentsRequest(req, params);
     const formData = await req.formData();
+    const tripIdFromForm = String(formData.get("tripId") ?? "").trim();
+    const loaded = await loadTripForDriverDocuments(user, tripIdFromForm || tripKey);
+    if ("error" in loaded && loaded.error) return loaded.error;
+    const trip = loaded.trip!;
     const rawType = String(formData.get("type") || "OTHER");
     const type = ALLOWED_TYPES.includes(rawType) ? rawType : "OTHER";
 
     if (type === "POD") {
-      if (!canUploadTripPod(trip.status)) {
-        return badRequest("POD can only be uploaded after the trip is marked as delivered");
-      }
-      const pods = await prisma.indentPod.findMany({
-        where: { tripId: params.id },
-        select: { status: true, resolutionStatus: true },
-      });
-      if (tripPodAlreadySubmitted(deriveTripPodQueueState(pods))) {
-        return badRequest(POD_ALREADY_SUBMITTED_MESSAGE);
-      }
-      const front = await readMultipartFile(formData.get("front"), "front-pod.jpg");
-      const back = await readMultipartFile(formData.get("back"), "back-pod.jpg");
-      const legacy = formData.get("file");
-
-      if (front && back) {
-        if (front.size > MAX_SIZE || back.size > MAX_SIZE) return badRequest("File too large (max 10 MB)");
-
-        const frontDoc = await uploadTripFile(params.id, front, "POD", user.id, "front");
-        const backDoc = await uploadTripFile(params.id, back, "POD", user.id, "back");
-
-        if (frontDoc.fileId && backDoc.fileId && trip.indentId) {
-          await uploadPodFromTrip(params.id, frontDoc.fileId, backDoc.fileId, user);
-        }
-
-        await logAudit({
-          user,
-          action: AUDIT_ACTIONS.POD_UPLOADED,
-          entity: "Trip",
-          entityId: params.id,
-          meta: { by: user.role, pendingVerification: true, dualImage: true },
-        });
-
-        return created({ front: frontDoc, back: backDoc });
-      }
-
-      if (legacy instanceof File) {
-        return badRequest("Both front and back POD images are required");
-      }
-
-      return badRequest("Both front and back POD images are required");
+      return uploadTripPodFromMultipart(trip, user, formData);
     }
 
     const file = formData.get("file");
@@ -150,7 +112,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const doc = await uploadDocument({
       ownerType: "trip",
-      ownerId: params.id,
+      ownerId: trip.id,
       documentType: type,
       fileName: file.name,
       mimeType: file.type,

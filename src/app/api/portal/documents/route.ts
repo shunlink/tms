@@ -73,6 +73,7 @@ export async function POST(req: Request) {
       sizeBytes: file.size,
       buffer: bytes,
       uploadedById: user.id,
+      replaceExisting: o.type === "DRIVER",
     });
     await logAudit({ user, action: "portal.document.upload", entity: "DocumentAttachment", entityId: doc.id, meta: { ownerType: o.type, type } });
     return created(doc);

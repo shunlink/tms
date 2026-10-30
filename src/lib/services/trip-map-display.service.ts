@@ -1,4 +1,5 @@
 import { mapsProvider, isRoutingConfigured } from "../maps/config";
+import { mergeFlexiblePolylines } from "../maps/flex-polyline";
 import { hasStartedMainRoute } from "../maps/geo";
 import { fetchDrivingRoute } from "../maps/routing";
 import type { TripEtaStatus } from "./trip-eta.service";
@@ -20,6 +21,8 @@ export type TripMapDisplay = {
   origin: { lat: number; lng: number } | null;
   destination: { lat: number; lng: number } | null;
   current: { lat: number; lng: number } | null;
+  /** Decoded driving path for map clients (HERE polyline or origin→destination fallback). */
+  routePath: { lat: number; lng: number }[];
   plannedRoute: TripMapRouteLeg | null;
   remaining: (TripMapRouteLeg & {
     liveEta: string;
@@ -129,6 +132,14 @@ export async function getTripMapDisplay(tripId: string): Promise<TripMapDisplay 
     }
   }
 
+  let routePath: { lat: number; lng: number }[] = [];
+  if (plannedRoute?.polylines?.length) {
+    routePath = mergeFlexiblePolylines(plannedRoute.polylines);
+  }
+  if (routePath.length < 2 && snapshot.origin && snapshot.destination) {
+    routePath = [snapshot.origin, snapshot.destination];
+  }
+
   return {
     tripId: snapshot.tripId,
     routeFrom: snapshot.routeFrom,
@@ -136,6 +147,7 @@ export async function getTripMapDisplay(tripId: string): Promise<TripMapDisplay 
     origin: snapshot.origin,
     destination: snapshot.destination,
     current: currentLocation,
+    routePath,
     plannedRoute,
     remaining,
     expectedEndAt: snapshot.expectedEndAt,

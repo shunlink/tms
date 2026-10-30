@@ -56,6 +56,8 @@ export async function uploadDocument(opts: {
   sizeBytes: number;
   buffer: Buffer;
   uploadedById?: string | null;
+  /** When true, removes an existing attachment of the same type before upload (driver portal replace). */
+  replaceExisting?: boolean;
 }) {
   const entityType = opts.ownerType.toUpperCase() as DocumentEntityType;
   if (!ENTITY_TYPES.includes(entityType)) {
@@ -80,9 +82,13 @@ export async function uploadDocument(opts: {
       select: { id: true },
     });
     if (existing) {
-      throw new Error(
-        `A ${docType.replace(/_/g, " ")} file is already on record. Delete it before uploading another.`
-      );
+      if (opts.replaceExisting) {
+        await deleteDocument(existing.id);
+      } else {
+        throw new Error(
+          `A ${docType.replace(/_/g, " ")} file is already on record. Delete it before uploading another.`
+        );
+      }
     }
   }
 

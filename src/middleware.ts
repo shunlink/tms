@@ -60,8 +60,15 @@ function apiAllowed(role: string, method: string, pathname: string) {
       (method === "GET" && pathname === "/api/drivers/me") ||
       (method === "GET" && pathname === "/api/drivers/me/trips") ||
       (method === "GET" && pathname === "/api/drivers/me/current-indent") ||
-      (method === "GET" && pathname === "/api/drivers/me") ||
-      (method === "GET" && pathname === "/api/drivers/me/trips") ||
+      (method === "GET" && /^\/api\/drivers\/me\/trips\/[^/]+$/.test(pathname)) ||
+      (method === "GET" && /^\/api\/drivers\/me\/trips\/[^/]+\/map-display$/.test(pathname)) ||
+      (method === "POST" && /^\/api\/drivers\/me\/trips\/[^/]+\/pod$/.test(pathname)) ||
+      (method === "POST" && pathname === "/api/drivers/me/pod") ||
+      (method === "GET" && /^\/api\/trips\/[^/]+\/documents$/.test(pathname)) ||
+      (method === "GET" && pathname === "/api/maps/config") ||
+      (method === "PATCH" && pathname === "/api/portal/profile") ||
+      (method === "GET" && pathname === "/api/portal/documents") ||
+      (method === "POST" && pathname === "/api/portal/documents") ||
       (method === "POST" && /^\/api\/drivers\/[^/]+\/(send-otp|verify-otp)$/.test(pathname)) ||
       (method === "POST" && /^\/api\/indents\/[^/]+\/(pod|tracking)$/.test(pathname)) ||
       (method === "GET" && /^\/api\/indents\/[^/]+\/tracking$/.test(pathname)) ||
