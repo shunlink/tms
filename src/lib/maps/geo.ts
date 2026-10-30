@@ -138,6 +138,17 @@ export function hasStartedMainRouteOnPoints(
       return false;
     }
 
+    // On the planned corridor past the pickup coordinate but still far from pickup
+    // while closer to drop (e.g. Nagpur with pickup Chennai, drop Surat).
+    if (
+      plannedDistanceMeters > 0 &&
+      toDest < toOrigin &&
+      toOrigin > toDest * 1.35 &&
+      toOrigin > Math.min(plannedDistanceMeters * 0.35, 750_000)
+    ) {
+      return false;
+    }
+
     return toOrigin > PICKUP_REACHED_RADIUS_M;
   }
 

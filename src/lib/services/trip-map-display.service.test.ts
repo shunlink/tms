@@ -89,6 +89,7 @@ describe("getTripMapDisplay", () => {
     expect(display!.remaining?.polylines).toEqual(["remaining-poly"]);
     expect(display!.remaining?.distanceMeters).toBe(250000);
     expect(display!.remaining?.onMainRoute).toBe(true);
+    expect(display!.approachRoute).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -145,6 +146,7 @@ describe("getTripMapDisplay", () => {
     expect(display!.remaining?.distanceMeters).toBe(788700);
     expect(display!.remaining?.durationSeconds).toBe(36000);
     expect(display!.remaining?.polylines).toEqual(["planned-poly"]);
+    expect(display!.approachRoute?.polylines).toEqual(["approach-poly"]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

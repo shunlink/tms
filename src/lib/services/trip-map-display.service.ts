@@ -21,6 +21,8 @@ export type TripMapDisplay = {
   destination: { lat: number; lng: number } | null;
   current: { lat: number; lng: number } | null;
   plannedRoute: TripMapRouteLeg | null;
+  /** Current → pickup while still approaching pickup (not on main haul yet). */
+  approachRoute: TripMapRouteLeg | null;
   remaining: (TripMapRouteLeg & {
     liveEta: string;
     status: TripEtaStatus;
@@ -64,6 +66,7 @@ export async function getTripMapDisplay(tripId: string): Promise<TripMapDisplay 
   const geocodeIncomplete = !snapshot.origin || !snapshot.destination;
 
   let plannedRoute: TripMapRouteLeg | null = null;
+  let approachRoute: TripMapRouteLeg | null = null;
   let remaining: TripMapDisplay["remaining"] = null;
 
   if (routingAvailable && snapshot.origin && snapshot.destination) {
@@ -108,8 +111,10 @@ export async function getTripMapDisplay(tripId: string): Promise<TripMapDisplay 
         let approachSeconds = 0;
         try {
           const approach = await fetchDrivingRoute(currentLocation, snapshot.origin);
+          approachRoute = routeLegFromFetch(approach);
           approachSeconds = approach.durationSeconds;
         } catch {
+          approachRoute = null;
           approachSeconds = 0;
         }
         durationForEta = approachSeconds + plannedRoute.durationSeconds;
@@ -137,6 +142,7 @@ export async function getTripMapDisplay(tripId: string): Promise<TripMapDisplay 
     destination: snapshot.destination,
     current: currentLocation,
     plannedRoute,
+    approachRoute,
     remaining,
     expectedEndAt: snapshot.expectedEndAt,
     geocodeIncomplete,
