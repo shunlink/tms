@@ -109,6 +109,10 @@ export default withAuth(
     const isFile = pathname.startsWith("/files");
     const isCapture = pathname.startsWith("/capture");
 
+    if (isApi && method === "GET" && pathname === "/api/maps/config") {
+      return forwardWithPathname(req);
+    }
+
     if (role === "CLIENT") {
       if (pathname.startsWith("/portal/client") || pathname.startsWith("/onboard/client") || isCapture) {
         return forwardWithPathname(req);
@@ -159,6 +163,7 @@ export default withAuth(
     callbacks: {
       authorized: ({ token, req }) => {
         if (req.nextUrl.pathname === "/") return true;
+        if (req.nextUrl.pathname === "/api/maps/config") return true;
         return !!token?.sub;
       },
     },

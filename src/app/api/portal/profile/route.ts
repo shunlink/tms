@@ -60,6 +60,7 @@ export async function PATCH(req: Request) {
           ...(parsed.data.phone !== undefined ? { phone: parsed.data.phone } : {}),
           ...(parsed.data.dlNumber !== undefined ? { dlNumber: parsed.data.dlNumber.replace(/\s+/g, "").toUpperCase() } : {}),
           ...(parsed.data.dlExpiry !== undefined ? { dlExpiry: parsed.data.dlExpiry } : {}),
+          ...(parsed.data.dateOfBirth !== undefined ? { dateOfBirth: parsed.data.dateOfBirth } : {}),
           ...(parsed.data.address !== undefined ? { address: parsed.data.address } : {}),
           ...(parsed.data.city !== undefined ? { city: parsed.data.city } : {}),
           ...(parsed.data.state !== undefined ? { state: parsed.data.state } : {}),

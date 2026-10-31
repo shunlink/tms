@@ -370,6 +370,13 @@ export async function getDriverCurrentIndent(driverId: string) {
 export async function getDriverMeProfile(driverId: string) {
   const d = await prisma.driver.findFirst({ where: { id: driverId } });
   if (!d) return null;
+
+  const profilePhoto = await prisma.documentAttachment.findFirst({
+    where: { entityType: "DRIVER", entityId: driverId, documentType: "PROFILE_PHOTO" },
+    orderBy: { createdAt: "desc" },
+    include: { file: true },
+  });
+
   const onboardingComplete = Boolean(
     d.name?.trim() &&
       d.phone?.trim() &&
@@ -388,6 +395,8 @@ export async function getDriverMeProfile(driverId: string) {
     phone: d.phone,
     dlNumber: d.dlNumber,
     dlExpiry: d.dlExpiry?.toISOString() ?? null,
+    dateOfBirth: d.dateOfBirth?.toISOString() ?? null,
+    profilePhotoUrl: profilePhoto?.file.url ?? null,
     address: d.address ?? null,
     city: d.city ?? null,
     state: d.state ?? null,

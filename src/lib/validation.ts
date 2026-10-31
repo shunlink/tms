@@ -263,6 +263,7 @@ export const driverSchema = z.object({
   phone: requiredPhone(),
   dlNumber: z.string().trim().min(4, "DL number is required"),
   dlExpiry: optDate,
+  dateOfBirth: optDate,
   address: optStr,
   city: optStr,
   state: optStr,
