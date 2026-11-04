@@ -21,6 +21,49 @@ function pickNumber(obj: Record<string, unknown>, ...keys: string[]): number | n
   return null;
 }
 
+export function normalizeNicEwayBill(
+  ebn: string,
+  raw: Record<string, unknown>,
+  source: EwayBillSource = "CLIENT_PROVIDED",
+  provider = "nic-gst"
+): NormalizedEwayBill {
+  const items = raw.itemList;
+  const firstItem =
+    Array.isArray(items) && items.length > 0 ? (items[0] as Record<string, unknown>) : null;
+  const vehicleNo = (() => {
+    const list = raw.VehiclListDetails ?? raw.vehicleListDetails;
+    if (!Array.isArray(list) || list.length === 0) return null;
+    const row = list[list.length - 1] as Record<string, unknown>;
+    return pickString(row, "vehicleNo", "vehicleNumber");
+  })();
+
+  return {
+    ewayBillNumber: pickString(raw, "ewbNo", "ewayBillNo") ?? ebn,
+    status: pickString(raw, "status"),
+    supplierGstin: pickString(raw, "fromGstin", "userGstin"),
+    recipientGstin: pickString(raw, "toGstin"),
+    documentType: pickString(raw, "docType"),
+    documentNumber: pickString(raw, "docNo"),
+    documentDate: pickString(raw, "docDate"),
+    goodsDescription:
+      pickString(raw, "goodsDescription") ??
+      pickString(firstItem ?? {}, "productName", "productDesc"),
+    hsnCode: pickString(firstItem ?? {}, "hsnCode"),
+    quantity: pickString(firstItem ?? {}, "quantity"),
+    value: pickNumber(raw, "totInvValue", "totalValue"),
+    origin: pickString(raw, "fromPlace"),
+    destination: pickString(raw, "toPlace"),
+    transporterName: pickString(raw, "transporterName"),
+    transporterGstin: pickString(raw, "transporterId", "transporterGstin"),
+    vehicleNumber: vehicleNo,
+    validFrom: pickString(raw, "ewayBillDate"),
+    validUntil: pickString(raw, "validUpto", "validUntil"),
+    provider,
+    fetchedAt: new Date().toISOString(),
+    source,
+  };
+}
+
 export function normalizeSurepassEwayBill(
   ebn: string,
   raw: Record<string, unknown>,

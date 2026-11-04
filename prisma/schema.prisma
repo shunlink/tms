@@ -118,6 +118,7 @@ model User {
   bankReconciliationMatchesConfirmed BankReconciliationMatch[] @relation("BankMatchConfirmer")
   bankReconciliationMatchesVoided    BankReconciliationMatch[] @relation("BankMatchVoider")
   gatewaySettlementImports      GatewaySettlementImport[] @relation("GatewaySettlementImporter")
+  inboundRefundsInitiated       InboundPaymentRefund[] @relation("InboundRefundInitiator")
 
   masterOtpRegenerations     MasterOtpConfig[]     @relation("MasterOtpRegenerator")
   portalAccessAsActor        PortalAccessSession[] @relation("PortalAccessActor")
@@ -409,6 +410,7 @@ model Client {
   invoices      ClientInvoice[]
   invoiceTasks  InvoiceTask[]
   payments      ClientPayment[]
+  inboundPaymentOrders InboundPaymentOrder[]
   journalLines  JournalLine[]
   financialNotes FinancialNote[]
 
@@ -1221,6 +1223,7 @@ model Trip {
   invoiceTask     InvoiceTask?
   balancePaymentTask VendorBalancePaymentTask?
   clientPayments     ClientPayment[]
+  inboundPaymentOrders InboundPaymentOrder[]
   charges            TripCharge[]
   outboundPayments   OutboundPayment[]
   vendorTripPayable  VendorTripPayable?
@@ -1303,12 +1306,18 @@ model ClientInvoice {
   billingEmail       String?
   paymentTermsDays   Int?
 
+  /// NIC e-invoice reference (IRN) — printed on tax invoice; set manually or via e-invoice API.
+  eInvoiceIrn        String?
+  eInvoiceAckNo      String?
+  eInvoiceGeneratedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   lines        ClientInvoiceLine[]
   invoiceTasks InvoiceTask[]
   payments     ClientPayment[]
+  inboundPaymentOrders InboundPaymentOrder[]
   financialNotes FinancialNote[]
 
   @@index([clientId, status])
@@ -1343,6 +1352,9 @@ model ClientPayment {
   recordedById String?
   recordedBy   User? @relation("ClientPaymentRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
 
+  inboundOrderId String? @unique
+  inboundOrder   InboundPaymentOrder? @relation(fields: [inboundOrderId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1350,6 +1362,87 @@ model ClientPayment {
   @@index([invoiceId])
   @@index([indentId])
   @@index([tripId])
+}
+
+/// Client portal Juspay checkout — pending until CHARGED webhook/poll.
+model InboundPaymentOrder {
+  id       String @id @default(cuid())
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  purpose String // INVOICE | TRIP_ADVANCE
+  invoiceId String?
+  invoice   ClientInvoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  tripId    String?
+  trip      Trip? @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  amountMinor Int
+  currency    String @default("INR")
+  /// CREATED | PENDING_CHECKOUT | PROCESSING | SUCCEEDED | FAILED | CANCELLED | EXPIRED
+  status      String @default("CREATED")
+
+  idempotencyKey String @unique
+  juspayOrderId  String @unique
+
+  paymentLinkUrl String?
+  returnUrl      String?
+  providerStatus String?
+  providerTxnId  String?
+
+  financeSettledAt DateTime?
+  failureCode      String?
+  failureMessage   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clientPayment ClientPayment?
+  outboxJobs    InboundPaymentOutbox[]
+  refunds       InboundPaymentRefund[]
+
+  @@index([clientId, status])
+  @@index([invoiceId])
+  @@index([tripId])
+}
+
+model InboundPaymentRefund {
+  id             String @id @default(cuid())
+  inboundOrderId String
+  inboundOrder   InboundPaymentOrder @relation(fields: [inboundOrderId], references: [id], onDelete: Cascade)
+
+  uniqueRequestId String @unique
+  amountMinor     Int
+  /// PENDING | SUCCESS | FAILED
+  status          String @default("PENDING")
+  providerRefundId String?
+  notes           String?
+
+  initiatedById String?
+  initiatedBy   User? @relation("InboundRefundInitiator", fields: [initiatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([inboundOrderId])
+}
+
+model InboundPaymentOutbox {
+  id             String @id @default(cuid())
+  inboundOrderId String
+  inboundOrder   InboundPaymentOrder @relation(fields: [inboundOrderId], references: [id], onDelete: Cascade)
+
+  jobType String // APPLY_WEBHOOK | POLL_STATUS
+  payload Json?
+  status  String @default("PENDING")
+  attempts      Int      @default(0)
+  nextAttemptAt DateTime @default(now())
+  lastError     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([inboundOrderId])
 }
 
 model ClientInvoiceLine {
@@ -1962,6 +2055,9 @@ model OutboundPayment {
 
   providerId            String?
   providerTransferRef   String?
+  /// Juspay payout / Hypercheckout merchant order id (alphanumeric, max 20).
+  juspayOrderId         String? @unique
+  providerFulfillmentId String?
   idempotencyKey        String @unique
   failureCode           String?
   failureMessage        String?
@@ -2042,6 +2138,9 @@ model VendorBeneficiary {
   verifiedAt         DateTime?
   verifiedById       String?
   verifiedBy         User? @relation("VendorBeneficiaryVerifier", fields: [verifiedById], references: [id], onDelete: SetNull)
+  /// Juspay beneId for BENE_ID payouts after validation.
+  providerBeneficiaryRef String? @unique
+  juspayValidationStatus String?
   changeHistory      Json?
 
   isDefault Boolean @default(false)
@@ -2082,6 +2181,7 @@ model PaymentWebhookEvent {
   payload         Json?
   errorMessage    String?
   paymentId       String?
+  inboundOrderId  String?
 
   receivedAt  DateTime @default(now())
   processedAt DateTime?
@@ -2089,6 +2189,7 @@ model PaymentWebhookEvent {
   @@unique([providerId, providerEventId])
   @@index([processingStatus])
   @@index([paymentId])
+  @@index([inboundOrderId])
 }
 
 model LedgerEntry {

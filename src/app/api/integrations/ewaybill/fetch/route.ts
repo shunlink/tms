@@ -30,7 +30,7 @@ export async function POST(req: Request) {
       );
     }
 
-    return ok({ success: true, data: result.data });
+    return ok({ success: true, data: result.data, indentDraft: result.indentDraft });
   } catch (e) {
     const handled = handleIntegrationError(e);
     if (handled) return handled;

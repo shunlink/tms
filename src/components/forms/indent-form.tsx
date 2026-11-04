@@ -11,8 +11,8 @@ import EwayBillSection, {
 import IndentVehicleSlots, { type VehicleSlotView } from "@/components/forms/indent-vehicle-slots";
 import { indentSaveSchema, zodFieldErrors } from "@/lib/validation";
 import { friendlyValidationError } from "@/lib/api-errors";
-
 import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import type { EwayBillIndentDraft } from "@/lib/integrations/ewaybill/map-to-indent";
 import { useToast } from "@/components/toast";
 import { dateInputMinForField, indentOperationalDateFieldErrors } from "@/lib/date-input";
 
@@ -68,13 +68,6 @@ type DriverFields = {
   deviceType: string;
 };
 
-function maskPhone(phone: string) {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length < 6) return phone;
-  const last5 = digits.slice(-5);
-  return `+91 XXXXX ${last5.slice(0, 1)}${last5.slice(1)}`;
-}
-
 export default function IndentForm({
   clients,
   mode = "create",
@@ -107,7 +100,7 @@ export default function IndentForm({
   placementStatus?: string | null;
   vehicleReached?: boolean;
   initialVehicleReg?: string;
-  initialDriver?: Partial<DriverFields & { otpVerified?: boolean; id?: string }>;
+  initialDriver?: Partial<DriverFields & { id?: string }>;
   initialEwayBillRequired?: boolean;
   initialEwayBill?: Partial<EwayBillFormState> | null;
   driverAssigned?: boolean;
@@ -148,17 +141,6 @@ export default function IndentForm({
     phone: initialDriver?.phone ?? "",
     deviceType: initialDriver?.deviceType ?? "SMARTPHONE",
   });
-  const [pendingDriverId, setPendingDriverId] = useState<string | null>(
-    initialDriver?.id && !initialDriver?.otpVerified ? initialDriver.id : null
-  );
-  const [driverOtpVerified, setDriverOtpVerified] = useState(
-    driverAssigned && (initialDriver?.otpVerified ?? false)
-  );
-  const [otpCode, setOtpCode] = useState("");
-  const [otpSent, setOtpSent] = useState(
-    Boolean(initialDriver?.id && !initialDriver?.otpVerified)
-  );
-  const [otpPhone, setOtpPhone] = useState("");
   const [existingDriverFound, setExistingDriverFound] = useState(false);
   const [driverErrors, setDriverErrors] = useState<Record<string, string>>({});
   const [ewayBillRequired, setEwayBillRequired] = useState(initialEwayBillRequired);
@@ -172,7 +154,6 @@ export default function IndentForm({
   const [vehicleDriverError, setVehicleDriverError] = useState("");
   const [saving, setSaving] = useState(false);
   const [savingVehicleDriver, setSavingVehicleDriver] = useState(false);
-  const [verifyingOtp, setVerifyingOtp] = useState(false);
   const set = (k: Field, v: string) => {
     setForm((f) => ({ ...f, [k]: v }));
     if (fieldErrors[k]) {
@@ -183,6 +164,19 @@ export default function IndentForm({
       });
     }
   };
+
+  function applyEwayIndentDraft(draft: EwayBillIndentDraft) {
+    setForm((prev) => {
+      const next = { ...prev };
+      for (const [key, val] of Object.entries(draft)) {
+        if (key in next && val != null && String(val).trim() !== "") {
+          next[key as Field] = String(val);
+        }
+      }
+      return next;
+    });
+    setEwayBillRequired(true);
+  }
 
   function buildIndentSavePayload() {
     return {
@@ -310,42 +304,12 @@ export default function IndentForm({
           setVehicleDriverError(dData.error || "Driver registration failed");
           return;
         }
-        setPendingDriverId(dData.driver?.id ?? null);
-        setOtpSent(true);
-        setOtpPhone(dData.driver?.phone ?? driver.phone);
-        setDriverOtpVerified(false);
-        setOtpCode("");
+        toast.push({ variant: "success", title: "Driver assigned" });
       }
 
       router.refresh();
     } finally {
       setSavingVehicleDriver(false);
-    }
-  }
-
-  async function verifyOtp() {
-    if (!indentId || !pendingDriverId || !otpCode.trim()) {
-      setVehicleDriverError("Enter the OTP sent to the driver");
-      return;
-    }
-    setVehicleDriverError("");
-    setVerifyingOtp(true);
-    try {
-      const res = await fetch(`/api/indents/${indentId}/driver/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ driverId: pendingDriverId, otp: otpCode.trim() }),
-      });
-      const data = await readJsonBody(res);
-      if (!res.ok) {
-        reportApiFailure(res, data, { toast, setError: setVehicleDriverError, fallback: "OTP verification failed" });
-        return;
-      }
-      setDriverOtpVerified(true);
-      setOtpSent(false);
-      router.refresh();
-    } finally {
-      setVerifyingOtp(false);
     }
   }
 
@@ -517,6 +481,7 @@ export default function IndentForm({
             onChange={setEwayBill}
             indentId={indentId}
             blockPastDates={mode === "create"}
+            onIndentDraft={applyEwayIndentDraft}
           />
         </CardContent>
       </Card>
@@ -770,7 +735,7 @@ export default function IndentForm({
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Driver Mobile (OTP)</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Driver Mobile</label>
               <input
                 type="tel"
                 className="w-full border rounded-md px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
@@ -805,37 +770,6 @@ export default function IndentForm({
               >
                 {savingVehicleDriver ? "Saving..." : "Save Vehicle & Driver"}
               </Button>
-              {driverOtpVerified && (
-                <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
-                  ✓ Driver Verified
-                </span>
-              )}
-            </div>
-          )}
-
-          {otpSent && !driverOtpVerified && (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
-              <p className="text-sm font-medium text-slate-800">Driver Verification</p>
-              <p className="text-xs text-slate-500">
-                OTP sent to: {maskPhone(otpPhone || driver.phone)}
-              </p>
-              <div className="flex flex-wrap items-end gap-2">
-                <div>
-                  <label className="text-xs text-slate-500 block mb-1">Enter OTP</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={6}
-                    className="w-32 border rounded-md px-3 py-2 text-sm tracking-widest"
-                    value={otpCode}
-                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                    placeholder="______"
-                  />
-                </div>
-                <Button type="button" size="sm" disabled={verifyingOtp} onClick={verifyOtp}>
-                  {verifyingOtp ? "Verifying..." : "Verify OTP"}
-                </Button>
-              </div>
             </div>
           )}
 
@@ -848,7 +782,16 @@ export default function IndentForm({
         <CardHeader><CardTitle>Instructions</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {area("specialInstructions", "Special Instructions")}
-          {area("remarks", "Remarks")}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>LR print (optional)</CardTitle></CardHeader>
+        <CardContent className="space-y-2">
+          {area("remarks", "Comments for LR")}
+          <p className="text-xs text-slate-500">
+            If filled, this appears in the Comments row on the lorry receipt (E-Way section). Leave blank to print nothing there.
+          </p>
         </CardContent>
       </Card>
 

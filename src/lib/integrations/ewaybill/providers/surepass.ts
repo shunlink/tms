@@ -4,11 +4,17 @@ import { surepassEndpoints } from "../../core/config";
 import { IntegrationError } from "../../core/errors";
 import { surepassPost } from "../../core/surepass-client";
 import { normalizeSurepassEwayBill } from "../normalize";
-import type { EwayBillFetchResult, EwayBillGenerateInput, EwayBillGenerateResult } from "../types";
+import type {
+  EwayBillGenerateInput,
+  EwayBillGenerateResult,
+  EwayBillProviderFetchResult,
+} from "../types";
 
 const EBN_RE = /^\d{12}$/;
 
-export async function surepassFetchEwayBill(ewayBillNumber: string): Promise<EwayBillFetchResult> {
+export async function surepassFetchEwayBill(
+  ewayBillNumber: string
+): Promise<EwayBillProviderFetchResult> {
   const ebn = ewayBillNumber.replace(/\s+/g, "");
   if (!EBN_RE.test(ebn)) {
     throw new IntegrationError("Please enter a valid 12-digit E-Way Bill number.", "INVALID_INPUT");
@@ -19,7 +25,7 @@ export async function surepassFetchEwayBill(ewayBillNumber: string): Promise<Ewa
   });
 
   const data = normalizeSurepassEwayBill(ebn, raw, "CLIENT_PROVIDED", "surepass");
-  return { data };
+  return { data, rawNic: raw };
 }
 
 export async function surepassGenerateEwayBill(

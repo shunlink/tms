@@ -142,6 +142,37 @@ describe("checkIndentTripReadiness", () => {
     expect(result.ready).toBe(true);
   });
 
+  it("ready when driver assigned on indent but driver login OTP not verified", async () => {
+    const future = new Date();
+    future.setFullYear(future.getFullYear() + 1);
+    findFirstMock.mockResolvedValue({
+      id: "ind-1",
+      vehicleId: "v1",
+      consignment: { ewayBillRequired: false },
+      ewayBill: null,
+      vehicle: {
+        compliance: {
+          rcVerified: true,
+          complianceState: "VERIFIED",
+          rcExpiry: future,
+          insuranceExpiry: future,
+          pucExpiry: future,
+          fitnessExpiry: future,
+        },
+      },
+      driver: {
+        dlVerified: true,
+        otpVerified: false,
+        dlStatus: "Active",
+        dlVerificationStatus: "VERIFIED",
+      },
+    });
+
+    const result = await checkIndentTripReadiness("ind-1");
+    expect(result.ready).toBe(true);
+    expect(result.reasons).toHaveLength(0);
+  });
+
   it("blocked when required EWB incomplete", async () => {
     findFirstMock.mockResolvedValue({
       id: "ind-1",

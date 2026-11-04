@@ -3,6 +3,10 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Truck, Building2, MapPin } from "lucide-react";
 import PortalPage from "@/components/portal/portal-page";
 import PortalTripLiveTracking from "@/components/portal/portal-trip-live-tracking";
+import ClientPortalPayButton from "@/components/portal/client-portal-pay-button";
+import { hypercheckoutEnabled } from "@/lib/payments/inbound/hypercheckout.service";
+import { canClientPerformPortalMutations } from "@/lib/portal-access";
+import { getOnboardingStatus } from "@/lib/services/onboarding.service";
 import { getSessionUser } from "@/lib/auth";
 import { getClientTripDetail } from "@/lib/queries";
 
@@ -18,6 +22,11 @@ export default async function ClientTripDetailPage({
 
   const trip = await getClientTripDetail(user.clientId, params.id);
   if (!trip) notFound();
+  const onboardingStatus = await getOnboardingStatus("CLIENT", user.clientId);
+  const canPayAdvance =
+    hypercheckoutEnabled() &&
+    canClientPerformPortalMutations(onboardingStatus) &&
+    trip.clientRate > 0;
 
   return (
     <PortalPage>
@@ -39,6 +48,16 @@ export default async function ClientTripDetailPage({
           >
             {trip.displayStatus}
           </span>
+          {canPayAdvance ? (
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              <p className="text-xs font-semibold text-gray-500 mb-2">Pay trip advance</p>
+              <ClientPortalPayButton
+                purpose="TRIP_ADVANCE"
+                tripId={trip.id}
+                outstanding={trip.clientRate}
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

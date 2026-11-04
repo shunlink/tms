@@ -68,6 +68,17 @@ export async function verifyVendorBeneficiary(id: string, actor?: SessionUser | 
       verifiedById: actor?.id ?? null,
     },
   });
+
+  try {
+    const { syncVendorBeneficiaryWithJuspay, refreshJuspayBeneficiaryStatus } = await import(
+      "../payments/juspay-beneficiary.service"
+    );
+    await syncVendorBeneficiaryWithJuspay(id);
+    await refreshJuspayBeneficiaryStatus(id);
+  } catch {
+    // Juspay sync is best-effort; TMS verification still stands for manual payouts.
+  }
+
   return sanitizeBeneficiaryForClient(row);
 }
 

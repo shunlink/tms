@@ -65,6 +65,7 @@ export function createMockPaymentGateway(): PaymentGateway {
         amountMinor?: number;
       };
       return {
+        channel: "outbound",
         providerEventId: data.eventId,
         providerRef: data.providerRef,
         internalPaymentId: data.paymentId,

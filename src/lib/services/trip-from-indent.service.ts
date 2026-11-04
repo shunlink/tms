@@ -75,10 +75,10 @@ export async function createTripFromIndent(
 
   const driverRecord = await prisma.driver.findUnique({
     where: { id: activeAlloc.driverId },
-    select: { otpVerified: true, deviceType: true },
+    select: { deviceType: true },
   });
-  if (!driverRecord?.otpVerified) {
-    throw new Error("Driver OTP verification must be completed before creating a trip");
+  if (!driverRecord) {
+    throw new Error("Driver not found");
   }
 
   await assertDriverAvailableForIndentLine(activeAlloc.driverId, line.id, line.tripId);

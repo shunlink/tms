@@ -78,6 +78,12 @@ export default function ClientPortalShell({
           icon: Receipt,
           active: pathname.startsWith("/portal/client/invoices"),
         },
+        {
+          label: "Payments",
+          href: "/portal/client/payments",
+          icon: Receipt,
+          active: pathname.startsWith("/portal/client/payments"),
+        },
       ],
     },
   ];

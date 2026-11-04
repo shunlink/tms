@@ -78,7 +78,6 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
   const vendorAllocated = Boolean(indent.vendorId);
   const vehicleReached = indent.placementStatus === "VEHICLE_REACHED";
   const driverAssigned = Boolean(indent.driverId);
-  const driverVerified = Boolean(indent.driver?.otpVerified);
   const hasAnyTrip = (indent.trips?.length ?? 0) > 0 || Boolean(indent.trip);
   const canReallocate =
     canAllocate &&
@@ -162,7 +161,6 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
             dlNumber: indent.driver?.dlNumber ?? "",
             phone: indent.driver?.phone ?? "",
             deviceType: indent.driver?.deviceType ?? "SMARTPHONE",
-            otpVerified: indent.driver?.otpVerified ?? false,
           }}
           driverAssigned={driverAssigned}
           vehicleSlots={indent.vehicleSlots}
@@ -425,7 +423,7 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
             perSlotPlacement={(indent.vehicleSlots?.length ?? 0) > 0}
             hasVehicle={Boolean(indent.vehicleId)}
             hasDriver={driverAssigned}
-            driverVerified={driverVerified}
+            driverAssigned={driverAssigned}
             vendorAllocated={vendorAllocated}
             canReleasePermission={canReleaseIndent}
           />

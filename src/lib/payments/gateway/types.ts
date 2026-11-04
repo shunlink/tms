@@ -46,9 +46,11 @@ export type QueryTransferResult = {
 };
 
 export type NormalizedWebhookEvent = {
+  channel: "outbound" | "inbound";
   providerEventId: string;
   providerRef?: string;
   internalPaymentId?: string;
+  inboundOrderId?: string;
   status: NormalizedTransferStatus;
   utr?: string | null;
   amountMinor?: number;

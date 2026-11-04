@@ -4,7 +4,11 @@ import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth";
 import { withIntegrationProvider } from "../core/resolver";
+import { isEncryptedNicEwayConfigured, isPerioneEwayConfigured } from "./nic-config";
+import { buildIndentDraftFromEwayBill } from "./map-to-indent";
 import { mockFetchEwayBill, mockGenerateEwayBill } from "./providers/mock";
+import { nicFetchEwayBill } from "./providers/nic";
+import { perioneFetchEwayBill } from "./providers/perione";
 import { surepassFetchEwayBill, surepassGenerateEwayBill } from "./providers/surepass";
 import type {
   EwayBillFetchResult,
@@ -15,10 +19,31 @@ import type {
 } from "./types";
 
 export async function fetchEWayBill(ewayBillNumber: string): Promise<EwayBillFetchResult> {
-  return withIntegrationProvider(
+  if (isPerioneEwayConfigured()) {
+    const result = await perioneFetchEwayBill(ewayBillNumber);
+    return {
+      ...result,
+      indentDraft: buildIndentDraftFromEwayBill(result.data, result.rawNic),
+    };
+  }
+
+  if (isEncryptedNicEwayConfigured()) {
+    const result = await nicFetchEwayBill(ewayBillNumber);
+    return {
+      ...result,
+      indentDraft: buildIndentDraftFromEwayBill(result.data, result.rawNic),
+    };
+  }
+
+  const result = await withIntegrationProvider(
     () => mockFetchEwayBill(ewayBillNumber),
     () => surepassFetchEwayBill(ewayBillNumber)
   );
+
+  return {
+    ...result,
+    indentDraft: buildIndentDraftFromEwayBill(result.data, result.rawNic),
+  };
 }
 
 /** Backend-only generation — not exposed in frontend UI. */

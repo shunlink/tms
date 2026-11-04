@@ -28,8 +28,8 @@ export default function InvoiceDocument({
         <iframe
           title={`Tax invoice ${snapshot.invoiceNumber}`}
           srcDoc={html}
-          className="w-full border-0 min-h-[720px] print:min-h-0"
-          style={{ height: "min(90vh, 820px)" }}
+          className="w-full border-0 max-w-[210mm] mx-auto min-h-[720px] print:min-h-0"
+          style={{ height: "min(95vh, 900px)", width: "100%", maxWidth: "210mm" }}
         />
       </div>
 

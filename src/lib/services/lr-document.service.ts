@@ -55,7 +55,8 @@ export type TripLrSnapshot = {
   driverDl: string;
   vendorName: string;
   vendorGstin: string;
-  remarks: string;
+  /** Optional admin text from indent → LR E-Way Comments row only. */
+  lrComments: string;
   insuranceRisk: string;
   customerCode: string;
 };
@@ -87,13 +88,20 @@ function dash(v: string | null | undefined) {
 }
 
 function formatPartyAddress(parts: {
-  line1?: string | null;
-  line2?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
   city?: string | null;
   state?: string | null;
   pincode?: string | null;
 }) {
-  return [parts.line1, parts.line2, parts.city, parts.state, parts.pincode]
+  return [
+    parts.addressLine1,
+    parts.addressLine2,
+    parts.city,
+    parts.state,
+    parts.pincode,
+  ]
+    .map((p) => p?.trim())
     .filter(Boolean)
     .join(", ");
 }
@@ -172,7 +180,7 @@ export async function loadTripLrSnapshot(tripId: string): Promise<TripLrSnapshot
     driverDl: dash(trip.driver?.dlNumber),
     vendorName: trip.vendor.name,
     vendorGstin: dash(trip.vendor.gstin),
-    remarks: dash(trip.remarks),
+    lrComments: trip.indent?.remarks?.trim() ?? "",
     insuranceRisk:
       consignment?.insuranceType?.replace(/_/g, " ")?.trim() || "Owner's Risk",
     customerCode: dash(trip.indent?.indentNumber ?? trip.client.name.slice(0, 12)),
@@ -209,73 +217,104 @@ function renderBtLrCopy(
   const qrImg = qrDataUrl
     ? `<img class="doc-qr" src="${qrDataUrl}" alt="Open LR online" />`
     : "";
+  const lrCommentsCell = data.lrComments ? escapeHtml(data.lrComments) : "";
+  const shipperBarName = data.vendorName !== "—" ? data.vendorName : data.consignorName;
+  const driverDisplay = data.driverName !== "—" ? data.driverName : "NA";
 
   return `
   <section class="lr-copy">
-    <div class="lr-top">
-      <div class="lr-top-left">
+    <header class="lr-head">
+      <div class="lr-head-left">
         <div class="lr-doc-type">Lorry Receipt – Non-Negotiable</div>
         <div class="lr-co-name">${escapeHtml(company.name)}</div>
         <div class="lr-co-line">${escapeHtml(company.address)}</div>
-        <div class="lr-co-line">PAN: ${escapeHtml(company.pan)} · GST: ${escapeHtml(company.gstin)}</div>
-        <div class="lr-co-line">Tel: ${escapeHtml(company.phone)} · ${escapeHtml(company.email)}</div>
+        <div class="lr-co-line">PAN: ${escapeHtml(company.pan)} | GST: ${escapeHtml(company.gstin)}</div>
       </div>
-      <div class="lr-top-right">
-        ${logoImg}
-        <div class="copy-badge">${escapeHtml(copyLabel)}</div>
-      </div>
-    </div>
+      <div class="lr-head-right">${logoImg}</div>
+    </header>
 
-    <table class="lr-bar3">
+    <table class="lr-ship-row">
       <tr>
-        <th>SHIPPER</th>
-        <th>LR NUMBER</th>
-        <th>BOOKING DATE</th>
-      </tr>
-      <tr>
-        <td>${escapeHtml(data.consignorName)}</td>
-        <td class="strong">${escapeHtml(data.lrNumber)}</td>
-        <td>${escapeHtml(formatLrBookingDate(data.lrDate))}</td>
+        <td class="lr-bar3-cell">
+          <table class="lr-bar3">
+            <colgroup>
+              <col class="c-ship" />
+              <col class="c-lr" />
+              <col class="c-date" />
+            </colgroup>
+            <tr>
+              <th>SHIPPER</th>
+              <th>LR NUMBER</th>
+              <th>BOOKING DATE</th>
+            </tr>
+            <tr>
+              <td>${escapeHtml(shipperBarName)}</td>
+              <td class="strong">${escapeHtml(data.lrNumber)}</td>
+              <td>${escapeHtml(formatLrBookingDate(data.lrDate))}</td>
+            </tr>
+          </table>
+        </td>
+        <td class="copy-cell">
+          <div class="copy-badge">${escapeHtml(copyLabel)}</div>
+        </td>
       </tr>
     </table>
 
-    <div class="lr-mid">
-      <table class="lr-party">
-        <tr><th colspan="2">CONSIGNOR</th></tr>
-        <tr><td colspan="2" class="party-name">${escapeHtml(data.consignorName)}</td></tr>
-        <tr><td colspan="2" class="party-addr">${escapeHtml(data.consignorAddress)}</td></tr>
-        <tr><td>GSTIN</td><td>${escapeHtml(data.consignorGstin)}</td></tr>
-        <tr><td>MOBILE</td><td>${escapeHtml(data.consignorPhone)}</td></tr>
-        <tr><th colspan="2">CONSIGNEE</th></tr>
-        <tr><td colspan="2" class="party-name">${escapeHtml(data.consigneeName)}</td></tr>
-        <tr><td colspan="2" class="party-addr">${escapeHtml(data.consigneeAddress)}</td></tr>
-        <tr><td>GSTIN</td><td>${escapeHtml(data.consigneeGstin)}</td></tr>
-        <tr><td>MOBILE</td><td>${escapeHtml(data.consigneePhone)}</td></tr>
-      </table>
-      <div class="lr-vehicle-qr">
-        <table class="lr-vehicle">
-          <tr><td class="lbl">Customer Code</td><td>${escapeHtml(data.customerCode)}</td></tr>
-          <tr><td class="lbl">Vehicle</td><td>${escapeHtml(data.vehicleReg)}</td></tr>
-          <tr><td class="lbl">Vehicle Type</td><td>${escapeHtml(data.vehicleType)}</td></tr>
-          <tr><td class="lbl">Driver Name</td><td>${escapeHtml(data.driverName)}</td></tr>
-          <tr><td class="lbl">Driver Mobile</td><td>${escapeHtml(data.driverPhone)}</td></tr>
-          <tr><td class="lbl">DL No.</td><td>${escapeHtml(data.driverDl)}</td></tr>
-          <tr><td class="lbl">Route</td><td>${escapeHtml(data.routeFrom)} → ${escapeHtml(data.routeTo)}</td></tr>
-          <tr><td class="lbl">Indent / Client</td><td>${escapeHtml(dash(data.indentNumber))} · ${escapeHtml(data.clientName)}</td></tr>
-        </table>
-        ${qrImg ? `<div class="lr-qr-cell">${qrImg}</div>` : ""}
-      </div>
-    </div>
+    <table class="lr-party-grid">
+      <colgroup>
+        <col class="c-party" />
+        <col class="c-party" />
+        <col class="c-meta" />
+      </colgroup>
+      <tr class="lr-party-hdr">
+        <th>CONSIGNOR</th>
+        <th>CONSIGNEE</th>
+        <th class="meta-hdr">CUSTOMER Code : ${escapeHtml(data.customerCode)}</th>
+      </tr>
+      <tr class="lr-party-body">
+        <td class="party-cell">
+          <div class="party-name">${escapeHtml(data.consignorName)}</div>
+          <div class="party-addr">${escapeHtml(data.consignorAddress)}</div>
+          <div class="party-meta-row"><span>GST:</span> ${escapeHtml(data.consignorGstin)}</div>
+          <div class="party-meta-row party-mobile"><span>MOBILE NO.</span> ${escapeHtml(data.consignorPhone)}</div>
+        </td>
+        <td class="party-cell">
+          <div class="party-name">${escapeHtml(data.consigneeName)}</div>
+          <div class="party-addr">${escapeHtml(data.consigneeAddress)}</div>
+          <div class="party-meta-row"><span>GST:</span> ${escapeHtml(data.consigneeGstin)}</div>
+          <div class="party-meta-row party-mobile"><span>MOBILE NO.</span> ${escapeHtml(data.consigneePhone)}</div>
+        </td>
+        <td class="meta-cell">
+          <table class="meta-layout">
+            <tr>
+              <td class="meta-kv-cell">
+                <table class="lr-meta-kv">
+                  <colgroup>
+                    <col class="meta-lbl-col" />
+                    <col class="meta-val-col" />
+                  </colgroup>
+                  <tr><td class="lbl">Vehicle</td><td class="val">${escapeHtml(data.vehicleReg)}</td></tr>
+                  <tr><td class="lbl">Vehicle Type</td><td class="val">${escapeHtml(data.vehicleType)}</td></tr>
+                  <tr><td class="lbl">Driver Name</td><td class="val">${escapeHtml(driverDisplay)}</td></tr>
+                  <tr><td class="lbl">Driver Mobile</td><td class="val">${escapeHtml(data.driverPhone)}</td></tr>
+                </table>
+              </td>
+              ${qrImg ? `<td class="lr-qr-wrap">${qrImg}</td>` : ""}
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
 
     <div class="goods-desc"><span class="lbl">GOODS DESC:</span> ${escapeHtml(data.cargoDescription)}</div>
 
     <table class="lr-goods">
       <tr>
-        <th>SHIPPER INVOICE NOS</th>
+        <th>SHIPPER INVOICE NOS,</th>
         <th>DECLARED VALUE</th>
         <th># PACKAGES</th>
         <th>GROSS WT</th>
-        <th>CHARGEABLE WT</th>
+        <th>CHARGEABLE WEIGHT</th>
         <th>INSURANCE</th>
       </tr>
       <tr>
@@ -284,7 +323,7 @@ function renderBtLrCopy(
         <td>${escapeHtml(data.packageCount)}</td>
         <td>${escapeHtml(data.weightText)}</td>
         <td>${escapeHtml(data.weightText)}</td>
-        <td>${escapeHtml(data.insuranceRisk)}</td>
+        <td>${escapeHtml(data.insuranceRisk.replace(/owner'?s risk/i, "Owners Risk"))}</td>
       </tr>
     </table>
 
@@ -292,43 +331,42 @@ function renderBtLrCopy(
       <tr>
         <th>E-WayBill No</th>
         <th>Valid Till</th>
-        <th>Comments / Freight</th>
+        <th>Comments</th>
       </tr>
       <tr>
         <td>${escapeHtml(data.ewayBillNumber)}</td>
         <td>${escapeHtml(data.ewayValidUntil)}</td>
-        <td>${escapeHtml(formatINR(data.clientRate))} (${escapeHtml(data.freightType)} / ${escapeHtml(data.paymentMode)}) · Carrier: ${escapeHtml(data.vendorName)}</td>
+        <td>${lrCommentsCell}</td>
       </tr>
     </table>
 
     <div class="lr-decl">
       <div class="decl-box">
-        <strong>Acknowledgement</strong>
-        <p>Goods received in apparent good condition for carriage. Computer-generated LR — signature optional at loading.</p>
+        <div class="decl-title">ACKNOWLEDGEMENT</div>
+        <p>I have received the goods under this lorry receipt in Good condition, ready for transportation.</p>
+        <p class="decl-note">This is a computer generated LR and needs no signature</p>
       </div>
       <div class="decl-box">
-        <strong>Shipper declaration</strong>
-        <p>Shipper declares particulars of goods are correct and accepts carrier terms. ${escapeHtml(data.remarks !== "—" ? data.remarks : "")}</p>
+        <div class="decl-title">SHIPPER DECLARATION</div>
+        <p>I/We do hereby certify that the above particulars of goods consigned by me/us are correct and have been correctly entered into and the consignment is booked with full knowledge of the terms and conditions of this lorry receipt, which I/We accept.</p>
+        <div class="decl-sign">Name and Signature of the Shipper</div>
       </div>
     </div>
 
     <div class="pod-wrap">
       <div class="pod-title">PROOF OF DELIVERY</div>
       <div class="pod-body">
-        <div class="pod-left">
-          <div class="pod-line"><span>DATE:</span> ____________________</div>
-          <div class="pod-line"><span>TIME:</span> ____________________</div>
-          <p class="pod-note">I have received the goods shipped under this lorry receipt in good condition.</p>
-          <div class="pod-sign-space" aria-hidden="true"></div>
-          <div class="pod-sign">Name &amp; Signature of Receiver</div>
-        </div>
-        <div class="pod-right">
-          <div class="pod-seal">Seal of the Consignee</div>
+        <div class="pod-line"><span>DATE:</span> ____________________</div>
+        <div class="pod-line"><span>TIME:</span> ____________________</div>
+        <p class="pod-note">I have received the goods shipped under this lorry receipt in Good condition.</p>
+        <div class="pod-sign-row">
+          <span>Name and Signature</span>
+          <span>Seal of the Consignee</span>
         </div>
       </div>
     </div>
 
-    <div class="lr-foot">Subject to jurisdiction at ${escapeHtml(company.state)}. Terms &amp; conditions of carriage apply. E&amp;OE.</div>
+    <div class="lr-foot">The Terms and Conditions of this lorry receipt are mentioned on [&quot;T&amp;Cs&quot;]. If you are unable to see the T&amp;Cs you may contact ${escapeHtml(company.name)}. All disputes are subject to ${escapeHtml(company.state)} jurisdiction only. The Goods under this At Customer&apos;s/Insurance Risk</div>
   </section>`;
 }
 
@@ -358,54 +396,218 @@ export function buildLrHtml(
   <title>LR ${escapeHtml(data.lrNumber)}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    @page { size: A4; margin: 3mm; }
-    body { font-family: Arial, Helvetica, sans-serif; font-size: 6.5px; color: #111; line-height: 1.2; }
-    .lr-page { height: 291mm; display: flex; flex-direction: column; page-break-after: always; }
+    @page { size: A4 portrait; margin: 3mm; }
+    html, body { width: 210mm; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 7pt;
+      color: #111;
+      line-height: 1.2;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .lr-page {
+      width: 204mm;
+      margin: 0 auto;
+      page-break-after: always;
+      page-break-inside: avoid;
+    }
     .lr-page:last-child { page-break-after: auto; }
-    .lr-copy { flex: 1 1 50%; min-height: 0; padding: 2px 4px; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
-    .lr-cut { flex: 0 0 0; border-top: 1px dashed #64748b; margin: 1px 8px; }
-    .lr-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; border-bottom: 1px solid #cbd5e1; padding-bottom: 2px; }
-    .lr-doc-type { font-size: 7px; font-weight: 700; color: ${LR_NAVY}; }
-    .lr-co-name { font-size: 7.5px; font-weight: 700; text-transform: uppercase; }
-    .lr-co-line { font-size: 5.5px; color: #334155; }
-    .lr-top-right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-    .logo { height: 22px; width: auto; max-width: 110px; object-fit: contain; }
-    .logo-text { font-size: 12px; font-weight: 800; color: ${LR_NAVY}; }
-    .copy-badge { background: #e2e8f0; border: 1px solid #94a3b8; padding: 3px 10px; font-size: 8px; font-weight: 700; color: #1e293b; }
-    table { width: 100%; border-collapse: collapse; }
-    .lr-bar3 th { background: ${LR_NAVY}; color: #fff; font-size: 6px; padding: 2px 4px; border: 1px solid ${LR_NAVY}; text-align: center; }
-    .lr-bar3 td { border: 1px solid #94a3b8; padding: 2px 4px; font-size: 6.5px; text-align: center; vertical-align: top; }
+    .lr-copy {
+      height: 141mm;
+      max-height: 141mm;
+      padding: 1.5mm 2mm 1mm;
+      overflow: hidden;
+    }
+    .lr-cut {
+      border-top: 1px dashed ${LR_NAVY};
+      margin: 1mm 8mm 0.5mm;
+    }
+    .lr-head {
+      display: table;
+      width: 100%;
+      margin-bottom: 1mm;
+    }
+    .lr-head-left, .lr-head-right {
+      display: table-cell;
+      vertical-align: top;
+    }
+    .lr-head-right { width: 32mm; text-align: right; }
+    .lr-doc-type {
+      font-size: 9pt;
+      font-weight: 700;
+      color: ${LR_NAVY};
+      margin-bottom: 0.5mm;
+    }
+    .lr-co-name {
+      font-size: 8pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+    .lr-co-line { font-size: 6.5pt; color: #334155; line-height: 1.25; }
+    .logo { height: 11mm; width: auto; max-width: 32mm; object-fit: contain; }
+    .logo-text { font-size: 14pt; font-weight: 800; color: ${LR_NAVY}; }
+    .lr-ship-row { width: 100%; margin-bottom: 0; }
+    .lr-bar3-cell { vertical-align: middle; padding: 0; border: none; }
+    .copy-cell {
+      width: 22mm;
+      vertical-align: middle;
+      padding: 0;
+      border: none;
+    }
+    .copy-badge {
+      background: #e8edf2;
+      border: 1px solid #94a3b8;
+      padding: 2mm 1mm;
+      font-size: 7.5pt;
+      font-weight: 700;
+      color: #1e293b;
+      text-align: center;
+      line-height: 1.15;
+    }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .lr-bar3 .c-ship { width: 46%; }
+    .lr-bar3 .c-lr { width: 27%; }
+    .lr-bar3 .c-date { width: 27%; }
+    .lr-bar3 th {
+      background: ${LR_NAVY};
+      color: #fff;
+      font-size: 7pt;
+      font-weight: 700;
+      padding: 1mm 1.5mm;
+      border: 1px solid ${LR_NAVY};
+      text-align: center;
+    }
+    .lr-bar3 td {
+      border: 1px solid #94a3b8;
+      padding: 1mm 1.5mm;
+      font-size: 7pt;
+      text-align: center;
+      vertical-align: middle;
+      word-wrap: break-word;
+    }
     .lr-bar3 td.strong { font-weight: 700; }
-    .lr-mid { display: flex; gap: 3px; flex: 0 0 auto; }
-    .lr-party, .lr-vehicle { border: 1px solid #94a3b8; font-size: 5.5px; }
-    .lr-party { flex: 1.1; }
-    .lr-vehicle-qr { flex: 0.9; display: flex; gap: 2px; align-items: stretch; min-width: 0; }
-    .lr-vehicle { flex: 1; width: 100%; }
-    .lr-qr-cell { flex: 0 0 46px; display: flex; align-items: center; justify-content: center; border: 1px solid #94a3b8; background: #fff; padding: 2px; }
-    .doc-qr { width: 42px; height: 42px; display: block; }
-    .lr-party th, .lr-vehicle .lbl { background: #f1f5f9; font-weight: 700; font-size: 5.5px; }
-    .lr-party th, .lr-party td, .lr-vehicle td { border: 1px solid #cbd5e1; padding: 1px 3px; vertical-align: top; }
-    .party-name { font-weight: 700; font-size: 6px; }
-    .party-addr { font-size: 5.5px; }
-    .goods-desc { border: 1px solid #94a3b8; padding: 2px 4px; font-size: 6px; }
+    .lr-party-grid { border: 1px solid #94a3b8; border-top: none; }
+    .lr-party-grid .c-party { width: 34%; }
+    .lr-party-grid .c-meta { width: 32%; }
+    .lr-party-hdr th {
+      background: #cfd8e3;
+      color: ${LR_NAVY};
+      font-size: 7pt;
+      font-weight: 700;
+      padding: 1mm 2mm;
+      border: 1px solid #94a3b8;
+      text-align: center;
+    }
+    .lr-party-hdr th.meta-hdr {
+      background: ${LR_NAVY};
+      color: #fff;
+      text-align: left;
+      font-size: 6.5pt;
+      padding-left: 2mm;
+    }
+    .party-cell, .meta-cell {
+      border: 1px solid #94a3b8;
+      padding: 1.5mm 2mm;
+      vertical-align: top;
+      font-size: 6.5pt;
+      height: 28mm;
+    }
+    .party-name { font-weight: 700; font-size: 7pt; margin-bottom: 0.5mm; }
+    .party-addr { font-size: 6.5pt; line-height: 1.2; min-height: 12mm; }
+    .party-meta-row { font-size: 6.5pt; margin-top: 1mm; }
+    .party-meta-row span { font-weight: 700; }
+    .party-mobile { margin-top: auto; padding-top: 2mm; }
+    .meta-layout { width: 100%; border: none; }
+    .meta-layout td { border: none; padding: 0; vertical-align: middle; }
+    .meta-kv-cell { width: 58%; }
+    .lr-meta-kv { font-size: 6.5pt; width: 100%; table-layout: fixed; }
+    .lr-meta-kv col.meta-lbl-col { width: 46%; }
+    .lr-meta-kv col.meta-val-col { width: 54%; }
+    .lr-meta-kv td { border: none; padding: 0.4mm 0; vertical-align: top; }
+    .lr-meta-kv .lbl {
+      font-weight: 700;
+      padding-right: 2mm;
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+    }
+    .lr-meta-kv .val { padding-left: 1.5mm; word-wrap: break-word; }
+    .lr-qr-wrap { width: 42%; text-align: right; }
+    .doc-qr { width: 18mm; height: 18mm; display: inline-block; }
+    .goods-desc {
+      border: 1px solid #94a3b8;
+      border-top: none;
+      padding: 1mm 2mm;
+      font-size: 7pt;
+    }
     .goods-desc .lbl { font-weight: 700; color: ${LR_NAVY}; }
-    .lr-goods th, .lr-eway th { background: ${LR_NAVY}; color: #fff; font-size: 5.5px; padding: 2px; border: 1px solid ${LR_NAVY}; text-align: center; }
-    .lr-goods td, .lr-eway td { border: 1px solid #94a3b8; padding: 2px 3px; font-size: 5.5px; text-align: center; }
-    .lr-decl { display: flex; gap: 3px; font-size: 5px; color: #334155; }
-    .decl-box { flex: 1; border: 1px solid #cbd5e1; padding: 2px 3px; }
-    .decl-box p { margin-top: 1px; }
-    .pod-wrap { border: 1px solid ${LR_NAVY}; flex: 0 0 auto; display: flex; flex-direction: column; }
-    .pod-title { background: ${LR_NAVY}; color: #fff; font-size: 6px; font-weight: 700; text-align: center; padding: 2px; }
-    .pod-body { display: flex; flex: 0 0 auto; padding: 4px 3px; gap: 3px; align-items: stretch; }
-    .pod-left { flex: 1.2; font-size: 5.5px; display: flex; flex-direction: column; }
-    .pod-line { margin-bottom: 1px; }
+    .lr-goods th, .lr-eway th {
+      background: ${LR_NAVY};
+      color: #fff;
+      font-size: 6.5pt;
+      font-weight: 700;
+      padding: 1mm 0.5mm;
+      border: 1px solid ${LR_NAVY};
+      text-align: center;
+    }
+    .lr-goods td, .lr-eway td {
+      border: 1px solid #94a3b8;
+      padding: 1mm 0.5mm;
+      font-size: 6.5pt;
+      text-align: center;
+      vertical-align: middle;
+      word-wrap: break-word;
+    }
+    .lr-eway td:last-child { text-align: left; font-size: 6pt; }
+    .lr-decl { display: table; width: 100%; table-layout: fixed; margin-top: 0.5mm; }
+    .decl-box {
+      display: table-cell;
+      border: 1px solid #94a3b8;
+      padding: 1mm 1.5mm;
+      font-size: 5.5pt;
+      color: #334155;
+      line-height: 1.15;
+      vertical-align: top;
+    }
+    .decl-title { font-weight: 700; font-size: 6pt; color: #111; margin-bottom: 0.5mm; }
+    .decl-box p { margin: 0; }
+    .decl-note { margin-top: 1mm !important; font-style: italic; }
+    .decl-sign { margin-top: 2mm; text-align: center; font-size: 5.5pt; color: #64748b; }
+    .pod-wrap { border: 1px solid ${LR_NAVY}; margin-top: 0.5mm; }
+    .pod-title {
+      background: ${LR_NAVY};
+      color: #fff;
+      font-size: 7pt;
+      font-weight: 700;
+      text-align: center;
+      padding: 1mm;
+    }
+    .pod-body { padding: 1.5mm 2mm 1mm; font-size: 6.5pt; }
+    .pod-line { margin-bottom: 0.5mm; }
     .pod-line span { font-weight: 700; }
-    .pod-note { font-size: 5px; margin: 1px 0 2px; line-height: 1.15; }
-    .pod-sign-space { flex: 0 0 auto; min-height: 22px; border-bottom: 1px solid #94a3b8; margin-top: 2px; }
-    .pod-sign { margin-top: 2px; text-align: center; font-size: 5px; color: #64748b; }
-    .pod-right { flex: 0.8; display: flex; align-items: center; justify-content: center; border: 1px dashed #94a3b8; min-height: 34px; }
-    .pod-seal { font-size: 5.5px; color: #64748b; text-align: center; }
-    .lr-foot { font-size: 4.5px; color: #64748b; text-align: center; padding-top: 1px; }
+    .pod-note { font-size: 6pt; margin: 1mm 0 0.5mm; }
+    .pod-sign-row {
+      display: table;
+      width: 100%;
+      margin-top: 2mm;
+      padding-top: 3mm;
+      border-top: 1px solid #cbd5e1;
+      font-size: 6pt;
+      color: #64748b;
+    }
+    .pod-sign-row span {
+      display: table-cell;
+      width: 50%;
+      text-align: center;
+    }
+    .lr-foot {
+      font-size: 5pt;
+      color: #64748b;
+      text-align: center;
+      padding-top: 0.5mm;
+      line-height: 1.1;
+    }
   </style>
 </head>
 <body>
@@ -471,9 +673,13 @@ export async function generateTripLrPdf(
 
   try {
     const company = await getCompanyProfile();
-    const qrDataUrl = await qrCodePngDataUrl(buildTripLrOpenUrl(tripId), 88);
+    const qrDataUrl = await qrCodePngDataUrl(buildTripLrOpenUrl(tripId), 120);
     const html = buildLrHtml(snapshot, { qrDataUrl, company });
-    const pdfBytes = await renderHtmlToPdf(html, { marginMm: { top: 2, right: 2, bottom: 2, left: 2 } });
+    const pdfBytes = await renderHtmlToPdf(html, {
+      format: "A4",
+      landscape: false,
+      marginMm: { top: 4, right: 4, bottom: 4, left: 4 },
+    });
 
     if (opts?.forceRegenerate) {
       await removeExistingLrDocuments(tripId);

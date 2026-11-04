@@ -78,6 +78,9 @@ export type InvoicePrintSnapshot = {
   termsOfDelivery: string;
   lrRemarks: string;
   gstRatePercent: number;
+  /** E-invoice IRN (when integrated); shown on print like BuckleTrack. */
+  eInvoiceIrn: string | null;
+  eInvoiceAckNo: string | null;
   billFrom: {
     name: string;
     address: string;
@@ -382,8 +385,10 @@ export async function loadInvoicePrintSnapshot(invoiceId: string): Promise<Invoi
     pickupLocation,
     deliveryLocation,
     paymentTermsLabel: `${inv.paymentTermsDays ?? 30} Days Credit`,
-    termsOfDelivery: "As per booking",
+    termsOfDelivery: "Rate Check",
     lrRemarks: `LR no - ${lrList}`,
+    eInvoiceIrn: inv.eInvoiceIrn,
+    eInvoiceAckNo: inv.eInvoiceAckNo,
     gstRatePercent,
     billFrom: {
       name: company.name,
@@ -444,6 +449,10 @@ function renderBtLineTable(rows: TripInvoiceRow[]) {
 
   return `
   <table class="lines">
+    <colgroup>
+      <col class="sl" /><col class="part" /><col class="lr" /><col class="vt" /><col class="cont" />
+      <col class="wt" /><col class="cinv" /><col class="vno" /><col class="hsn" /><col class="amt" />
+    </colgroup>
     <thead>
       <tr>
         <th>Sl.No.</th><th>Particulars</th><th>LR No.</th><th>Vehicle Type</th><th>Container No.</th>
@@ -468,13 +477,13 @@ export function buildInvoiceTaxHtml(
       ? `<img class="doc-qr" src="${opts.qrDataUrl}" alt="View invoice online" />`
       : "";
   const qrBlock = qrInner
-    ? `<div class="inv-qr-block">${qrInner}<div class="inv-qr-cap">Scan to view</div></div>`
+    ? `<div class="inv-qr-block">${qrInner}</div>`
     : "";
 
   const rcmRemark =
     snapshot.reverseCharge === "Yes"
-      ? `Remarks: "GST payable under Reverse Charge by the recipient." (GTA)`
-      : `Remarks: Freight under GTA — tax charged on this invoice at ${snapshot.gstRatePercent}%.`;
+      ? `Remarks : "GST payable under Reverse Charge by the recipient." (GTA)`
+      : `Remarks : Freight under GTA — tax charged on this invoice at ${snapshot.gstRatePercent}%.`;
 
   const cgstPct = snapshot.interState ? 0 : snapshot.gstRatePercent / 2;
   const sgstPct = cgstPct;
@@ -487,6 +496,24 @@ export function buildInvoiceTaxHtml(
         ? `Code : ${snapshot.billTo.stateCode}`
         : "—";
 
+  const billFromState =
+    snapshot.billFrom.stateName && snapshot.billFrom.stateCode
+      ? `${snapshot.billFrom.stateName}, Code : ${snapshot.billFrom.stateCode}`
+      : snapshot.billFrom.stateCode
+        ? `Code : ${snapshot.billFrom.stateCode}`
+        : "—";
+
+  const irnLine = snapshot.eInvoiceIrn?.trim()
+    ? escapeHtml(snapshot.eInvoiceIrn.trim())
+    : "—";
+  const ackLine = snapshot.eInvoiceAckNo?.trim()
+    ? escapeHtml(snapshot.eInvoiceAckNo.trim())
+    : "—";
+
+  const bankBranchIfsc = [snapshot.companyBank.bankBranch, snapshot.companyBank.bankIfsc]
+    .filter(Boolean)
+    .join(" - ");
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -494,147 +521,280 @@ export function buildInvoiceTaxHtml(
   <title>Tax Invoice ${escapeHtml(snapshot.invoiceNumber)}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    @page { size: A4 portrait; margin: 6mm; }
-    body { font-family: Arial, Helvetica, sans-serif; font-size: 7px; color: #111; line-height: 1.25; }
-    .page { padding: 2px; display: flex; flex-direction: column; }
-    .inv-top { text-align: center; font-size: 6px; color: #475569; margin-bottom: 2px; }
-    .inv-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; border: 1px solid #111; border-bottom: none; padding: 4px 8px; }
-    .logo { height: 28px; width: auto; max-width: 140px; }
-    .logo-text { font-size: 16px; font-weight: 800; color: ${INVOICE_NAVY}; }
-    .tax-title { font-size: 14px; font-weight: 700; flex: 1; text-align: center; padding-top: 4px; }
-    .inv-title-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; min-width: 40px; }
-    .meta-with-qr { position: relative; }
-    .meta-with-qr .inv-qr-block { position: absolute; top: 2px; right: 4px; z-index: 2; text-align: center; }
-    .meta-with-qr table { padding-right: 62px; }
-    .inv-qr-block { text-align: center; }
-    .inv-qr-block .doc-qr, .doc-qr-svg { width: 52px; height: 52px; display: block; }
-    .inv-qr-cap { font-size: 5px; color: #475569; line-height: 1.1; margin-top: 1px; }
-    .eoe { font-size: 7px; font-weight: 700; }
-    .quad { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #111; }
-    .quad > div { border: 1px solid #111; padding: 4px 6px; min-height: 72px; vertical-align: top; }
-    .quad-h { font-weight: 700; font-size: 7px; text-decoration: underline; margin-bottom: 3px; }
-    .quad p { margin: 1px 0; font-size: 6.5px; }
-    .meta-right table { width: 100%; border-collapse: collapse; font-size: 6.5px; }
-    .meta-right td { border: 1px solid #cbd5e1; padding: 2px 4px; }
-    .meta-right td.lbl { font-weight: 600; width: 42%; background: #f8fafc; }
-    .rcm-bar { border: 1px solid #111; border-top: none; padding: 3px 6px; font-size: 6.5px; font-style: italic; background: #f1f5f9; }
-    table.lines { width: 100%; border-collapse: collapse; font-size: 6.5px; border: 1px solid #111; border-top: none; }
-    table.lines th { background: ${INVOICE_NAVY}; color: #fff; padding: 3px 2px; border: 1px solid ${INVOICE_NAVY}; text-align: center; font-weight: 600; }
-    table.lines td { border: 1px solid #94a3b8; padding: 2px 3px; vertical-align: top; }
+    @page { size: A4 portrait; margin: 4mm; }
+    html, body { width: 210mm; max-width: 210mm; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 7pt;
+      color: #111;
+      line-height: 1.2;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page { width: 100%; padding: 0; }
+    .inv-reg {
+      text-align: center;
+      font-size: 6pt;
+      color: #475569;
+      line-height: 1.15;
+      margin-bottom: 1mm;
+    }
+    table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+    .inv-head-table {
+      border: 1px solid #111;
+      border-bottom: none;
+    }
+    .inv-head-table td {
+      border: 1px solid #111;
+      padding: 2mm 2.5mm;
+      vertical-align: top;
+    }
+    .head-logo { width: 38%; }
+    .head-title { width: 34%; text-align: center; vertical-align: middle !important; }
+    .head-qr, .inv-head-right { width: 28%; text-align: right; vertical-align: top; }
+    .logo { height: 10mm; width: auto; max-width: 38mm; object-fit: contain; display: block; }
+    .logo-text { font-size: 13pt; font-weight: 800; color: ${INVOICE_NAVY}; }
+    .tax-title { font-size: 12pt; font-weight: 700; }
+    .einv-lines { margin-top: 2mm; font-size: 6pt; line-height: 1.25; word-break: break-all; }
+    .einv-lines div { margin-top: 0.5mm; }
+    .einv-lines b { font-weight: 700; margin-right: 1mm; }
+    .inv-qr-block .doc-qr, .doc-qr-svg { width: 16mm; height: 16mm; display: inline-block; }
+    .inv-bill-table { border: 1px solid #111; border-top: none; }
+    .inv-bill-table > tbody > tr > td { border: 1px solid #111; vertical-align: top; padding: 0; }
+    .bill-left { width: 50%; }
+    .bill-meta { width: 50%; }
+    .bill-block { padding: 2mm 2.5mm; min-height: 32mm; }
+    .bill-block + .bill-block { border-top: 1px solid #111; }
+    .bill-h { font-weight: 700; font-size: 7pt; text-decoration: underline; margin-bottom: 1mm; }
+    .bill-block p { margin: 0.3mm 0; font-size: 6.5pt; }
+    .meta-pairs td {
+      border: 1px solid #94a3b8;
+      padding: 1mm 1.5mm;
+      font-size: 6.5pt;
+      vertical-align: top;
+    }
+    .meta-pairs td.lbl {
+      font-weight: 600;
+      width: 22%;
+      background: #f8fafc;
+    }
+    .meta-pairs td.val { width: 28%; }
+    .rcm-bar {
+      border: 1px solid #111;
+      border-top: none;
+      padding: 1.5mm 2.5mm;
+      font-size: 6.5pt;
+      font-weight: 700;
+      background: #f1f5f9;
+    }
+    table.lines {
+      font-size: 6pt;
+      border: 1px solid #111;
+      border-top: none;
+    }
+    table.lines th {
+      background: ${INVOICE_NAVY};
+      color: #fff;
+      padding: 1mm 0.5mm;
+      border: 1px solid ${INVOICE_NAVY};
+      text-align: center;
+      font-weight: 600;
+      font-size: 6pt;
+    }
+    table.lines td {
+      border: 1px solid #94a3b8;
+      padding: 0.8mm 1mm;
+      vertical-align: top;
+      word-wrap: break-word;
+    }
+    table.lines col.sl { width: 4%; }
+    table.lines col.part { width: 11%; }
+    table.lines col.lr { width: 9%; }
+    table.lines col.vt { width: 10%; }
+    table.lines col.cont { width: 8%; }
+    table.lines col.wt { width: 6%; }
+    table.lines col.cinv { width: 9%; }
+    table.lines col.vno { width: 9%; }
+    table.lines col.hsn { width: 8%; }
+    table.lines col.amt { width: 10%; }
     td.c { text-align: center; }
     td.r { text-align: right; white-space: nowrap; }
-    .totals-wrap { display: flex; border: 1px solid #111; border-top: none; }
-    .totals-left { flex: 1; padding: 4px 6px; font-size: 6.5px; border-right: 1px solid #111; }
-    .totals-right { width: 42%; padding: 4px 6px; font-size: 6.5px; }
-    .totals-right table { width: 100%; }
-    .totals-right td { padding: 2px 0; }
-    .totals-right td.r { text-align: right; font-weight: 600; }
-    .grand { font-weight: 700; font-size: 7.5px; }
-    .footer-grid { display: flex; border: 1px solid #111; border-top: none; flex: 0 0 auto; align-items: flex-start; }
-    .footer-left { flex: 1; padding: 3px 6px; border-right: 1px solid #111; font-size: 6px; }
-    .footer-right { width: 38%; padding: 3px 6px; font-size: 6px; }
-    .bank-h { font-weight: 700; text-decoration: underline; margin-bottom: 1px; }
-    .terms { margin-top: 3px; }
-    .terms ol { margin: 1px 0 0 12px; padding: 0; line-height: 1.2; }
-    .for-co { text-align: right; font-weight: 700; margin-top: 0; }
-    .footer-note { text-align: right; color: #64748b; margin-top: 6px; font-size: 5.5px; }
-    .reg-line { margin-top: 4px; font-size: 5.5px; color: #64748b; text-align: center; }
+    .totals-stack { border: 1px solid #111; border-top: none; }
+    .totals-stack td { padding: 0; border: none; vertical-align: top; }
+    .totals-empty { width: 58%; }
+    .totals-panel { width: 42%; padding: 1.5mm 2.5mm; border-left: 1px solid #111; }
+    .totals-panel table { width: 100%; font-size: 6.5pt; }
+    .totals-panel td { padding: 0.4mm 0; }
+    .totals-panel td.r { text-align: right; font-weight: 600; }
+    .totals-panel tr.grand td { font-weight: 700; font-size: 7pt; border-top: 1px solid #111; padding-top: 1mm; }
+    .words-row {
+      border: 1px solid #111;
+      border-top: none;
+    }
+    .words-row td {
+      border: 1px solid #111;
+      padding: 2mm 2.5mm;
+      font-size: 6.5pt;
+      vertical-align: middle;
+    }
+    .words-cell { width: 85%; }
+    .eoe-cell {
+      width: 15%;
+      text-align: center;
+      font-weight: 700;
+      font-size: 7pt;
+      vertical-align: middle !important;
+    }
+    .lr-remarks {
+      border: 1px solid #111;
+      border-top: none;
+      padding: 1.5mm 2.5mm;
+      font-size: 6.5pt;
+      font-style: italic;
+    }
+    .footer-table { border: 1px solid #111; border-top: none; }
+    .footer-table td {
+      border: 1px solid #111;
+      padding: 2mm 2.5mm;
+      font-size: 6pt;
+      vertical-align: top;
+    }
+    .footer-left { width: 64%; }
+    .footer-right { width: 36%; }
+    .bank-h { font-weight: 700; text-decoration: underline; margin-bottom: 0.5mm; }
+    .terms { margin-top: 1.5mm; }
+    .terms ol { margin: 0.5mm 0 0 4mm; padding: 0; line-height: 1.15; }
+    .for-co { text-align: right; font-weight: 700; margin-top: 10mm; font-size: 6.5pt; }
+    .auth-sign { text-align: right; color: #64748b; margin-top: 2mm; font-size: 6pt; }
+    .reg-line { margin-top: 1mm; font-size: 5.5pt; color: #64748b; text-align: center; }
   </style>
 </head>
 <body>
   <div class="page">
-    <div class="inv-top">This is a Computer Generated Invoice</div>
-    <div class="inv-top">Regd. Office : ${escapeHtml(snapshot.billFrom.address)} · Contact: ${escapeHtml(snapshot.billFrom.phone)} · ${escapeHtml(snapshot.billFrom.email)}</div>
-    <div class="inv-title-row">
-      <div>${logoImg}</div>
-      <div class="tax-title">Tax Invoice</div>
-      <div class="inv-title-right">
-        <div class="eoe">E. &amp; O.E</div>
-      </div>
+    <div class="inv-reg">
+      <div>This is a Computer Generated Invoice</div>
+      <div>Regd. Office : ${escapeHtml(snapshot.billFrom.address)}</div>
+      <div>Contact No. : ${escapeHtml(snapshot.billFrom.phone)} ; Email : ${escapeHtml(snapshot.billFrom.email)}</div>
     </div>
 
-    <div class="quad">
-      <div>
-        <div class="quad-h">Bill To</div>
-        <p><strong>${escapeHtml(snapshot.billTo.name)}</strong></p>
-        ${snapshot.billTo.address ? `<p>${escapeHtml(snapshot.billTo.address)}</p>` : ""}
-        ${snapshot.billTo.gstin ? `<p>GSTIN/UNI : ${escapeHtml(snapshot.billTo.gstin)}</p>` : ""}
-        ${snapshot.billTo.pan ? `<p>PAN : ${escapeHtml(snapshot.billTo.pan)}</p>` : ""}
-        <p>State Name : ${escapeHtml(billToState)}</p>
-        <p>Place of Supply : ${escapeHtml(snapshot.billTo.placeOfSupply)}</p>
-      </div>
-      <div class="meta-right meta-with-qr">
-        ${qrBlock}
-        <table>
-          <tr><td class="lbl">Invoice No.</td><td>${escapeHtml(snapshot.invoiceNumber)}</td></tr>
-          <tr><td class="lbl">Dated</td><td>${escapeHtml(formatInvoiceDate(snapshot.issueDate))}</td></tr>
-          <tr><td class="lbl">Reference No.</td><td>${escapeHtml(snapshot.referenceNo)}</td></tr>
-          <tr><td class="lbl">RCM</td><td>${escapeHtml(snapshot.reverseCharge)}</td></tr>
-          <tr><td class="lbl">Trip No</td><td>${escapeHtml(snapshot.tripNoLabel)}</td></tr>
-          <tr><td class="lbl">Booking Type</td><td>${escapeHtml(snapshot.bookingTypeLabel)}</td></tr>
-          <tr><td class="lbl">Pickup Location</td><td>${escapeHtml(snapshot.pickupLocation)}</td></tr>
-          <tr><td class="lbl">Delivery Location</td><td>${escapeHtml(snapshot.deliveryLocation)}</td></tr>
-        </table>
-      </div>
-      <div>
-        <div class="quad-h">Bill From</div>
-        <p><strong>${escapeHtml(snapshot.billFrom.name)}</strong></p>
-        <p>${escapeHtml(snapshot.billFrom.address)}</p>
-        <p>GSTIN/UNI : ${escapeHtml(snapshot.billFrom.gstin)}</p>
-        <p>PAN : ${escapeHtml(snapshot.billFrom.pan)}</p>
-        <p>Contact Number : ${escapeHtml(snapshot.billFrom.phone)}</p>
-        <p>Mail Id : ${escapeHtml(snapshot.billFrom.email)}</p>
-      </div>
-      <div class="meta-right">
-        <table>
-          <tr><td class="lbl">Invoice due date</td><td>${escapeHtml(snapshot.dueDate ? formatInvoiceDate(snapshot.dueDate) : "—")}</td></tr>
-          <tr><td class="lbl">Mode/Terms of Payment</td><td>${escapeHtml(snapshot.paymentTermsLabel)}</td></tr>
-          <tr><td class="lbl">Terms of Delivery</td><td>${escapeHtml(snapshot.termsOfDelivery)}</td></tr>
-          <tr><td class="lbl">SAC</td><td>${GTA_SAC}</td></tr>
-        </table>
-      </div>
-    </div>
+    <table class="inv-head-table">
+      <tr>
+        <td class="head-logo">
+          ${logoImg}
+          <div class="einv-lines">
+            <div><b>IRN</b>${irnLine}</div>
+            <div><b>Ack Number</b>${ackLine}</div>
+          </div>
+        </td>
+        <td class="head-title"><div class="tax-title">Tax Invoice</div></td>
+        <td class="head-qr inv-head-right">${qrBlock}</td>
+      </tr>
+    </table>
+
+    <table class="inv-bill-table">
+      <tr>
+        <td class="bill-left">
+          <div class="bill-block">
+            <div class="bill-h">Bill To</div>
+            <p><strong>${escapeHtml(snapshot.billTo.name)}</strong></p>
+            ${snapshot.billTo.address ? `<p>${escapeHtml(snapshot.billTo.address)}</p>` : ""}
+            ${snapshot.billTo.gstin ? `<p>GSTIN/UIN : ${escapeHtml(snapshot.billTo.gstin)}</p>` : ""}
+            ${snapshot.billTo.pan ? `<p>PAN : ${escapeHtml(snapshot.billTo.pan)}</p>` : ""}
+            <p>State Name : ${escapeHtml(billToState)}</p>
+            <p>Place of Supply : ${escapeHtml(snapshot.billTo.placeOfSupply)}</p>
+          </div>
+          <div class="bill-block">
+            <div class="bill-h">Bill From</div>
+            <p><strong>${escapeHtml(snapshot.billFrom.name)}</strong></p>
+            <p>${escapeHtml(snapshot.billFrom.address)}</p>
+            <p>GSTIN/UIN : ${escapeHtml(snapshot.billFrom.gstin)}</p>
+            <p>PAN : ${escapeHtml(snapshot.billFrom.pan)}</p>
+            <p>State Name : ${escapeHtml(billFromState)}</p>
+            <p>Contact Number : ${escapeHtml(snapshot.billFrom.phone)}</p>
+            <p>Mail Id : ${escapeHtml(snapshot.billFrom.email)}</p>
+          </div>
+        </td>
+        <td class="bill-meta">
+          <table class="meta-pairs">
+            <tr>
+              <td class="lbl">Invoice No.</td><td class="val">${escapeHtml(snapshot.invoiceNumber)}</td>
+              <td class="lbl">Dated</td><td class="val">${escapeHtml(formatInvoiceDate(snapshot.issueDate))}</td>
+            </tr>
+            <tr>
+              <td class="lbl">Reference No.</td><td class="val">${escapeHtml(snapshot.referenceNo)}</td>
+              <td class="lbl">RCM</td><td class="val">${escapeHtml(snapshot.reverseCharge)}</td>
+            </tr>
+            <tr>
+              <td class="lbl">Trip No</td><td class="val">${escapeHtml(snapshot.tripNoLabel)}</td>
+              <td class="lbl">Booking Type</td><td class="val">${escapeHtml(snapshot.bookingTypeLabel)}</td>
+            </tr>
+            <tr>
+              <td class="lbl">Pickup Location</td><td class="val">${escapeHtml(snapshot.pickupLocation)}</td>
+              <td class="lbl">Delivery Location</td><td class="val">${escapeHtml(snapshot.deliveryLocation)}</td>
+            </tr>
+            <tr>
+              <td class="lbl">Invoice due date</td><td class="val">${escapeHtml(snapshot.dueDate ? formatInvoiceDate(snapshot.dueDate) : "—")}</td>
+              <td class="lbl">Mode/Terms of Payment</td><td class="val">${escapeHtml(snapshot.paymentTermsLabel)}</td>
+            </tr>
+            <tr>
+              <td class="lbl">Terms of Delivery</td><td class="val" colspan="3">${escapeHtml(snapshot.termsOfDelivery)}</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
 
     <div class="rcm-bar">${escapeHtml(rcmRemark)}</div>
     ${renderBtLineTable(snapshot.rows)}
 
-    <div class="totals-wrap">
-      <div class="totals-left">
-        <p><strong>Amount Chargeable (in words)</strong></p>
-        <p>INR ${escapeHtml(snapshot.amountInWords)} Only</p>
-        <p style="margin-top:6px"><em>Remarks : ${escapeHtml(snapshot.lrRemarks)}</em></p>
-      </div>
-      <div class="totals-right">
-        <table>
-          <tr><td>Total</td><td class="r">${escapeHtml(formatINR(snapshot.subTotal))}</td></tr>
-          <tr><td>Add: CGST @ ${cgstPct}%</td><td class="r">${escapeHtml(formatINR(snapshot.cgst))}</td></tr>
-          <tr><td>Add: SGST @ ${sgstPct}%</td><td class="r">${escapeHtml(formatINR(snapshot.sgst))}</td></tr>
-          <tr><td>Add: IGST @ ${igstPct}%</td><td class="r">${escapeHtml(formatINR(snapshot.igst))}</td></tr>
-          <tr class="grand"><td>Grand Total</td><td class="r">${escapeHtml(formatINR(snapshot.totalAmount))}</td></tr>
-        </table>
-      </div>
-    </div>
+    <table class="totals-stack">
+      <tr>
+        <td class="totals-empty"></td>
+        <td class="totals-panel">
+          <table>
+            <tr><td>Total</td><td class="r">${escapeHtml(formatINR(snapshot.subTotal))}</td></tr>
+            <tr><td>Add: CGST @ ${cgstPct}%</td><td class="r">${escapeHtml(formatINR(snapshot.cgst))}</td></tr>
+            <tr><td>Add: SGST @ ${sgstPct}%</td><td class="r">${escapeHtml(formatINR(snapshot.sgst))}</td></tr>
+            <tr><td>Add: IGST @ ${igstPct}%</td><td class="r">${escapeHtml(formatINR(snapshot.igst))}</td></tr>
+            <tr class="grand"><td>Grand Total</td><td class="r">${escapeHtml(formatINR(snapshot.totalAmount))}</td></tr>
+          </table>
+        </td>
+      </tr>
+    </table>
 
-    <div class="footer-grid">
-      <div class="footer-left">
-        <div class="bank-h">Company's Bank Details</div>
-        <p>Bank Name : ${escapeHtml(snapshot.companyBank.bankName)}</p>
-        <p>A/C No : ${escapeHtml(snapshot.companyBank.bankAccount)}</p>
-        <p>Branch : ${escapeHtml(snapshot.companyBank.bankBranch)}</p>
-        <p>IFSC Code : ${escapeHtml(snapshot.companyBank.bankIfsc)}</p>
-        <div class="terms">
-          <strong>Terms &amp; Conditions</strong>
-          <ol>
-            <li>Any delayed payment beyond the due date shall attract interest at 24% per annum from the due date until the date of actual payment.</li>
-            <li>Any modification or correction in LR, consignment details, or billing information must be informed in writing within 3 days from the date of issue; requests received thereafter may not be entertained.</li>
-          </ol>
-        </div>
-      </div>
-      <div class="footer-right">
-        <div class="for-co">For ${escapeHtml(snapshot.billFrom.name)}</div>
-        <p class="footer-note">Computer-generated invoice — no signature required</p>
-      </div>
-    </div>
+    <table class="words-row">
+      <tr>
+        <td class="words-cell">
+          <strong>Amount Chargeable (in words)</strong><br />
+          INR ${escapeHtml(snapshot.amountInWords)} Only
+        </td>
+        <td class="eoe-cell">E. &amp; O.E</td>
+      </tr>
+    </table>
+
+    <div class="lr-remarks">Remarks : ${escapeHtml(snapshot.lrRemarks.replace(/^Remarks\s*:\s*/i, ""))}</div>
+
+    <table class="footer-table">
+      <tr>
+        <td class="footer-left">
+          <div class="bank-h">Company's Bank Details</div>
+          <p>Bank Name : ${escapeHtml(snapshot.companyBank.bankName)}</p>
+          <p>A/C No : ${escapeHtml(snapshot.companyBank.bankAccount)}</p>
+          <p>Branch &amp; IFSC Code : ${escapeHtml(bankBranchIfsc || "—")}</p>
+          <div class="terms">
+            <strong>Terms &amp; Conditions</strong>
+            <ol>
+              <li>Any delayed payment beyond the due date shall attract interest at 24% per annum from the due date until the date of actual payment.</li>
+              <li>Any modification or correction in LR, consignment details, or billing information must be informed in writing within 3 days from the date of issue; requests received thereafter may not be entertained.</li>
+            </ol>
+          </div>
+        </td>
+        <td class="footer-right">
+          <div class="for-co">For ${escapeHtml(snapshot.billFrom.name)}</div>
+          <div class="auth-sign">Authorized signatory</div>
+        </td>
+      </tr>
+    </table>
     <div class="reg-line">Subject to ${escapeHtml(snapshot.billFrom.stateName)} jurisdiction. Freight under GTA (SAC ${GTA_SAC}).</div>
   </div>
 </body>
@@ -654,6 +814,6 @@ export async function generateInvoicePdfBytes(invoiceId: string): Promise<Buffer
   return renderHtmlToPdf(html, {
     format: "A4",
     landscape: false,
-    marginMm: { top: 6, right: 6, bottom: 6, left: 6 },
+    marginMm: { top: 5, right: 5, bottom: 5, left: 5 },
   });
 }

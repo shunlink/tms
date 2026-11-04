@@ -16,7 +16,7 @@ export default function IndentActions({
   hasTrip = false,
   hasVehicle = false,
   hasDriver = false,
-  driverVerified = false,
+  driverAssigned = false,
   vendorAllocated = false,
   canReleasePermission = true,
   vehicleQuantity = 1,
@@ -30,7 +30,7 @@ export default function IndentActions({
   hasTrip?: boolean;
   hasVehicle?: boolean;
   hasDriver?: boolean;
-  driverVerified?: boolean;
+  driverAssigned?: boolean;
   vendorAllocated?: boolean;
   canReleasePermission?: boolean;
   vehicleQuantity?: number;
@@ -109,7 +109,7 @@ export default function IndentActions({
     !hasTrip &&
     hasVehicle &&
     hasDriver &&
-    driverVerified;
+    driverAssigned;
 
   const showIndentLevelCreateTrip =
     tripReady && !perSlotPlacement && vehicleQuantity <= 1;

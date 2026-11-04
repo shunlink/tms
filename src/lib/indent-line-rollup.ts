@@ -43,7 +43,7 @@ export function summarizeLines(
     if (line.tripId) tripsCreated++;
     const alloc = activeAllocationOnLine(line);
     if (alloc?.vehicleId) withVehicle++;
-    if (alloc?.driverId && alloc.driver?.otpVerified) withVerifiedDriver++;
+    if (alloc?.driverId) withVerifiedDriver++;
   }
   return {
     total: lines.length,

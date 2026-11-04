@@ -793,6 +793,9 @@ export async function getInvoiceDetail(id: string) {
       billingAddress: inv.billingAddress,
       billingEmail: inv.billingEmail,
       paymentTermsDays: inv.paymentTermsDays,
+      eInvoiceIrn: inv.eInvoiceIrn,
+      eInvoiceAckNo: inv.eInvoiceAckNo,
+      eInvoiceGeneratedAt: inv.eInvoiceGeneratedAt,
       client: {
         id: inv.client.id,
         name: useSnapshot && inv.billingName ? inv.billingName : inv.client.name,
@@ -1036,6 +1039,7 @@ export async function getClientTripDetail(clientId: string, tripId: string) {
       vehicleType: t.vehicle.vehicleTypeCode,
       status: t.status,
       displayStatus: resolveClientTripDisplayStatus(t.status, t.invoiceLines),
+      clientRate: Number(t.clientRate),
       invoice: t.invoiceLines[0]?.invoice ?? null,
       latestPing: latestPing
         ? {

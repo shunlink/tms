@@ -1,6 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { DEFAULT_COMPANY_PROFILE } from "../company";
-import { buildLrHtml, type TripLrSnapshot, generateTripLrPdf } from "./lr-document.service";
+import {
+  buildLrHtml,
+  loadTripLrSnapshot,
+  type TripLrSnapshot,
+  generateTripLrPdf,
+} from "./lr-document.service";
 
 function sampleSnapshot(overrides: Partial<TripLrSnapshot> = {}): TripLrSnapshot {
   return {
@@ -41,7 +46,7 @@ function sampleSnapshot(overrides: Partial<TripLrSnapshot> = {}): TripLrSnapshot
     driverDl: "DL-09-2019-1234567",
     vendorName: "Sharma Transport",
     vendorGstin: "20CCCC0000C1Z5",
-    remarks: "Handle with care",
+    lrComments: "Handle with care",
     insuranceRisk: "Owner's Risk",
     customerCode: "IND-100",
     ...overrides,
@@ -63,10 +68,15 @@ describe("buildLrHtml", () => {
     expect(html).toContain("Lorry Receipt");
     expect(html).toContain("PROOF OF DELIVERY");
     expect(html).toContain('class="doc-qr"');
-    expect(html).toContain("lr-qr-cell");
+    expect(html).toContain("CUSTOMER Code :");
+    expect(html).toContain("meta-layout");
+    expect(html).toContain("CONSIGNOR");
+    expect(html).toContain("ACKNOWLEDGEMENT");
     expect(html).toContain("DATE:");
     expect(html).toContain("TIME:");
-    expect(html).toContain("Jamshedpur");
+    expect(html).toContain("Handle with care");
+    expect(html).not.toContain("Carrier:");
+    expect(html).not.toContain("TBB");
     expect(html).toContain("Kolkata");
   });
 
@@ -108,6 +118,70 @@ vi.mock("../audit", () => ({
 import { prisma } from "../prisma";
 import { putObject } from "../storage";
 import { renderHtmlToPdf } from "../pdf/render-html-to-pdf";
+
+describe("loadTripLrSnapshot", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("includes street address before city, state, and pincode on LR parties", async () => {
+    vi.mocked(prisma.trip.findFirst).mockResolvedValue({
+      id: "trip-1",
+      lrNumber: "LR-1",
+      dispatchedAt: null,
+      createdAt: new Date("2026-03-01"),
+      routeFrom: "Pune",
+      routeTo: "Mumbai",
+      cargoSummary: null,
+      loadingWeight: null,
+      clientRate: 1000,
+      remarks: null,
+      client: { name: "Client" },
+      vendor: { name: "Vendor", gstin: "GST" },
+      vehicle: { registrationNumber: "MH01", vehicleTypeCode: "OPEN_BODY" },
+      driver: null,
+      indentLine: null,
+      indent: {
+        indentNumber: "IND-1",
+        requirement: { reqNumber: "REQ-1" },
+        loading: {
+          partyName: "Shipper",
+          addressLine1: "Plot 12, MIDC Bhosari",
+          addressLine2: "Near Gate 3",
+          city: "Pune",
+          state: "Maharashtra",
+          pincode: "411026",
+          gstin: null,
+          contactName: null,
+          phone: null,
+        },
+        unloading: {
+          partyName: "Receiver",
+          addressLine1: "Warehouse B, Bhiwandi",
+          addressLine2: null,
+          city: "Mumbai",
+          state: "Maharashtra",
+          pincode: "421302",
+          gstin: null,
+          contactName: null,
+          phone: null,
+        },
+        cargo: null,
+        consignment: null,
+        clientFreight: null,
+        ewayBill: null,
+      },
+    } as never);
+
+    const snapshot = await loadTripLrSnapshot("trip-1");
+    expect(snapshot?.consignorAddress).toBe(
+      "Plot 12, MIDC Bhosari, Near Gate 3, Pune, Maharashtra, 411026"
+    );
+    expect(snapshot?.consigneeAddress).toBe(
+      "Warehouse B, Bhiwandi, Mumbai, Maharashtra, 421302"
+    );
+  });
+});
 
 describe("generateTripLrPdf", () => {
   beforeEach(() => {

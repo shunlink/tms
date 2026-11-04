@@ -24,6 +24,16 @@ Docker Compose loads `.env.production` for `db`, `app`, and `worker-email`.
 | `NOTIFY_PROVIDER` | for WhatsApp | `whatsapp_cloud` for driver OTP and vendor messages |
 | `WHATSAPP_TOKEN` / `WHATSAPP_PHONE_ID` | if WhatsApp | Meta WhatsApp Cloud API credentials |
 | `INTEGRATION_MODE` | no | `mock` (default) until Surepass is configured |
+| `EWAY_API_BASE_URL` | E-Way Bill (Perione / GSP) | Portal base URL (e.g. `https://staging.perione.in`) |
+| `EWAY_CLIENT_ID` / `EWAY_CLIENT_SECRET` | E-Way Bill | GSP credentials |
+| `EWAY_GSTIN` | E-Way Bill | Requester GSTIN |
+| `EWAY_EMAIL` | Perione | Registered email on the portal |
+| `EWAY_USERNAME` / `EWAY_PASSWORD` | E-Way Bill | Portal API user |
+| `EWAY_IP_ADDRESS` | Perione | Default `0` |
+| `EWAY_API_STYLE` | no | `perione` (plain JSON, default when host contains `perione.in`) or `nic` (encrypted NIC GSP) |
+| `EWAY_AUTH_PATH` / `EWAY_GET_PATH` | no | Perione defaults: `/ewaybillapi/v1.03/authenticate` and `/ewaybillapi/v1.03/ewayapi/getewaybill` |
+| `EWAY_AUTH_TTL_MS` | no | Auth cache TTL (staging Perione ~1h; production ~6h if unset) |
+| `EWAY_PUBLIC_KEY` | NIC encrypted only | RSA public key PEM when `EWAY_API_STYLE=nic` |
 | `STORAGE_DRIVER` | no | `local` (default) or `s3` |
 | `S3_BUCKET` / `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | if S3 | Object storage config |
 | `MAPS_PROVIDER` | no | `osm` (default tiles), `google`, `mapbox`, or `here` |

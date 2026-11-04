@@ -225,7 +225,7 @@ Portal layouts redirect non-APPROVED entities to `/onboard/<role>`.
 4. **Record advance** (amount, mode, reference).
 5. **Mark POD received** (after POD upload).
 6. **Record balance** -> COMPLETED.
-7. Optionally **allocate** vendor/vehicle/driver and **convert to Trip** (generates an LR).
+7. Optionally **allocate** vendor/vehicle/driver and **convert to Trip** (generates an LR). Ops enter driver phone on the indent; assignment is immediate (no allocation OTP). Driver app login still uses SMS/WhatsApp OTP separately.
 
 ### 7.2 Trips (execution)
 - Created manually or converted from an indent; auto **LR number** (`LR-<year>-####`).

@@ -21,7 +21,6 @@ export type VehicleSlotView = {
     phone: string;
     dlNumber: string;
     deviceType: string;
-    otpVerified: boolean;
   } | null;
 };
 
@@ -31,13 +30,6 @@ type DriverFields = {
   phone: string;
   deviceType: string;
 };
-
-function maskPhone(phone: string) {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length < 6) return phone;
-  const last5 = digits.slice(-5);
-  return `+91 XXXXX ${last5.slice(0, 1)}${last5.slice(1)}`;
-}
 
 function emptyDriver(slot?: VehicleSlotView): DriverFields {
   return {
@@ -84,23 +76,8 @@ export default function IndentVehicleSlots({
     return m;
   });
 
-  const [otpState, setOtpState] = useState<
-    Record<string, { pendingDriverId: string | null; otp: string; sent: boolean; verified: boolean }>
-  >(() => {
-    const m: Record<string, { pendingDriverId: string | null; otp: string; sent: boolean; verified: boolean }> = {};
-    for (const s of slots) {
-      m[s.lineId] = {
-        pendingDriverId: s.driver?.id && !s.driver.otpVerified ? s.driver.id : null,
-        otp: "",
-        sent: Boolean(s.driver?.id && !s.driver.otpVerified),
-        verified: s.driver?.otpVerified ?? false,
-      };
-    }
-    return m;
-  });
-
   const assignedCount = useMemo(
-    () => slots.filter((s) => s.driver?.otpVerified && s.vehicle?.registrationNumber).length,
+    () => slots.filter((s) => s.driver?.id && s.vehicle?.registrationNumber).length,
     [slots]
   );
 
@@ -178,55 +155,12 @@ export default function IndentVehicleSlots({
           });
           return;
         }
-        const driverBody = dData as { driver?: { id?: string } };
-        setOtpState((o) => ({
-          ...o,
-          [lineId]: {
-            ...o[lineId],
-            pendingDriverId: driverBody.driver?.id ?? null,
-            sent: true,
-            verified: false,
-            otp: "",
-          },
-        }));
+        toast.push({ variant: "success", title: "Driver assigned" });
       }
       router.refresh();
     } finally {
       setBusyLine(null);
     }
-  }
-
-  async function verifyOtp(lineId: string) {
-    const st = otpState[lineId];
-    if (!st?.pendingDriverId || !st.otp.trim()) {
-      setErrorByLine((e) => ({ ...e, [lineId]: "Enter the OTP sent to the driver" }));
-      return;
-    }
-    setBusyLine(lineId);
-    const res = await fetch(`/api/indents/${indentId}/driver/verify`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        driverId: st.pendingDriverId,
-        otp: st.otp.trim(),
-        indentLineId: lineId,
-      }),
-    });
-    setBusyLine(null);
-    const data = await readJsonBody(res);
-    if (!res.ok) {
-      reportApiFailure(res, data, {
-        toast,
-        setError: (msg) => setErrorByLine((e) => ({ ...e, [lineId]: msg })),
-        fallback: "OTP verification failed",
-      });
-      return;
-    }
-    setOtpState((o) => ({
-      ...o,
-      [lineId]: { ...o[lineId], verified: true, sent: false },
-    }));
-    router.refresh();
   }
 
   async function createTrip(lineId: string) {
@@ -289,12 +223,11 @@ export default function IndentVehicleSlots({
       <CardContent className="space-y-6">
         {slots.map((slot) => {
           const canAssign = canAssignSlot(slot);
-          const st = otpState[slot.lineId];
           const driver = drivers[slot.lineId] ?? emptyDriver(slot);
           const tripReady =
             slot.placementStatus === "VEHICLE_REACHED" &&
             slot.vehicle &&
-            slot.driver?.otpVerified &&
+            slot.driver?.id &&
             !slot.trip;
 
           return (
@@ -409,9 +342,6 @@ export default function IndentVehicleSlots({
                   >
                     {busyLine === slot.lineId ? "Saving..." : "Save vehicle & driver"}
                   </Button>
-                  {(st?.verified || slot.driver?.otpVerified) && (
-                    <span className="text-xs text-green-700 self-center">Driver verified</span>
-                  )}
                   {tripReady && (
                     <Button
                       type="button"
@@ -422,33 +352,6 @@ export default function IndentVehicleSlots({
                       Create LR
                     </Button>
                   )}
-                </div>
-              )}
-
-              {st?.sent && !st.verified && !slot.driver?.otpVerified && canAssign && (
-                <div className="flex flex-wrap items-end gap-2">
-                  <div>
-                    <label className="text-xs text-slate-500">OTP ({maskPhone(driver.phone)})</label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      maxLength={6}
-                      className="w-28 border rounded-md px-2 py-1 text-sm"
-                      value={st.otp}
-                      onChange={(e) =>
-                        setOtpState((o) => ({
-                          ...o,
-                          [slot.lineId]: {
-                            ...o[slot.lineId],
-                            otp: e.target.value.replace(/\D/g, "").slice(0, 6),
-                          },
-                        }))
-                      }
-                    />
-                  </div>
-                  <Button type="button" size="sm" onClick={() => void verifyOtp(slot.lineId)}>
-                    Verify OTP
-                  </Button>
                 </div>
               )}
 

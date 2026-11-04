@@ -44,8 +44,63 @@ export async function lookupDriverByDl(dlNumber: string) {
 }
 
 /**
- * Validate driver details and send OTP. Does not link the driver to the indent
- * until OTP is verified — DRIVER_ASSIGNED is only set after verification.
+ * Link driver to indent line allocation and advance placement state (no OTP).
+ */
+async function linkDriverToIndentLine(
+  indentId: string,
+  driverId: string,
+  indent: { id: string; status: string },
+  line: { id: string; tripId: string | null },
+  actor: SessionUser | null | undefined,
+  meta: { dlNumber: string; indentLineId: string; lineNumber: number }
+) {
+  await assertDriverAvailableForIndentLine(driverId, line.id, line.tripId);
+
+  const driver = await prisma.driver.findUnique({ where: { id: driverId } });
+  if (!driver) throw new Error("Driver not found");
+
+  await prisma.$transaction(async (tx) => {
+    if (indent.status === "VEHICLE_PLACED") {
+      assertTransition(indent.status, "DRIVER_ASSIGNED");
+    }
+
+    const alloc = await tx.indentAllocation.findFirst({
+      where: { indentLineId: line.id, status: "ACTIVE" },
+      orderBy: { allocatedAt: "desc" },
+    });
+    if (alloc) {
+      await tx.indentAllocation.update({
+        where: { id: alloc.id },
+        data: { driverId },
+      });
+    }
+
+    await tx.indent.update({
+      where: { id: indentId },
+      data: {
+        ...(indent.status === "VEHICLE_PLACED" ? { status: "DRIVER_ASSIGNED" } : {}),
+      },
+    });
+    await syncIndentHeaderFromLines(indentId, tx);
+  });
+
+  const { resolveImportantEvents } = await import("./important-event.service");
+  await resolveImportantEvents({ types: ["DRIVER_OTP_PENDING"], indentId }, { actorId: actor?.id });
+
+  await logAudit({
+    user: actor,
+    action: "indent.driver_assigned",
+    entity: "INDENT",
+    entityId: indentId,
+    meta: { driverId, ...meta },
+  });
+
+  const { autoMockVerifyDriverOnAssign } = await import("../integrations/auto-mock-verify");
+  await autoMockVerifyDriverOnAssign(driverId, actor);
+}
+
+/**
+ * Register driver details and assign to the indent immediately (ops-entered phone; no OTP).
  */
 export async function registerDriverForIndent(
   indentId: string,
@@ -107,38 +162,11 @@ export async function registerDriverForIndent(
     return d;
   });
 
-  await assertDriverAvailableForIndentLine(driver.id, line.id, line.tripId);
-
-  const { createImportantEvent, resolveImportantEvents } = await import("./important-event.service");
-  // A new OTP request supersedes earlier pending verifications on this indent.
-  await resolveImportantEvents(
-    { types: ["DRIVER_OTP_PENDING"], indentId },
-    { actorId: actor?.id, status: "DISMISSED" }
-  );
-  await createImportantEvent({
-    type: "DRIVER_OTP_PENDING",
-    severity: "WARNING",
-    title: `Driver OTP verification pending for ${indent.indentNumber} (vehicle ${line.lineNumber})`,
-    description: `${input.name} (${dlNumber})`,
-    indentId,
-    relatedEntityId: driver.id,
+  await linkDriverToIndentLine(indentId, driver.id, indent, line, actor, {
+    dlNumber,
+    indentLineId: line.id,
+    lineNumber: line.lineNumber,
   });
-
-  await logAudit({
-    user: actor,
-    action: "indent.driver_otp_requested",
-    entity: "INDENT",
-    entityId: indentId,
-    meta: {
-      driverId: driver.id,
-      dlNumber,
-      existing: Boolean(existing),
-      indentLineId: line.id,
-      lineNumber: line.lineNumber,
-    },
-  });
-
-  await sendDriverOtp(driver.id);
 
   return {
     driver: {
@@ -150,15 +178,15 @@ export async function registerDriverForIndent(
       existing: Boolean(existing),
       otpVerified: driver.otpVerified,
     },
-    otpSent: true,
+    assigned: true,
   };
 }
 
-/** Verify OTP and link the driver to the indent (DRIVER_ASSIGNED). */
+/** @deprecated Indent allocation no longer uses OTP; use registerDriverForIndent. */
 export async function verifyDriverForIndent(
   indentId: string,
   driverId: string,
-  otp: string,
+  _otp: string,
   actor?: SessionUser | null,
   indentLineId?: string | null
 ) {
@@ -170,49 +198,11 @@ export async function verifyDriverForIndent(
   const driver = await prisma.driver.findUnique({ where: { id: driverId } });
   if (!driver) throw new Error("Driver not found");
 
-  await assertDriverAvailableForIndentLine(driverId, line.id, line.tripId);
-
-  await verifyDriverOtpSecure({ driverId, otp, purpose: "driver_verify" });
-
-  await prisma.$transaction(async (tx) => {
-    const nextStatus = indent.status === "VEHICLE_PLACED" ? "DRIVER_ASSIGNED" : indent.status;
-    if (indent.status === "VEHICLE_PLACED") {
-      assertTransition(indent.status, "DRIVER_ASSIGNED");
-    }
-
-    const alloc = await tx.indentAllocation.findFirst({
-      where: { indentLineId: line.id, status: "ACTIVE" },
-      orderBy: { allocatedAt: "desc" },
-    });
-    if (alloc) {
-      await tx.indentAllocation.update({
-        where: { id: alloc.id },
-        data: { driverId },
-      });
-    }
-
-    await tx.indent.update({
-      where: { id: indentId },
-      data: {
-        ...(indent.status === "VEHICLE_PLACED" ? { status: nextStatus } : {}),
-      },
-    });
-    await syncIndentHeaderFromLines(indentId, tx);
+  await linkDriverToIndentLine(indentId, driverId, indent, line, actor, {
+    dlNumber: driver.dlNumber,
+    indentLineId: line.id,
+    lineNumber: line.lineNumber,
   });
-
-  const { resolveImportantEvents } = await import("./important-event.service");
-  await resolveImportantEvents({ types: ["DRIVER_OTP_PENDING"], indentId }, { actorId: actor?.id });
-
-  await logAudit({
-    user: actor,
-    action: "indent.driver_assigned",
-    entity: "INDENT",
-    entityId: indentId,
-    meta: { driverId, dlNumber: driver.dlNumber },
-  });
-
-  const { autoMockVerifyDriverOnAssign } = await import("../integrations/auto-mock-verify");
-  await autoMockVerifyDriverOnAssign(driverId, actor);
 
   return (await import("./indent.service")).getIndentById(indentId);
 }

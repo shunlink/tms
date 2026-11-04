@@ -4,6 +4,7 @@ import { ArrowLeft } from "lucide-react";
 import InvoiceActions from "@/components/forms/invoice-actions";
 import InvoiceDocument from "@/components/invoice-document";
 import InvoicePdfDownload from "@/components/invoices/invoice-pdf-download";
+import InvoiceEinvoiceFields from "@/components/invoices/invoice-einvoice-fields";
 import { getInvoiceDetail } from "@/lib/queries";
 import {
   buildInvoicePrintHtml,
@@ -38,6 +39,15 @@ export default async function InvoiceDetailPage({
           clientId={inv.client.id}
         />
         <InvoicePdfDownload invoiceId={inv.id} invoiceNumber={inv.invoiceNumber} />
+      </div>
+
+      <div className="mb-6 print:hidden">
+        <InvoiceEinvoiceFields
+          invoiceId={inv.id}
+          initialIrn={inv.eInvoiceIrn}
+          initialAckNo={inv.eInvoiceAckNo}
+          generatedAt={inv.eInvoiceGeneratedAt}
+        />
       </div>
 
       <InvoiceDocument html={printHtml} snapshot={snapshot} payments={inv.payments} />

@@ -81,9 +81,6 @@ export async function checkIndentTripReadiness(indentId: string): Promise<TripRe
     if (!driver.dlVerified) {
       reasons.push("DL verification missing");
     }
-    if (!driver.otpVerified) {
-      reasons.push("Driver OTP verification must be completed");
-    }
     const status = (driver.dlStatus ?? driver.dlVerificationStatus ?? "").toLowerCase();
     if (status.includes("suspend") || status.includes("expired") || status.includes("invalid")) {
       reasons.push("Driving licence is not valid");

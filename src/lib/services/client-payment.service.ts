@@ -43,6 +43,7 @@ function mapPayment(row: Prisma.ClientPaymentGetPayload<{ include: typeof paymen
     invoiceId: row.invoiceId,
     indentId: row.indentId,
     tripId: row.tripId,
+    inboundOrderId: row.inboundOrderId,
     client: row.client,
     invoice: row.invoice,
     indent: row.indent,
@@ -355,6 +356,55 @@ export async function updateClientPayment(
   await safePostClientPaymentReceiptJournal(id, actor?.id);
 
   return result;
+}
+
+/** Record client receipt after verified Juspay Hypercheckout success (no proof file). */
+export async function createClientPaymentFromGateway(input: {
+  clientId: string;
+  inboundOrderId: string;
+  paymentType: string;
+  amountMinor: number;
+  invoiceId?: string | null;
+  tripId?: string | null;
+  referenceNo?: string | null;
+}) {
+  const existing = await prisma.clientPayment.findFirst({
+    where: { inboundOrderId: input.inboundOrderId },
+  });
+  if (existing) return getClientPaymentById(existing.id);
+
+  const amount = Math.round(input.amountMinor) / 100;
+  const paidAt = new Date();
+
+  const row = await prisma.$transaction(async (tx) => {
+    const payment = await tx.clientPayment.create({
+      data: {
+        clientId: input.clientId,
+        paymentType: input.paymentType,
+        amount,
+        paidAt,
+        paymentMode: "JUSPAY",
+        referenceNo: input.referenceNo ?? null,
+        notes: "Settled via Juspay Hypercheckout",
+        invoiceId: input.invoiceId ?? null,
+        tripId: input.tripId ?? null,
+        inboundOrderId: input.inboundOrderId,
+        recordedById: null,
+      },
+      include: paymentInclude,
+    });
+
+    if (input.invoiceId) {
+      await applyInvoicePayment(tx, input.invoiceId, amount, paidAt);
+    }
+
+    return payment;
+  });
+
+  const { safePostClientPaymentReceiptJournal } = await import("../accounting/operational-posting.service");
+  await safePostClientPaymentReceiptJournal(row.id, null);
+
+  return getClientPaymentById(row.id);
 }
 
 export async function countClientPaymentsThisMonth() {

@@ -1,9 +1,10 @@
 /**
- * Payment execution worker — drains PaymentOutbox via BullMQ.
+ * Payment execution worker — drains PaymentOutbox and InboundPaymentOutbox via BullMQ.
  * Run: npm run worker:payment
  */
 import { Worker } from "bullmq";
 import { processPaymentOutboxJob } from "../src/lib/payments/execution.service";
+import { processInboundOutboxJob } from "../src/lib/payments/inbound/inbound-execution.service";
 
 function bullConnection() {
   const url = process.env.REDIS_URL?.trim();
@@ -16,24 +17,39 @@ function bullConnection() {
   };
 }
 
-const worker = new Worker(
+const connection = bullConnection();
+
+const outboundWorker = new Worker(
   "tms-payment-execution",
   async (job) => {
     const { outboxId } = job.data as { outboxId: string };
     await processPaymentOutboxJob(outboxId);
   },
   {
-    connection: bullConnection(),
+    connection,
     concurrency: Number(process.env.PAYMENT_WORKER_CONCURRENCY ?? 3),
   }
 );
 
-worker.on("completed", (job) => {
-  console.log(`[payment-worker] completed ${job.id}`);
-});
+const inboundWorker = new Worker(
+  "tms-inbound-payment",
+  async (job) => {
+    const { outboxId } = job.data as { outboxId: string };
+    await processInboundOutboxJob(outboxId);
+  },
+  {
+    connection,
+    concurrency: Number(process.env.PAYMENT_WORKER_CONCURRENCY ?? 3),
+  }
+);
 
-worker.on("failed", (job, err) => {
-  console.error(`[payment-worker] failed ${job?.id}:`, err.message);
-});
+for (const worker of [outboundWorker, inboundWorker]) {
+  worker.on("completed", (job) => {
+    console.log(`[payment-worker] completed ${job.queueName} ${job.id}`);
+  });
+  worker.on("failed", (job, err) => {
+    console.error(`[payment-worker] failed ${job?.queueName} ${job?.id}:`, err.message);
+  });
+}
 
-console.log("[payment-worker] listening on tms-payment-execution");
+console.log("[payment-worker] listening on tms-payment-execution and tms-inbound-payment");

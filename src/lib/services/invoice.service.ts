@@ -84,6 +84,22 @@ export type InvoiceBillingInput = {
   paymentTermsDays?: number | null;
 };
 
+export type InvoiceEInvoiceInput = {
+  eInvoiceIrn?: string | null;
+  eInvoiceAckNo?: string | null;
+};
+
+/** Persist IRN / Ack from NIC e-invoice generation (or manual admin entry). */
+export async function applyClientInvoiceEInvoice(
+  invoiceId: string,
+  input: InvoiceEInvoiceInput,
+  actor?: SessionUser | null
+) {
+  const irn = input.eInvoiceIrn?.trim() || null;
+  const ack = input.eInvoiceAckNo?.trim() || null;
+  return updateInvoice(invoiceId, { eInvoice: { eInvoiceIrn: irn, eInvoiceAckNo: ack } }, actor);
+}
+
 export type CreateInvoiceInput = {
   clientId: string;
   tripIds: string[];
@@ -408,6 +424,7 @@ export async function updateInvoice(
   input: {
     status?: string;
     billing?: InvoiceBillingInput;
+    eInvoice?: InvoiceEInvoiceInput;
     lines?: { id: string; amount?: number; gstRate?: number; description?: string | null }[];
   },
   actor?: SessionUser | null
@@ -431,6 +448,28 @@ export async function updateInvoice(
         (data as Record<string, unknown>)[key] = val;
         before[key] = (existing as Record<string, unknown>)[key];
         after[key] = val;
+      }
+    }
+  }
+
+  if (input.eInvoice) {
+    if (input.eInvoice.eInvoiceIrn !== undefined) {
+      data.eInvoiceIrn = input.eInvoice.eInvoiceIrn?.trim() || null;
+      before.eInvoiceIrn = existing.eInvoiceIrn;
+      after.eInvoiceIrn = data.eInvoiceIrn;
+    }
+    if (input.eInvoice.eInvoiceAckNo !== undefined) {
+      data.eInvoiceAckNo = input.eInvoice.eInvoiceAckNo?.trim() || null;
+      before.eInvoiceAckNo = existing.eInvoiceAckNo;
+      after.eInvoiceAckNo = data.eInvoiceAckNo;
+    }
+    if (
+      (input.eInvoice.eInvoiceIrn !== undefined && data.eInvoiceIrn) ||
+      (input.eInvoice.eInvoiceAckNo !== undefined && data.eInvoiceAckNo)
+    ) {
+      if (!existing.eInvoiceGeneratedAt && (data.eInvoiceIrn || data.eInvoiceAckNo)) {
+        data.eInvoiceGeneratedAt = new Date();
+        after.eInvoiceGeneratedAt = data.eInvoiceGeneratedAt;
       }
     }
   }

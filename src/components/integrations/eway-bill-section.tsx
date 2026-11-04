@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 import { useToast } from "@/components/toast";
 import { dateInputMinForField } from "@/lib/date-input";
+import type { EwayBillIndentDraft } from "@/lib/integrations/ewaybill/map-to-indent";
 export type EwayBillFormState = {
   mode: "EXISTING" | "NONE" | "MANUAL";
   ewayBillNumber: string;
@@ -62,12 +63,15 @@ export default function EwayBillSection({
   onChange,
   indentId,
   blockPastDates = false,
+  onIndentDraft,
 }: {
   value: EwayBillFormState;
   onChange: (v: EwayBillFormState) => void;
   indentId?: string;
   /** When true, “Valid until” cannot be before today (indent create). */
   blockPastDates?: boolean;
+  /** Called with indent form fields to prefill (not saved until user submits). */
+  onIndentDraft?: (draft: EwayBillIndentDraft) => void;
 }) {
   const toast = useToast();
   const [fetching, setFetching] = useState(false);
@@ -97,7 +101,11 @@ export default function EwayBillSection({
         reportApiFailure(res, data, { toast, setError, fallback: "Failed to fetch E-Way Bill" });
         return;
       }
-      const d = (data as { data: Record<string, string | number | null> }).data;
+      const payload = data as {
+        data: Record<string, string | number | null>;
+        indentDraft?: EwayBillIndentDraft;
+      };
+      const d = payload.data;
       onChange({
         ...value,
         mode: "EXISTING",
@@ -121,6 +129,16 @@ export default function EwayBillSection({
         provider: String(d.provider ?? ""),
         fetchedAt: String(d.fetchedAt ?? new Date().toISOString()),
         source: "CLIENT_PROVIDED",
+      });
+      if (payload.indentDraft && onIndentDraft) {
+        onIndentDraft(payload.indentDraft);
+      }
+      toast.push({
+        variant: "success",
+        title: "E-Way Bill loaded",
+        description: onIndentDraft
+          ? "Review auto-filled indent fields below, then save when ready."
+          : undefined,
       });
     } finally {
       setFetching(false);

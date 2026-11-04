@@ -11,6 +11,12 @@ import {
 import { getSessionUser } from "@/lib/auth";
 import { getInvoiceDetail } from "@/lib/queries";
 import { CLIENT_HIDDEN_INVOICE_STATUSES } from "@/lib/client-trip-sync";
+import { invoiceOutstanding } from "@/lib/invoice-payment";
+import ClientPortalPayButton from "@/components/portal/client-portal-pay-button";
+import { hypercheckoutEnabled } from "@/lib/payments/inbound/hypercheckout.service";
+import { juspayMaxCheckoutRupees } from "@/lib/payments/juspay/config";
+import { canClientPerformPortalMutations } from "@/lib/portal-access";
+import { getOnboardingStatus } from "@/lib/services/onboarding.service";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +35,16 @@ export default async function ClientInvoiceDetailPage({
   const snapshot = await loadInvoicePrintSnapshot(params.id);
   if (!snapshot) notFound();
   const printHtml = await buildInvoicePrintHtml(params.id);
+  const outstanding = invoiceOutstanding(Number(inv.totalAmount), Number(inv.paidAmount));
+  const checkoutCap = juspayMaxCheckoutRupees();
+  const maxPayAmount =
+    checkoutCap != null ? Math.min(outstanding, checkoutCap) : outstanding;
+  const onboardingStatus = await getOnboardingStatus("CLIENT", user.clientId);
+  const canPay =
+    hypercheckoutEnabled() &&
+    canClientPerformPortalMutations(onboardingStatus) &&
+    outstanding > 0 &&
+    !["PAID", "DRAFT", "CANCELLED"].includes(inv.status);
 
   return (
     <div className="space-y-6 w-full max-w-5xl mx-auto">
@@ -48,6 +64,15 @@ export default async function ClientInvoiceDetailPage({
         </div>
 
         <div className="print:hidden flex flex-wrap gap-2">
+          {canPay ? (
+            <ClientPortalPayButton
+              purpose="INVOICE"
+              invoiceId={inv.id}
+              outstanding={outstanding}
+              maxPayAmount={maxPayAmount}
+              checkoutCapRupees={checkoutCap}
+            />
+          ) : null}
           <InvoicePdfDownload invoiceId={inv.id} invoiceNumber={inv.invoiceNumber} />
           <PrintButton />
         </div>

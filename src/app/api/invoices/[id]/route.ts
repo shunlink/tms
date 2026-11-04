@@ -12,10 +12,16 @@ const invoiceBillingPatchSchema = z.object({
   paymentTermsDays: z.coerce.number().int().nullable().optional(),
 });
 
+const invoiceEInvoicePatchSchema = z.object({
+  eInvoiceIrn: z.string().nullable().optional(),
+  eInvoiceAckNo: z.string().nullable().optional(),
+});
+
 const invoicePatchSchema = z.object({
   action: z.literal("finalize").optional(),
   status: z.enum(["DRAFT", "SENT", "PAID", "PARTIALLY_PAID", "OVERDUE", "CANCELLED"]).optional(),
   billing: invoiceBillingPatchSchema.optional(),
+  eInvoice: invoiceEInvoicePatchSchema.optional(),
   lines: z
     .array(
       z.object({
@@ -77,11 +83,21 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       return badRequest("Only draft invoices can be edited");
     }
 
+    if (existing.status === "CANCELLED" && parsed.data.eInvoice !== undefined) {
+      return badRequest("Cancelled invoices cannot be updated");
+    }
+
     const invoice = await updateInvoice(
       params.id,
       {
         status: parsed.data.status,
         billing: parsed.data.billing,
+        eInvoice: parsed.data.eInvoice
+          ? {
+              eInvoiceIrn: parsed.data.eInvoice.eInvoiceIrn,
+              eInvoiceAckNo: parsed.data.eInvoice.eInvoiceAckNo,
+            }
+          : undefined,
         lines: parsed.data.lines,
       },
       auth!.user

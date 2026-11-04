@@ -67,9 +67,11 @@ describe("buildInvoiceTaxHtml", () => {
     pickupLocation: "Jamshedpur",
     deliveryLocation: "Kolkata",
     paymentTermsLabel: "30 Days Credit",
-    termsOfDelivery: "As per booking",
+    termsOfDelivery: "Rate Check",
     lrRemarks: "LR no - LR-001, LR-002",
     gstRatePercent: 18,
+    eInvoiceIrn: null,
+    eInvoiceAckNo: null,
     billFrom: {
       name: "Shunlink Logistics Pvt. Ltd.",
       address: "Delhi",
@@ -177,16 +179,31 @@ describe("buildInvoiceTaxHtml", () => {
     expect(html).toContain("Particulars");
     expect(html).toContain("Grand Total");
     expect(html).toContain("@page { size: A4 portrait");
+    expect(html).toContain("Ack Number");
+    expect(html).toContain("Authorized signatory");
+    expect(html).toContain("Branch &amp; IFSC Code");
+    expect(html).toContain("meta-pairs");
+    expect(html).toContain("E. &amp; O.E");
+    expect(html).toContain("words-row");
   });
 
-  it("includes QR block when qrSvg is provided", () => {
+  it("includes QR in header when qrSvg is provided", () => {
     const html = buildInvoiceTaxHtml(snapshot, {
       logoDataUrl: "",
       qrSvg: '<svg class="doc-qr-svg" width="56" height="56"></svg>',
     });
     expect(html).toContain("doc-qr-svg");
-    expect(html).toContain("meta-with-qr");
-    expect(html).toContain("Scan to view");
+    expect(html).toContain("inv-head-right");
+    expect(html).not.toContain("Scan to view");
+  });
+
+  it("shows stored IRN and Ack on print HTML", () => {
+    const html = buildInvoiceTaxHtml(
+      { ...snapshot, eInvoiceIrn: "abc123irn", eInvoiceAckNo: "ACK999" },
+      { logoDataUrl: "" }
+    );
+    expect(html).toContain("abc123irn");
+    expect(html).toContain("ACK999");
   });
 });
 

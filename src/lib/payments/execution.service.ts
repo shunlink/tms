@@ -2,6 +2,8 @@ import { randomUUID } from "crypto";
 import { prisma } from "../prisma";
 import { gatewayExecutionEnabled } from "./config";
 import { getPaymentGateway } from "./gateway/registry";
+import { createJuspayPayoutGateway } from "./gateway/providers/juspay-payout";
+import { juspayConfigured } from "./juspay/config";
 import { postPaymentLedger } from "./ledger.service";
 import { settleOutboundPaymentSuccess } from "./settlement.service";
 import { assertPaymentTransition } from "./state-machine";
@@ -269,14 +271,26 @@ export async function applyWebhookEvent(webhookEventId: string) {
   const event = await prisma.paymentWebhookEvent.findUnique({ where: { id: webhookEventId } });
   if (!event || !event.signatureValid || event.processingStatus === "PROCESSED") return;
 
-  const payload = event.payload as {
-    providerRef?: string;
-    internalPaymentId?: string;
-    status?: string;
-    utr?: string;
-  } | null;
+  const payload = event.payload as Record<string, unknown> | null;
+  const gateway = juspayConfigured() ? createJuspayPayoutGateway() : getPaymentGateway();
+  let status = "PROCESSING";
+  let utr: string | null | undefined;
+  let providerRef: string | undefined;
+  try {
+    const normalized = gateway.parseWebhookEvent(JSON.stringify(payload ?? {}));
+    if (normalized.channel === "outbound") {
+      status = normalized.status;
+      utr = normalized.utr;
+      providerRef = normalized.providerRef;
+    }
+  } catch {
+    const raw = String(payload?.status ?? "PROCESSING");
+    if (raw === "FULFILLMENTS_SUCCESSFUL" || raw === "CHARGED") status = "SUCCEEDED";
+    else if (raw === "FULFILLMENTS_FAILURE" || raw === "FULFILLMENTS_CANCELLED") status = "FAILED";
+    else status = raw;
+  }
 
-  const paymentId = event.paymentId ?? payload?.internalPaymentId;
+  const paymentId = event.paymentId ?? (payload?.udf1 ? String(payload.udf1) : undefined);
   if (!paymentId) {
     await prisma.paymentWebhookEvent.update({
       where: { id: webhookEventId },
@@ -302,11 +316,12 @@ export async function applyWebhookEvent(webhookEventId: string) {
     return;
   }
 
-  const status = payload?.status ?? "PROCESSING";
-  if (status === "SUCCEEDED") {
-    const ref = payload?.providerRef ?? payment.providerTransferRef ?? "";
-    await finalizeSuccessfulTransfer(paymentId, ref, payload?.utr);
-  } else if (status === "FAILED") {
+  const statusNorm =
+    status === "SUCCEEDED" ? "SUCCEEDED" : status === "FAILED" ? "FAILED" : "PROCESSING";
+  if (statusNorm === "SUCCEEDED") {
+    const ref = providerRef ?? payment.providerTransferRef ?? "";
+    await finalizeSuccessfulTransfer(paymentId, ref, utr ?? (payload?.payment_gateway_response as { rrn?: string })?.rrn);
+  } else if (statusNorm === "FAILED") {
     await markPaymentFailed(paymentId, "WEBHOOK_FAILED", "Provider reported failure");
   }
 

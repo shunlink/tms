@@ -4,6 +4,7 @@ import { gatewayExecutionEnabled, paymentProviderId } from "../config";
 import type { PaymentGateway } from "./interface";
 import { createDisabledPaymentGateway } from "./none";
 import { createMockPaymentGateway } from "./mock";
+import { createJuspayPayoutGateway } from "./providers/juspay-payout";
 
 let cached: PaymentGateway | null = null;
 
@@ -13,6 +14,10 @@ export function getPaymentGateway(): PaymentGateway {
   const id = paymentProviderId();
   if (id === "mock" && gatewayExecutionEnabled()) {
     cached = createMockPaymentGateway();
+    return cached;
+  }
+  if (id === "juspay" && gatewayExecutionEnabled()) {
+    cached = createJuspayPayoutGateway();
     return cached;
   }
   cached = createDisabledPaymentGateway();

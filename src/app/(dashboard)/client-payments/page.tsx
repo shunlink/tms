@@ -4,6 +4,7 @@ import PageHeader from "@/components/page-header";
 import StatCard from "@/components/stat-card";
 import DataTable, { type DataColumn } from "@/components/data-table";
 import ClientPaymentForm from "@/components/forms/client-payment-form";
+import ClientPaymentJuspayRefundButton from "@/components/forms/client-payment-juspay-refund-button";
 import { requirePagePermission } from "@/lib/page-auth";
 import { listClientPayments, countClientPaymentsThisMonth } from "@/lib/services/client-payment.service";
 import { getFormOptions } from "@/lib/queries";
@@ -71,6 +72,10 @@ export default async function ClientPaymentsPage({
     paidAmount: Number(i.paidAmount),
   }));
 
+  const juspayOnline = payments.filter(
+    (p) => p.paymentMode === "JUSPAY" && p.inboundOrderId
+  );
+
   return (
     <div>
       <PageHeader
@@ -113,6 +118,30 @@ export default async function ClientPaymentsPage({
           />
         </CardContent>
       </Card>
+
+      {canManage && juspayOnline.length > 0 && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle>Juspay online payments</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {juspayOnline.map((p) => (
+              <div
+                key={p.id}
+                className="flex flex-wrap items-center justify-between gap-2 border border-gray-100 rounded-lg px-3 py-2 text-sm"
+              >
+                <span>
+                  {p.client.name} · {formatINR(p.amount)} · {p.referenceNo ?? "—"}
+                </span>
+                <ClientPaymentJuspayRefundButton
+                  inboundOrderId={p.inboundOrderId!}
+                  maxAmount={p.amount}
+                />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

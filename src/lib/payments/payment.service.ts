@@ -12,6 +12,7 @@ import { enqueuePaymentJob } from "./outbox";
 import { dispatchPaymentOutboxJob } from "./queue";
 import { assertPaymentTransition } from "./state-machine";
 import { minorToRupees, rupeesToMinor } from "./money";
+import { generateJuspayOrderId } from "./juspay/order-id";
 
 const paymentInclude = {
   vendor: { select: { id: true, name: true } },
@@ -92,6 +93,7 @@ export async function createOutboundPaymentDraft(input: CreateOutboundPaymentInp
   }
 
   const paymentNumber = await nextNumber("PAY");
+  const juspayOrderId = generateJuspayOrderId("P");
 
   const row = await prisma.$transaction(async (tx) => {
     const created = await tx.outboundPayment.create({
@@ -110,6 +112,7 @@ export async function createOutboundPaymentDraft(input: CreateOutboundPaymentInp
         balancePaymentTaskId: input.balancePaymentTaskId ?? null,
         beneficiaryId: input.beneficiaryId ?? null,
         idempotencyKey,
+        juspayOrderId,
         createdById: actor?.id ?? null,
         initiatedAt: new Date(),
       },
@@ -278,7 +281,17 @@ export async function executeOutboundPayment(paymentId: string, actor?: SessionU
 export async function cancelOutboundPayment(paymentId: string, actor?: SessionUser | null, reason?: string) {
   const payment = await prisma.outboundPayment.findUnique({ where: { id: paymentId } });
   if (!payment) return null;
-  if (!["DRAFT", "PENDING_APPROVAL", "APPROVED", "FAILED"].includes(payment.status)) {
+
+  if (payment.status === "PROCESSING" && payment.providerFulfillmentId) {
+    try {
+      const { cancelJuspayPayoutFulfillment } = await import("./gateway/providers/juspay-payout");
+      await cancelJuspayPayoutFulfillment(payment.providerFulfillmentId, payment.vendorId);
+    } catch {
+      // Best-effort; status reconciled via poll.
+    }
+  }
+
+  if (!["DRAFT", "PENDING_APPROVAL", "APPROVED", "FAILED", "PROCESSING"].includes(payment.status)) {
     throw new Error(`Cannot cancel payment in status ${payment.status}`);
   }
 
