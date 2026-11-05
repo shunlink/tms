@@ -1,4 +1,5 @@
 import type { NormalizedEwayBill } from "./types";
+import { gstinForAutofill } from "@/lib/field-validators";
 import { gstStateNameFromCode } from "./indian-state-codes";
 
 /** Fields on the indent form that can be prefilled from an E-Way Bill (not persisted until save). */
@@ -104,13 +105,14 @@ export function buildIndentDraftFromEwayBill(
     consignorCity: pickString(r, "fromPlace") ?? data.origin ?? undefined,
     consignorState: fromState ?? undefined,
     consignorPincode: pickString(r, "fromPincode"),
-    consignorGstin: pickString(r, "fromGstin", "userGstin") ?? data.supplierGstin ?? undefined,
+    consignorGstin:
+      gstinForAutofill(pickString(r, "fromGstin", "userGstin") ?? data.supplierGstin) ?? undefined,
     consigneeName: pickString(r, "toTrdName") ?? undefined,
     consigneeAddress: joinAddress(pickString(r, "toAddr1"), pickString(r, "toAddr2")),
     consigneeCity: pickString(r, "toPlace") ?? data.destination ?? undefined,
     consigneeState: toState ?? undefined,
     consigneePincode: pickString(r, "toPincode"),
-    consigneeGstin: pickString(r, "toGstin") ?? data.recipientGstin ?? undefined,
+    consigneeGstin: gstinForAutofill(pickString(r, "toGstin") ?? data.recipientGstin) ?? undefined,
     materialDescription: goodsFromItems || data.goodsDescription || undefined,
     hsnCode: hsnFromItems || data.hsnCode || undefined,
     packageCount: qtySum > 0 ? String(Math.round(qtySum)) : data.quantity || undefined,

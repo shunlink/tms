@@ -972,6 +972,39 @@ export function zodFieldErrors(issues: z.ZodIssue[]): Record<string, string> {
   return out;
 }
 
+/** Split indent save Zod issues into main form keys vs nested `ewayBill.*` fields. */
+export function splitIndentSaveFieldErrors(issues: z.ZodIssue[]): {
+  form: Record<string, string>;
+  eway: Record<string, string>;
+} {
+  const form: Record<string, string> = {};
+  const eway: Record<string, string> = {};
+  for (const i of issues) {
+    const path = i.path.join(".");
+    if (!path || path === "body") continue;
+    if (path.startsWith("ewayBill.")) {
+      const sub = path.slice("ewayBill.".length);
+      if (sub && !eway[sub]) eway[sub] = i.message;
+    } else if (!form[path]) {
+      form[path] = i.message;
+    }
+  }
+  return { form, eway };
+}
+
+/** Short user-facing summary for indent save validation (toast / banner). */
+export function summarizeIndentSaveIssues(issues: z.ZodIssue[]): string {
+  const messages = issues.map((i) => i.message).filter(Boolean);
+  if (messages.length === 0) return "Some fields need attention before you can save.";
+  const unique: string[] = [];
+  for (const m of messages) {
+    if (!unique.includes(m)) unique.push(m);
+  }
+  if (unique.length === 1) return unique[0];
+  const preview = unique.slice(0, 2).join(" · ");
+  return unique.length > 2 ? `${unique.length} fields need attention — ${preview}…` : preview;
+}
+
 export function validate<S extends z.ZodTypeAny>(
   schema: S,
   data: unknown

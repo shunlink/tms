@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import { readJsonBody, reportApiFailure } from "@/lib/api-client";
+import { gstinForAutofill } from "@/lib/field-validators";
 import { useToast } from "@/components/toast";
 import { dateInputMinForField } from "@/lib/date-input";
 import type { EwayBillIndentDraft } from "@/lib/integrations/ewaybill/map-to-indent";
@@ -64,6 +65,7 @@ export default function EwayBillSection({
   indentId,
   blockPastDates = false,
   onIndentDraft,
+  fieldErrors = {},
 }: {
   value: EwayBillFormState;
   onChange: (v: EwayBillFormState) => void;
@@ -72,6 +74,8 @@ export default function EwayBillSection({
   blockPastDates?: boolean;
   /** Called with indent form fields to prefill (not saved until user submits). */
   onIndentDraft?: (draft: EwayBillIndentDraft) => void;
+  /** Validation messages from indent save (nested ewayBill.* paths). */
+  fieldErrors?: Partial<Record<FieldKey, string>>;
 }) {
   const toast = useToast();
   const [fetching, setFetching] = useState(false);
@@ -106,13 +110,20 @@ export default function EwayBillSection({
         indentDraft?: EwayBillIndentDraft;
       };
       const d = payload.data;
+      const supplierGstin = gstinForAutofill(String(d.supplierGstin ?? "")) ?? "";
+      const recipientGstin = gstinForAutofill(String(d.recipientGstin ?? "")) ?? "";
+      const transporterGstin = gstinForAutofill(String(d.transporterGstin ?? "")) ?? "";
+      const skippedPortalGstin =
+        (d.supplierGstin && !supplierGstin) ||
+        (d.recipientGstin && !recipientGstin) ||
+        (d.transporterGstin && !transporterGstin);
       onChange({
         ...value,
         mode: "EXISTING",
         ewayBillNumber: String(d.ewayBillNumber ?? value.ewayBillNumber),
         status: String(d.status ?? "Fetched"),
-        supplierGstin: String(d.supplierGstin ?? ""),
-        recipientGstin: String(d.recipientGstin ?? ""),
+        supplierGstin,
+        recipientGstin,
         documentType: String(d.documentType ?? ""),
         documentNumber: String(d.documentNumber ?? ""),
         documentDate: String(d.documentDate ?? "").slice(0, 10),
@@ -123,7 +134,7 @@ export default function EwayBillSection({
         origin: String(d.origin ?? ""),
         destination: String(d.destination ?? ""),
         transporterName: String(d.transporterName ?? ""),
-        transporterGstin: String(d.transporterGstin ?? ""),
+        transporterGstin,
         vehicleNumber: String(d.vehicleNumber ?? ""),
         validUntil: String(d.validUntil ?? "").slice(0, 10),
         provider: String(d.provider ?? ""),
@@ -136,9 +147,11 @@ export default function EwayBillSection({
       toast.push({
         variant: "success",
         title: "E-Way Bill loaded",
-        description: onIndentDraft
-          ? "Review auto-filled indent fields below, then save when ready."
-          : undefined,
+        description: skippedPortalGstin
+          ? "Some GSTINs from the portal are not valid 15-character GSTINs — enter consignor/consignee GSTIN manually before save."
+          : onIndentDraft
+            ? "Review auto-filled indent fields below, then save when ready."
+            : undefined,
       });
     } finally {
       setFetching(false);
@@ -150,16 +163,24 @@ export default function EwayBillSection({
       type === "date" && blockPastDates && k === "validUntil"
         ? dateInputMinForField(value.validUntil, "create")
         : undefined;
+    const err = fieldErrors[k];
     return (
       <div>
         <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
         <input
           type={type}
-          className="w-full border rounded-md px-3 py-2 text-sm"
+          className={`w-full border rounded-md px-3 py-2 text-sm ${err ? "border-red-500 focus:ring-red-500" : ""}`}
           value={value[k] as string}
           onChange={(e) => set(k, e.target.value)}
           min={minDate}
+          aria-invalid={err ? true : undefined}
+          aria-describedby={err ? `eway-${k}-error` : undefined}
         />
+        {err && (
+          <p id={`eway-${k}-error`} className="text-xs text-red-600 mt-1" role="alert">
+            {err}
+          </p>
+        )}
       </div>
     );
   };

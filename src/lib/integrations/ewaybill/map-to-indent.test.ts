@@ -44,4 +44,18 @@ describe("buildIndentDraftFromEwayBill", () => {
     expect(draft.hsnCode).toBe("25210010");
     expect(draft.materialDescription).toContain("CEMENT");
   });
+
+  it("omits portal GSTINs that fail Indian GSTIN format (e.g. Perione staging samples)", () => {
+    const raw = {
+      fromGstin: "29AARFB4347G000",
+      toGstin: "27AARFB4347G024",
+      fromTrdName: "welton",
+      toTrdName: "Perione",
+    };
+    const data = normalizeNicEwayBill("131012976815", raw, "CLIENT_PROVIDED", "perione");
+    const draft = buildIndentDraftFromEwayBill(data, raw);
+    expect(draft.consignorGstin).toBeUndefined();
+    expect(draft.consigneeGstin).toBeUndefined();
+    expect(draft.consignorName).toBe("welton");
+  });
 });

@@ -105,7 +105,7 @@ describe("Perione E-Way Bill fetch", () => {
     expect(result.data.provider).toBe("perione");
     expect(result.data.vehicleNumber).toBe("PVC1234");
     expect(result.data.supplierGstin).toBe("29AARFB4347G000");
-    expect(result.indentDraft.consignorGstin).toBe("29AARFB4347G000");
+    expect(result.indentDraft.consignorGstin).toBeUndefined();
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 

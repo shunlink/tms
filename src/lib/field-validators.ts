@@ -74,6 +74,13 @@ export function isValidGstin(value: string | null | undefined): boolean {
   return GSTIN_RE.test(normalizeGstin(value));
 }
 
+/** Use portal/E-Way values on forms only when they pass GSTIN structure checks. */
+export function gstinForAutofill(value: string | null | undefined): string | undefined {
+  if (!value?.trim()) return undefined;
+  const normalized = normalizeGstin(value);
+  return isValidGstin(normalized) ? normalized : undefined;
+}
+
 export function isValidIfsc(value: string | null | undefined): boolean {
   if (!value) return false;
   return IFSC_RE.test(normalizeIfsc(value));

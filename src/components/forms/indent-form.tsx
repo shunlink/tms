@@ -9,8 +9,7 @@ import EwayBillSection, {
   type EwayBillFormState,
 } from "@/components/integrations/eway-bill-section";
 import IndentVehicleSlots, { type VehicleSlotView } from "@/components/forms/indent-vehicle-slots";
-import { indentSaveSchema, zodFieldErrors } from "@/lib/validation";
-import { friendlyValidationError } from "@/lib/api-errors";
+import { indentSaveSchema, splitIndentSaveFieldErrors, summarizeIndentSaveIssues } from "@/lib/validation";
 import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 import type { EwayBillIndentDraft } from "@/lib/integrations/ewaybill/map-to-indent";
 import { useToast } from "@/components/toast";
@@ -151,9 +150,40 @@ export default function IndentForm({
   }));
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [ewayFieldErrors, setEwayFieldErrors] = useState<Record<string, string>>({});
   const [vehicleDriverError, setVehicleDriverError] = useState("");
   const [saving, setSaving] = useState(false);
   const [savingVehicleDriver, setSavingVehicleDriver] = useState(false);
+
+  function scrollToFirstValidationIssue(
+    formErrs: Record<string, string>,
+    ewayErrs: Record<string, string>
+  ) {
+    requestAnimationFrame(() => {
+      const ewayKey = Object.keys(ewayErrs)[0];
+      if (ewayKey) {
+        document.getElementById(`eway-${ewayKey}-error`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+      const formKey = Object.keys(formErrs)[0];
+      if (formKey) {
+        document.getElementById(`${formKey}-error`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    });
+  }
+
+  function applySaveValidationErrors(
+    formErrs: Record<string, string>,
+    ewayErrs: Record<string, string>,
+    summary: string
+  ) {
+    setFieldErrors(formErrs);
+    setEwayFieldErrors(ewayErrs);
+    setError(summary);
+    toast.push({ variant: "error", title: "Could not save indent", description: summary });
+    scrollToFirstValidationIssue(formErrs, ewayErrs);
+  }
+
   const set = (k: Field, v: string) => {
     setForm((f) => ({ ...f, [k]: v }));
     if (fieldErrors[k]) {
@@ -317,20 +347,22 @@ export default function IndentForm({
     e.preventDefault();
     setError("");
     setFieldErrors({});
+    setEwayFieldErrors({});
 
     const payload = buildIndentSavePayload();
     if (mode === "create") {
       const pastDateErrors = indentOperationalDateFieldErrors(form);
       if (Object.keys(pastDateErrors).length > 0) {
-        setFieldErrors(pastDateErrors);
-        setError("Please fix the highlighted fields.");
+        const summary =
+          Object.values(pastDateErrors)[0] ?? "Check indent date and pickup date before saving.";
+        applySaveValidationErrors(pastDateErrors, {}, summary);
         return;
       }
     }
     const parsed = indentSaveSchema.safeParse(payload);
     if (!parsed.success) {
-      setFieldErrors(zodFieldErrors(parsed.error.issues));
-      setError("Please fix the highlighted fields.");
+      const { form: formErrs, eway: ewayErrs } = splitIndentSaveFieldErrors(parsed.error.issues);
+      applySaveValidationErrors(formErrs, ewayErrs, summarizeIndentSaveIssues(parsed.error.issues));
       return;
     }
 
@@ -478,7 +510,11 @@ export default function IndentForm({
           </label>
           <EwayBillSection
             value={ewayBill}
-            onChange={setEwayBill}
+            onChange={(next) => {
+              setEwayBill(next);
+              setEwayFieldErrors({});
+            }}
+            fieldErrors={ewayFieldErrors}
             indentId={indentId}
             blockPastDates={mode === "create"}
             onIndentDraft={applyEwayIndentDraft}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { localDateInputValue } from "./date-input";
-import { indentSaveSchema } from "./validation";
+import { indentSaveSchema, splitIndentSaveFieldErrors } from "./validation";
 
 function addDays(n: number) {
   const d = new Date();
@@ -50,5 +50,22 @@ describe("indentSaveSchema", () => {
   it("rejects missing client rate", () => {
     const result = indentSaveSchema.safeParse({ ...validBase, clientRate: "" });
     expect(result.success).toBe(false);
+  });
+
+  it("maps nested e-way GSTIN errors for the form UI", () => {
+    const result = indentSaveSchema.safeParse({
+      ...validBase,
+      ewayBill: {
+        mode: "EXISTING",
+        supplierGstin: "29AARFB4347G000",
+        recipientGstin: "27AARFB4347G024",
+      },
+    });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const { form, eway } = splitIndentSaveFieldErrors(result.error.issues);
+    expect(form.consignorGstin).toBeUndefined();
+    expect(eway.supplierGstin).toMatch(/GSTIN/i);
+    expect(eway.recipientGstin).toMatch(/GSTIN/i);
   });
 });

@@ -44,6 +44,9 @@ COPY --from=builder /app/next.config.js ./next.config.js
 # Email worker (BullMQ + Resend) — same image as app
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/src/lib ./src/lib
+COPY --from=builder /app/tsconfig.json ./tsconfig.json
+COPY --from=builder /app/tsconfig.worker.json ./tsconfig.worker.json
+COPY --from=builder /app/src/test/server-only-stub.ts ./src/test/server-only-stub.ts
 
 EXPOSE 3000
 
