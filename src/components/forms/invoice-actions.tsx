@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Printer, Send, Receipt } from "lucide-react";
+import { Pencil, Printer, Send, Receipt } from "lucide-react";
 
 import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 import { useToast } from "@/components/toast";
@@ -51,10 +51,17 @@ export default function InvoiceActions({
         <Printer className="h-4 w-4 mr-2" /> Print / Save PDF
       </Button>
       {status === "DRAFT" && (
-        <Button onClick={finalize} disabled={busy}>
-          <Send className="h-4 w-4 mr-2" />
-          {busy ? "Finalizing..." : "Finalize & Send to Client"}
-        </Button>
+        <>
+          <Link href={`/invoices/${invoiceId}/edit`}>
+            <Button variant="outline">
+              <Pencil className="h-4 w-4 mr-2" /> Edit draft
+            </Button>
+          </Link>
+          <Button onClick={finalize} disabled={busy}>
+            <Send className="h-4 w-4 mr-2" />
+            {busy ? "Finalizing..." : "Finalize & Send to Client"}
+          </Button>
+        </>
       )}
       {status !== "DRAFT" && status !== "PAID" && outstanding > 0 && (
         <Link

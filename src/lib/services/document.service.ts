@@ -21,6 +21,9 @@ export const ALLOWED_DOCUMENT_TYPES = [
   "RC", "INSURANCE", "FITNESS", "PUC", "PERMIT",
   "CLIENT_INVOICE", "VEHICLE_DOC", "APPROVAL",
   "LR", "EWAY_BILL", "POD", "DELIVERY_CHALLAN", "GATE_PASS", "INVOICE", "PAYMENT_PROOF", "OTHER",
+  // Indent ops paperwork
+  "MANUAL_LR", "VEHICLE_PHOTO", "DRIVER_LICENSE", "PO_APPROVAL",
+  "LORRY_HIRE_RECEIPT", "DEBIT_NOTE", "DELIVERY_NOTE",
 ];
 
 export async function ownerExists(ownerType: string, ownerId: string): Promise<boolean> {
@@ -127,6 +130,19 @@ export async function uploadDocument(opts: {
     name: attachment.title ?? attachment.file.fileName,
     createdAt: attachment.createdAt,
   };
+}
+
+export async function getDocumentAttachment(id: string) {
+  return prisma.documentAttachment.findFirst({
+    where: { id },
+    select: {
+      id: true,
+      entityType: true,
+      entityId: true,
+      documentType: true,
+      fileId: true,
+    },
+  });
 }
 
 export async function deleteDocument(id: string) {

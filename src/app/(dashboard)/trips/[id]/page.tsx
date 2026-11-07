@@ -14,6 +14,7 @@ import { getBalancePaymentTaskByTripId } from "@/lib/services/vendor-balance-pay
 import { getSessionUser } from "@/lib/auth";
 import { hasPermission } from "@/lib/services/permission.service";
 import { formatINR, formatDate } from "@/lib/utils";
+import { indentDocumentLabel } from "@/lib/indent-documents";
 import TripLrPanel from "@/components/trips/trip-lr-panel";
 import { getTripLrDocument } from "@/lib/services/lr-document.service";
 import { resolveTripPodUploadGate } from "@/lib/pod-upload-eligibility";
@@ -278,6 +279,45 @@ export default async function TripDetailPage({
           </CardHeader>
           <CardContent>
             <div className="space-y-6">
+              {trip.indentId && (
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-medium text-slate-900">Indent documents</h3>
+                    <Link
+                      href={`/indents/${trip.indentId}`}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      Manage on indent
+                    </Link>
+                  </div>
+                  {trip.indentDocuments.length === 0 ? (
+                    <p className="text-sm text-slate-400">No indent documents uploaded yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {trip.indentDocuments.map((d) => (
+                        <div
+                          key={d.id}
+                          className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <span className="mr-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                              {indentDocumentLabel(d.type)}
+                            </span>
+                            <a
+                              href={d.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-blue-600 hover:underline"
+                            >
+                              {d.name ?? "View file"}
+                            </a>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
               <div>
                 <h3 className="text-sm font-medium text-slate-900 mb-2">Proof of Delivery</h3>
                 <PodUpload

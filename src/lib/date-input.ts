@@ -14,16 +14,14 @@ export function isDateInputBeforeToday(dateStr: string): boolean {
 }
 
 /**
- * Minimum selectable date: today on create; on edit, keep an existing past value but do not allow an earlier day.
+ * @deprecated Past dates are allowed on indent forms; kept for callers that still import it.
+ * Returns no minimum so `<input type="date">` is unrestricted.
  */
 export function dateInputMinForField(
-  currentValue: string,
-  mode: "create" | "edit"
-): string {
-  const today = localDateInputValue();
-  if (mode === "create") return today;
-  if (currentValue && currentValue < today) return currentValue;
-  return today;
+  _currentValue?: string,
+  _mode?: "create" | "edit"
+): string | undefined {
+  return undefined;
 }
 
 export const INDENT_OPERATIONAL_DATE_FIELDS = [
@@ -33,24 +31,9 @@ export const INDENT_OPERATIONAL_DATE_FIELDS = [
   "podDueAt",
 ] as const;
 
-const INDENT_DATE_LABELS: Record<(typeof INDENT_OPERATIONAL_DATE_FIELDS)[number], string> = {
-  indentDate: "Indent date",
-  pickupDate: "Pickup date",
-  deliveryDate: "Expected delivery date",
-  podDueAt: "POD due date",
-};
-
+/** Past operational dates are allowed — always returns no field errors. */
 export function indentOperationalDateFieldErrors(
-  fields: Record<string, string | null | undefined | unknown>
+  _fields?: Record<string, string | null | undefined | unknown>
 ): Record<string, string> {
-  const errors: Record<string, string> = {};
-  for (const key of INDENT_OPERATIONAL_DATE_FIELDS) {
-    const raw = fields[key];
-    if (raw == null || raw === "") continue;
-    const v = String(raw).slice(0, 10);
-    if (isDateInputBeforeToday(v)) {
-      errors[key] = `${INDENT_DATE_LABELS[key]} cannot be in the past`;
-    }
-  }
-  return errors;
+  return {};
 }

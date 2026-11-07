@@ -42,9 +42,13 @@ describe("indentSaveSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects missing consignee phone", () => {
-    const result = indentSaveSchema.safeParse({ ...validBase, consigneePhone: "" });
-    expect(result.success).toBe(false);
+  it("allows missing consignee contact and phone", () => {
+    const result = indentSaveSchema.safeParse({
+      ...validBase,
+      consigneeContact: "",
+      consigneePhone: "",
+    });
+    expect(result.success).toBe(true);
   });
 
   it("rejects missing client rate", () => {

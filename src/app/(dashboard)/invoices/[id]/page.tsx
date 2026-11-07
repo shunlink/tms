@@ -30,6 +30,16 @@ export default async function InvoiceDetailPage({
         <ArrowLeft className="h-4 w-4" /> Back to Invoices
       </Link>
 
+      {inv.status === "DRAFT" && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 print:hidden">
+          <p className="text-sm font-medium text-amber-900">Draft preview</p>
+          <p className="mt-1 text-sm text-amber-800">
+            Review the GST invoice below. Use <span className="font-medium">Edit draft</span> if
+            billing or amounts need changes, then finalize when ready to send to the client.
+          </p>
+        </div>
+      )}
+
       <div className="mb-4 print:hidden flex flex-wrap items-center gap-3">
         <InvoiceActions
           invoiceId={inv.id}

@@ -52,6 +52,10 @@ export async function POST(req: Request) {
     const file = formData.get("file");
 
     if (!ownerType || !ownerId) return badRequest("ownerType and ownerId are required");
+    if (ownerType.toLowerCase() === "indent") {
+      const denied = await authorize(auth, "indent.edit");
+      if (denied) return denied;
+    }
     if (!(await ownerExists(ownerType, ownerId))) return notFound("Owner not found");
     if (!(file instanceof File)) return badRequest("No file uploaded");
     const fileCheck = validateUploadedFile({ name: file.name, size: file.size, type: file.type });

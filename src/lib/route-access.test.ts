@@ -65,6 +65,24 @@ describe("canAccessHref", () => {
     expect(canAccessHref("/indents/new", creator)).toBe(true);
   });
 
+  it("/invoices/[id]/edit requires invoice.edit", () => {
+    const viewOnly = {
+      granted: ["dashboard.view", "invoice.view"],
+      teamCode: "FINANCE" as const,
+      role: "FINANCE",
+      accessMode: "CUSTOM_ROLES" as const,
+    };
+    expect(canAccessHref("/invoices/inv-1/edit", viewOnly)).toBe(false);
+
+    const editor = {
+      granted: ["dashboard.view", "invoice.view", "invoice.edit"],
+      teamCode: "FINANCE" as const,
+      role: "FINANCE",
+      accessMode: "CUSTOM_ROLES" as const,
+    };
+    expect(canAccessHref("/invoices/inv-1/edit", editor)).toBe(true);
+  });
+
   it("finance trip finance page allows payment or invoice view", () => {
     expect(canAccessHref("/finance/trips/trip-1", financeCtx)).toBe(true);
     const invoiceOnly = {

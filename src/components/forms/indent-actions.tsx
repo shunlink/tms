@@ -14,6 +14,7 @@ export default function IndentActions({
   advanceStatus,
   allocationMode = "BIDDING",
   hasTrip = false,
+  primaryTripId = null,
   hasVehicle = false,
   hasDriver = false,
   driverAssigned = false,
@@ -28,6 +29,7 @@ export default function IndentActions({
   advanceStatus: string;
   allocationMode?: string;
   hasTrip?: boolean;
+  primaryTripId?: string | null;
   hasVehicle?: boolean;
   hasDriver?: boolean;
   driverAssigned?: boolean;
@@ -94,6 +96,16 @@ export default function IndentActions({
     router.refresh();
   }
 
+  function goToTripStatus() {
+    if (!primaryTripId) return;
+    toast.push({
+      title: "Update trip status on trip details",
+      description: "Mark in transit and delivered from the trip page.",
+      variant: "info",
+    });
+    router.push(`/trips/${primaryTripId}`);
+  }
+
   const buttons: { label: string; onClick: () => void; variant?: "default" | "outline" }[] = [];
   if (canRelease) {
     buttons.push({
@@ -121,10 +133,13 @@ export default function IndentActions({
       variant: "default",
     });
   }
-  if (status === "DRIVER_ASSIGNED") {
-    buttons.push({ label: "Start Transit", onClick: () => act("transition", { status: "IN_TRANSIT" }) });
+  if (["DRIVER_ASSIGNED", "IN_TRANSIT"].includes(status) && primaryTripId) {
+    buttons.push({
+      label: "Update trip status",
+      onClick: goToTripStatus,
+      variant: "default",
+    });
   }
-  if (status === "IN_TRANSIT") buttons.push({ label: "Mark Delivered", onClick: () => act("transition", { status: "DELIVERED" }) });
   if (status === "DELIVERED") buttons.push({ label: "Move to POD", onClick: () => act("transition", { status: "POD_PENDING" }) });
   if (status === "POD_RECEIVED") buttons.push({ label: "Complete Indent", onClick: () => act("complete") });
   if (!["POD_RECEIVED", "COMPLETED", "CANCELLED"].includes(status)) {

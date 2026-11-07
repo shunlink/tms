@@ -665,6 +665,9 @@ export async function getTripDetail(id: string) {
     });
     if (!t) return null;
     const documents = await listDocuments("TRIP", id);
+    const indentDocuments = t.indentId
+      ? await listDocuments("INDENT", t.indentId)
+      : [];
     const { deriveTripPodQueueState } = await import("./pod-upload-eligibility");
     const podState = deriveTripPodQueueState(t.pods);
     const billing = primaryAddress(t.client.addresses, "BILLING");
@@ -672,6 +675,7 @@ export async function getTripDetail(id: string) {
     const invoice = t.invoiceLines[0]?.invoice ?? null;
     return {
       id: t.id,
+      indentId: t.indentId,
       lrNumber: t.lrNumber,
       routeFrom: t.routeFrom,
       routeTo: t.routeTo,
@@ -734,6 +738,7 @@ export async function getTripDetail(id: string) {
       requirementNumber: t.indent?.requirement?.reqNumber ?? null,
       invoice: invoice ? { id: invoice.id, invoiceNumber: invoice.invoiceNumber } : null,
       documents: mapDocs(documents),
+      indentDocuments: mapDocs(indentDocuments),
       payments: t.vendorPayments.map((p) => ({
         id: p.id,
         paymentType: p.paymentType,
@@ -814,6 +819,8 @@ export async function getInvoiceDetail(id: string) {
         tripId: line.trip.id,
         lineKind: line.lineKind,
         lrNumber: line.lrNumber ?? line.trip.lrNumber,
+        routeFrom: line.routeFrom ?? line.trip.routeFrom,
+        routeTo: line.routeTo ?? line.trip.routeTo,
         route:
           line.routeFrom && line.routeTo
             ? `${line.routeFrom} → ${line.routeTo}`

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import IndentActions from "@/components/forms/indent-actions";
 import IndentQuotes from "@/components/forms/indent-quotes";
 import IndentForm from "@/components/forms/indent-form";
+import { IndentFileUploadsTrigger } from "@/components/forms/indent-documents-modal";
 import VendorAllocationPanel from "@/components/forms/vendor-allocation-panel";
 import { getSessionUser } from "@/lib/auth";
 import { countBillableTripsForIndent, getIndentDetail, getIndentQuotes, getFormOptions } from "@/lib/queries";
@@ -15,6 +16,7 @@ import PodVerificationPanel from "@/components/forms/pod-verification-panel";
 import { isVendorAdvancePaidStatus } from "@/lib/advance";
 import { formatINR, formatDate } from "@/lib/utils";
 import { getIndentSectionOrder, type IndentDetailSection } from "@/lib/indent-section-order";
+import { indentDocumentLabel } from "@/lib/indent-documents";
 import { getVendorDebitNoteGateStatus } from "@/lib/services/pod.service";
 
 export const dynamic = "force-dynamic";
@@ -78,7 +80,9 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
   const vendorAllocated = Boolean(indent.vendorId);
   const vehicleReached = indent.placementStatus === "VEHICLE_REACHED";
   const driverAssigned = Boolean(indent.driverId);
-  const hasAnyTrip = (indent.trips?.length ?? 0) > 0 || Boolean(indent.trip);
+  const trips = indent.trips?.length ? indent.trips : indent.trip ? [indent.trip] : [];
+  const hasAnyTrip = trips.length > 0;
+  const primaryTripId = trips[0]?.id ?? null;
   const canReallocate =
     canAllocate &&
     !hasAnyTrip &&
@@ -165,6 +169,7 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
           driverAssigned={driverAssigned}
           vehicleSlots={indent.vehicleSlots}
           canMarkPlacement={canMarkPlacement}
+          documents={indent.documents}
           initialEwayBillRequired={indent.ewayBillRequired}
           initialEwayBill={
             indent.ewayBill
@@ -342,7 +347,48 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
         </Card>
       ) : null,
 
-    documents: null,
+    documents: (
+      <Card key="documents" className="mb-6">
+        <CardHeader>
+          <CardTitle>Documents</CardTitle>
+          <p className="text-sm font-normal text-slate-500">
+            Ops paperwork for this indent. The same files are visible on linked trip details.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {indent.documents.length === 0 ? (
+            <p className="text-sm text-slate-400">No documents uploaded yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {indent.documents.map((d) => (
+                <div
+                  key={d.id}
+                  className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <span className="mr-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                      {indentDocumentLabel(d.type)}
+                    </span>
+                    <a
+                      href={d.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-600 hover:underline"
+                    >
+                      {d.name ?? "View file"}
+                    </a>
+                  </div>
+                  <p className="shrink-0 text-xs text-slate-400">{formatDate(d.createdAt)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {canEdit ? (
+            <IndentFileUploadsTrigger indentId={indent.id} documents={indent.documents} />
+          ) : null}
+        </CardContent>
+      </Card>
+    ),
   };
 
   return (
@@ -383,7 +429,7 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
           <div className="text-right text-sm text-slate-500">
             <p>Indent Date</p>
             <p className="font-medium text-slate-800">{formatDate(indent.indentDate)}</p>
-            {(indent.trips?.length ? indent.trips : indent.trip ? [indent.trip] : []).map((t) => (
+            {trips.map((t) => (
               <div key={t.id} className="mt-2 space-y-1">
                 <Link href={`/trips/${t.id}`} className="inline-block text-blue-600 hover:underline">
                   LR {t.lrNumber}
@@ -419,6 +465,7 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
             advanceStatus={indent.advanceStatus}
             allocationMode={indent.allocationMode ?? "BIDDING"}
             hasTrip={hasAnyTrip}
+            primaryTripId={primaryTripId}
             vehicleQuantity={indent.quantity}
             perSlotPlacement={(indent.vehicleSlots?.length ?? 0) > 0}
             hasVehicle={Boolean(indent.vehicleId)}

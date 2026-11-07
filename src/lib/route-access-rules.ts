@@ -15,6 +15,7 @@ export const ROUTE_EXTENSION_RULES: RouteExtensionRule[] = [
   { pattern: /^\/indents\/new(?:\/|$)/, permission: "indent.create", navHref: "/indents" },
   { pattern: /^\/trips\/new(?:\/|$)/, permission: "trip.view", navHref: "/trips" },
   { pattern: /^\/invoices\/new(?:\/|$)/, permission: "invoice.create", navHref: "/invoices" },
+  { pattern: /^\/invoices\/[^/]+\/edit(?:\/|$)/, permission: "invoice.edit", navHref: "/invoices" },
   { pattern: /^\/requirements\/new(?:\/|$)/, permission: "requirement.create", navHref: "/requirements" },
   { pattern: /^\/clients\/new(?:\/|$)/, permission: "client.edit", navHref: "/clients" },
   { pattern: /^\/clients\/[^/]+\/edit(?:\/|$)/, permission: "client.edit", navHref: "/clients" },

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +12,7 @@ import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 import { useToast } from "@/components/toast";
 
 type LineDefaults = {
+  id?: string;
   tripId: string;
   lineKind?: "FREIGHT" | "LOADING" | "UNLOADING";
   amount: number;
@@ -63,20 +65,34 @@ function tripBillableTotal(trip: BillableTrip): number {
 export default function InvoiceForm({
   trips,
   preselectIndentId,
+  mode = "create",
+  invoiceId,
+  invoiceNumber,
+  initialBilling,
 }: {
   trips: BillableTrip[];
   preselectIndentId?: string | null;
+  mode?: "create" | "edit";
+  invoiceId?: string;
+  invoiceNumber?: string;
+  initialBilling?: BillingDefaults | null;
 }) {
   const toast = useToast();
   const router = useRouter();
-  const [selected, setSelected] = useState<string[]>([]);
+  const isEdit = mode === "edit" && Boolean(invoiceId);
+  const [selected, setSelected] = useState<string[]>(() =>
+    isEdit ? trips.map((t) => t.id) : []
+  );
   const [preselectDone, setPreselectDone] = useState(false);
-  const [billing, setBilling] = useState<BillingDefaults | null>(null);
+  const [billing, setBilling] = useState<BillingDefaults | null>(
+    () => initialBilling ?? (isEdit ? trips[0]?.billing ?? null : null)
+  );
   const [lineEdits, setLineEdits] = useState<Record<string, Partial<LineDefaults>>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
   const toggle = (trip: BillableTrip) => {
+    if (isEdit) return;
     setSelected((s) => {
       const next = s.includes(trip.id) ? s.filter((x) => x !== trip.id) : [...s, trip.id];
       if (next.length > 0 && !s.includes(trip.id)) {
@@ -100,7 +116,7 @@ export default function InvoiceForm({
   }, [trips]);
 
   useEffect(() => {
-    if (!preselectIndentId || preselectDone || trips.length === 0) return;
+    if (isEdit || !preselectIndentId || preselectDone || trips.length === 0) return;
     const matches = trips.filter((t) => t.indentId === preselectIndentId);
     if (matches.length === 0) {
       setPreselectDone(true);
@@ -113,9 +129,10 @@ export default function InvoiceForm({
       setBilling(matches[0].billing);
     }
     setPreselectDone(true);
-  }, [preselectIndentId, preselectDone, trips]);
+  }, [isEdit, preselectIndentId, preselectDone, trips]);
 
   function selectAllInGroup(groupTrips: BillableTrip[]) {
+    if (isEdit) return;
     const clientId = groupTrips[0]?.clientId;
     if (!clientId) return;
     const ids = groupTrips.map((t) => t.id);
@@ -148,6 +165,7 @@ export default function InvoiceForm({
       const amount = edits.amount ?? base.amount;
       const lineGstRate = edits.gstRate ?? base.gstRate;
       return {
+        id: base.id,
         tripId: t.id,
         lineKind: base.lineKind ?? "FREIGHT",
         amount,
@@ -190,6 +208,43 @@ export default function InvoiceForm({
       return;
     }
     setSaving(true);
+
+    if (isEdit && invoiceId) {
+      const missingIds = resolvedLines.filter((l) => !l.id);
+      if (missingIds.length > 0) {
+        setSaving(false);
+        setError("Invoice lines are missing identifiers; reopen the draft from the invoice page.");
+        return;
+      }
+      const res = await fetch(`/api/invoices/${invoiceId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          billing,
+          lines: resolvedLines.map((l) => ({
+            id: l.id!,
+            amount: l.amount,
+            gstRate: l.gstRate,
+            description: l.description ?? l.cargoSummary,
+          })),
+        }),
+      });
+      setSaving(false);
+      const data = await readJsonBody(res);
+      if (!res.ok) {
+        reportApiFailure(res, data, { toast, setError, fallback: "Failed to update invoice" });
+        return;
+      }
+      toast.push({
+        title: "Invoice updated",
+        description: "Draft preview regenerated with your changes.",
+        variant: "success",
+      });
+      router.push(`/invoices/${invoiceId}`);
+      router.refresh();
+      return;
+    }
+
     const res = await fetch("/api/invoices", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -208,8 +263,8 @@ export default function InvoiceForm({
       return;
     }
     const payload = data as { id?: string; data?: { id?: string } } | null;
-    const invoiceId = payload?.id ?? payload?.data?.id;
-    router.push(invoiceId ? `/invoices/${invoiceId}` : "/invoices");
+    const createdId = payload?.id ?? payload?.data?.id;
+    router.push(createdId ? `/invoices/${createdId}` : "/invoices");
     router.refresh();
   }
 
@@ -217,12 +272,24 @@ export default function InvoiceForm({
     <form onSubmit={submit}>
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Trips Ready to Invoice (POD verified, trip closed)</CardTitle>
+          <CardTitle>
+            {isEdit
+              ? `Trips on ${invoiceNumber ?? "draft invoice"}`
+              : "Trips Ready to Invoice (POD verified, trip closed)"}
+          </CardTitle>
+          {isEdit && (
+            <p className="text-sm font-normal text-slate-500">
+              Trip selection is locked for this draft. Edit billing and line amounts, then update to
+              regenerate the preview.
+            </p>
+          )}
         </CardHeader>
         <CardContent>
           {trips.length === 0 && (
             <p className="text-sm text-slate-400">
-              No trips ready to invoice. Trips become billable after POD is verified.
+              {isEdit
+                ? "This draft has no trip lines."
+                : "No trips ready to invoice. Trips become billable after POD is verified."}
             </p>
           )}
           <div className="space-y-6">
@@ -231,8 +298,9 @@ export default function InvoiceForm({
               const groupClientId = groupTrips[0]?.clientId;
               const selectionClientId = selectedTrips[0]?.clientId;
               const canSelectGroup =
-                selected.length === 0 ||
-                (selectionClientId != null && groupClientId === selectionClientId);
+                !isEdit &&
+                (selected.length === 0 ||
+                  (selectionClientId != null && groupClientId === selectionClientId));
               const allSelected = groupTrips.every((t) => selected.includes(t.id));
 
               return (
@@ -245,26 +313,31 @@ export default function InvoiceForm({
                         {formatINR(groupSubtotal)}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      disabled={!canSelectGroup}
-                      onClick={() => selectAllInGroup(groupTrips)}
-                      className="text-xs font-medium text-blue-600 hover:underline disabled:text-slate-300 disabled:no-underline"
-                    >
-                      {allSelected ? "Clear indent selection" : "Select all for this indent"}
-                    </button>
+                    {!isEdit && (
+                      <button
+                        type="button"
+                        disabled={!canSelectGroup}
+                        onClick={() => selectAllInGroup(groupTrips)}
+                        className="text-xs font-medium text-blue-600 hover:underline disabled:text-slate-300 disabled:no-underline"
+                      >
+                        {allSelected ? "Clear indent selection" : "Select all for this indent"}
+                      </button>
+                    )}
                   </div>
                   <div className="space-y-3">
                     {groupTrips.map((t) => (
                       <label
                         key={t.id}
-                        className="flex items-center justify-between border rounded-md p-3 hover:bg-slate-50 cursor-pointer"
+                        className={`flex items-center justify-between border rounded-md p-3 ${
+                          isEdit ? "bg-slate-50 cursor-default" : "hover:bg-slate-50 cursor-pointer"
+                        }`}
                       >
                         <div className="flex items-center gap-3">
                           <input
                             type="checkbox"
                             checked={selected.includes(t.id)}
                             onChange={() => toggle(t)}
+                            disabled={isEdit}
                             className="rounded"
                           />
                           <div>
@@ -367,71 +440,87 @@ export default function InvoiceForm({
                       ? "Unloading"
                       : "Freight";
                 return (
-                <div key={lineKey} className="border rounded-md p-4 space-y-3">
-                  <p className="font-medium text-sm">{t.lrNumber} — {kindLabel}</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <label className="text-sm">
-                      <span className="text-slate-600">Origin</span>
-                      <input
-                        className="mt-1 w-full border rounded-md px-3 py-2"
-                        value={line.routeFrom ?? ""}
-                        onChange={(e) => updateLine(lineKey, "routeFrom", e.target.value)}
-                      />
-                    </label>
-                    <label className="text-sm">
-                      <span className="text-slate-600">Destination</span>
-                      <input
-                        className="mt-1 w-full border rounded-md px-3 py-2"
-                        value={line.routeTo ?? ""}
-                        onChange={(e) => updateLine(lineKey, "routeTo", e.target.value)}
-                      />
-                    </label>
-                    <label className="text-sm">
-                      <span className="text-slate-600">Vehicle</span>
-                      <input
-                        className="mt-1 w-full border rounded-md px-3 py-2"
-                        value={line.vehicleReg ?? ""}
-                        onChange={(e) => updateLine(lineKey, "vehicleReg", e.target.value)}
-                      />
-                    </label>
-                    <label className="text-sm">
-                      <span className="text-slate-600">Indent</span>
-                      <input
-                        className="mt-1 w-full border rounded-md px-3 py-2"
-                        value={line.indentNumber ?? ""}
-                        onChange={(e) => updateLine(lineKey, "indentNumber", e.target.value)}
-                      />
-                    </label>
-                    <label className="text-sm sm:col-span-2">
-                      <span className="text-slate-600">Cargo / description</span>
-                      <input
-                        className="mt-1 w-full border rounded-md px-3 py-2"
-                        value={line.cargoSummary ?? line.description ?? ""}
-                        onChange={(e) => updateLine(lineKey, "cargoSummary", e.target.value)}
-                      />
-                    </label>
-                    <label className="text-sm">
-                      <span className="text-slate-600">Amount</span>
-                      <input
-                        type="number"
-                        className="mt-1 w-full border rounded-md px-3 py-2"
-                        value={line.amount ?? base.amount}
-                        onChange={(e) => updateLine(lineKey, "amount", Number(e.target.value))}
-                      />
-                    </label>
-                    <label className="text-sm">
-                      <span className="text-slate-600">GST rate</span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="mt-1 w-full border rounded-md px-3 py-2"
-                        value={line.gstRate ?? gstRate}
-                        onChange={(e) => updateLine(lineKey, "gstRate", Number(e.target.value))}
-                      />
-                    </label>
+                  <div key={lineKey} className="border rounded-md p-4 space-y-3">
+                    <p className="font-medium text-sm">
+                      {t.lrNumber} — {kindLabel}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <label className="text-sm">
+                        <span className="text-slate-600">Origin</span>
+                        <input
+                          className="mt-1 w-full border rounded-md px-3 py-2"
+                          value={line.routeFrom ?? ""}
+                          onChange={(e) => updateLine(lineKey, "routeFrom", e.target.value)}
+                          disabled={isEdit}
+                        />
+                      </label>
+                      <label className="text-sm">
+                        <span className="text-slate-600">Destination</span>
+                        <input
+                          className="mt-1 w-full border rounded-md px-3 py-2"
+                          value={line.routeTo ?? ""}
+                          onChange={(e) => updateLine(lineKey, "routeTo", e.target.value)}
+                          disabled={isEdit}
+                        />
+                      </label>
+                      <label className="text-sm">
+                        <span className="text-slate-600">Vehicle</span>
+                        <input
+                          className="mt-1 w-full border rounded-md px-3 py-2"
+                          value={line.vehicleReg ?? ""}
+                          onChange={(e) => updateLine(lineKey, "vehicleReg", e.target.value)}
+                          disabled={isEdit}
+                        />
+                      </label>
+                      <label className="text-sm">
+                        <span className="text-slate-600">Indent</span>
+                        <input
+                          className="mt-1 w-full border rounded-md px-3 py-2"
+                          value={line.indentNumber ?? ""}
+                          onChange={(e) => updateLine(lineKey, "indentNumber", e.target.value)}
+                          disabled={isEdit}
+                        />
+                      </label>
+                      <label className="text-sm sm:col-span-2">
+                        <span className="text-slate-600">Cargo / description</span>
+                        <input
+                          className="mt-1 w-full border rounded-md px-3 py-2"
+                          value={line.cargoSummary ?? line.description ?? ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setLineEdits((prev) => ({
+                              ...prev,
+                              [lineKey]: {
+                                ...prev[lineKey],
+                                cargoSummary: value,
+                                description: value,
+                              },
+                            }));
+                          }}
+                        />
+                      </label>
+                      <label className="text-sm">
+                        <span className="text-slate-600">Amount</span>
+                        <input
+                          type="number"
+                          className="mt-1 w-full border rounded-md px-3 py-2"
+                          value={line.amount ?? base.amount}
+                          onChange={(e) => updateLine(lineKey, "amount", Number(e.target.value))}
+                        />
+                      </label>
+                      <label className="text-sm">
+                        <span className="text-slate-600">GST rate</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="mt-1 w-full border rounded-md px-3 py-2"
+                          value={line.gstRate ?? gstRate}
+                          onChange={(e) => updateLine(lineKey, "gstRate", Number(e.target.value))}
+                        />
+                      </label>
+                    </div>
                   </div>
-                </div>
-              );
+                );
               });
             })}
           </CardContent>
@@ -461,11 +550,27 @@ export default function InvoiceForm({
             )}
           </div>
           {error && <p className="text-sm text-red-600 pt-3">{error}</p>}
-          <div className="flex gap-3 pt-6">
+          <div className="flex flex-wrap gap-3 pt-6">
             <Button type="submit" disabled={!sameClient || saving}>
-              {saving ? "Generating..." : "Generate GST Invoice"}
+              {saving
+                ? isEdit
+                  ? "Updating..."
+                  : "Generating..."
+                : isEdit
+                  ? "Update GST invoice"
+                  : "Generate GST Invoice"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>
+            {isEdit && invoiceId ? (
+              <Link href={`/invoices/${invoiceId}`}>
+                <Button type="button" variant="outline">
+                  Cancel
+                </Button>
+              </Link>
+            ) : (
+              <Button type="button" variant="outline" onClick={() => router.back()}>
+                Cancel
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>

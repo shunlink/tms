@@ -9,11 +9,13 @@ import EwayBillSection, {
   type EwayBillFormState,
 } from "@/components/integrations/eway-bill-section";
 import IndentVehicleSlots, { type VehicleSlotView } from "@/components/forms/indent-vehicle-slots";
+import { IndentFileUploadsTrigger, type IndentDoc } from "@/components/forms/indent-documents-modal";
+import AddressSuggestField from "@/components/forms/address-suggest-field";
 import { indentSaveSchema, splitIndentSaveFieldErrors, summarizeIndentSaveIssues } from "@/lib/validation";
 import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 import type { EwayBillIndentDraft } from "@/lib/integrations/ewaybill/map-to-indent";
+import type { AddressSuggestion } from "@/lib/address-suggestion";
 import { useToast } from "@/components/toast";
-import { dateInputMinForField, indentOperationalDateFieldErrors } from "@/lib/date-input";
 import {
   mergeConsignorPrefillIntoForm,
   type ConsignorPrefillFromClient,
@@ -90,6 +92,7 @@ export default function IndentForm({
   driverAssigned = false,
   vehicleSlots,
   canMarkPlacement = false,
+  documents = [],
 }: {
   clients: { id: string; name: string }[];
   mode?: "create" | "edit";
@@ -109,6 +112,7 @@ export default function IndentForm({
   driverAssigned?: boolean;
   vehicleSlots?: VehicleSlotView[];
   canMarkPlacement?: boolean;
+  documents?: IndentDoc[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -198,6 +202,29 @@ export default function IndentForm({
       });
     }
   };
+
+  function applyAddressSuggestion(side: "consignor" | "consignee", s: AddressSuggestion) {
+    const prefix = side === "consignor" ? "consignor" : "consignee";
+    setForm((f) => ({
+      ...f,
+      [`${prefix}Address`]: s.addressLine1,
+      [`${prefix}City`]: s.city,
+      [`${prefix}State`]: s.state,
+      [`${prefix}Pincode`]: s.pincode,
+    }));
+    setFieldErrors((fe) => {
+      const next = { ...fe };
+      for (const key of [
+        `${prefix}Address`,
+        `${prefix}City`,
+        `${prefix}State`,
+        `${prefix}Pincode`,
+      ]) {
+        delete next[key];
+      }
+      return next;
+    });
+  }
 
   const applyEwayIndentDraft = useCallback((draft: EwayBillIndentDraft) => {
     setForm((prev) => {
@@ -369,15 +396,6 @@ export default function IndentForm({
     setEwayFieldErrors({});
 
     const payload = buildIndentSavePayload();
-    if (mode === "create") {
-      const pastDateErrors = indentOperationalDateFieldErrors(form);
-      if (Object.keys(pastDateErrors).length > 0) {
-        const summary =
-          Object.values(pastDateErrors)[0] ?? "Check indent date and pickup date before saving.";
-        applySaveValidationErrors(pastDateErrors, {}, summary);
-        return;
-      }
-    }
     const parsed = indentSaveSchema.safeParse(payload);
     if (!parsed.success) {
       const { form: formErrs, eway: ewayErrs } = splitIndentSaveFieldErrors(parsed.error.issues);
@@ -470,7 +488,6 @@ export default function IndentForm({
         value={form[k]}
         onChange={(e) => set(k, e.target.value)}
         required={required}
-        min={type === "date" ? dateInputMinForField(form[k], mode) : undefined}
         aria-invalid={fieldErr(k) ? true : undefined}
         aria-describedby={fieldErr(k) ? `${k}-error` : undefined}
       />
@@ -590,7 +607,16 @@ export default function IndentForm({
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {input("consignorName", "Consignor Name", "text", true)}
           {input("consignorGstin", "Consignor GSTIN", "text", true)}
-          {area("consignorAddress", "Address", true)}
+          <AddressSuggestField
+            clientId={clientId}
+            side="consignor"
+            label="Address"
+            value={form.consignorAddress}
+            required
+            error={fieldErr("consignorAddress")}
+            onChange={(v) => set("consignorAddress", v)}
+            onSelect={(s) => applyAddressSuggestion("consignor", s)}
+          />
           {input("consignorCity", "City", "text", true)}
           {input("consignorState", "State", "text", true)}
           {pincodeInput("consignor", "Pincode", true)}
@@ -606,12 +632,21 @@ export default function IndentForm({
         <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {input("consigneeName", "Consignee Name", "text", true)}
           {input("consigneeGstin", "Consignee GSTIN", "text", true)}
-          {area("consigneeAddress", "Address", true)}
+          <AddressSuggestField
+            clientId={clientId}
+            side="consignee"
+            label="Address"
+            value={form.consigneeAddress}
+            required
+            error={fieldErr("consigneeAddress")}
+            onChange={(v) => set("consigneeAddress", v)}
+            onSelect={(s) => applyAddressSuggestion("consignee", s)}
+          />
           {input("consigneeCity", "City", "text", true)}
           {input("consigneeState", "State", "text", true)}
           {pincodeInput("consignee", "Pincode", true)}
-          {input("consigneeContact", "Contact Person", "text", true)}
-          {input("consigneePhone", "Phone", "text", true)}
+          {input("consigneeContact", "Contact Person")}
+          {input("consigneePhone", "Phone")}
           {input("deliveryDate", "Expected Delivery Date", "date")}
           {input("deliveryTime", "Delivery Time", "time")}
         </CardContent>
@@ -876,6 +911,22 @@ export default function IndentForm({
         </CardContent>
       </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Documents</CardTitle>
+          <p className="text-sm text-slate-500 font-normal">
+            Upload Manual LR, e-way bill, invoices, vehicle and driver papers, and other trip docs.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <IndentFileUploadsTrigger
+            indentId={indentId}
+            documents={documents}
+            disabled={mode === "create" || !indentId}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader><CardTitle>Instructions</CardTitle></CardHeader>
