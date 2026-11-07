@@ -8,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 import { useToast } from "@/components/toast";
+import PrefixSuggestField from "@/components/forms/prefix-suggest-field";
+
 export type VehicleSlotView = {
   lineId: string;
   lineNumber: number;
@@ -271,19 +273,16 @@ export default function IndentVehicleSlots({
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Registration</label>
-                  <input
-                    type="text"
-                    className="w-full border rounded-md px-3 py-2 text-sm disabled:bg-slate-100"
-                    value={vehicleReg[slot.lineId] ?? ""}
-                    onChange={(e) =>
-                      setVehicleReg((m) => ({ ...m, [slot.lineId]: e.target.value }))
-                    }
-                    disabled={!canAssign}
-                    placeholder="MH12AB1234"
-                  />
-                </div>
+                <PrefixSuggestField
+                  label="Registration"
+                  className="[&_label]:text-xs [&_label]:font-medium [&_label]:text-slate-600"
+                  value={vehicleReg[slot.lineId] ?? ""}
+                  suggestUrl="/api/vehicles/suggest"
+                  disabled={!canAssign}
+                  placeholder="MH12AB1234"
+                  onChange={(v) => setVehicleReg((m) => ({ ...m, [slot.lineId]: v }))}
+                  onSelect={(s) => setVehicleReg((m) => ({ ...m, [slot.lineId]: s.value }))}
+                />
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Driver name</label>
                   <input
@@ -299,21 +298,35 @@ export default function IndentVehicleSlots({
                     disabled={!canAssign}
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">DL number</label>
-                  <input
-                    type="text"
-                    className="w-full border rounded-md px-3 py-2 text-sm disabled:bg-slate-100"
-                    value={driver.dlNumber}
-                    onChange={(e) =>
-                      setDrivers((m) => ({
-                        ...m,
-                        [slot.lineId]: { ...driver, dlNumber: e.target.value },
-                      }))
-                    }
-                    disabled={!canAssign}
-                  />
-                </div>
+                <PrefixSuggestField
+                  label="DL number"
+                  className="[&_label]:text-xs [&_label]:font-medium [&_label]:text-slate-600"
+                  value={driver.dlNumber}
+                  suggestUrl="/api/drivers/suggest"
+                  disabled={!canAssign}
+                  placeholder="MH0123456789"
+                  onChange={(v) =>
+                    setDrivers((m) => ({
+                      ...m,
+                      [slot.lineId]: { ...driver, dlNumber: v },
+                    }))
+                  }
+                  onSelect={(s) =>
+                    setDrivers((m) => ({
+                      ...m,
+                      [slot.lineId]: {
+                        ...driver,
+                        dlNumber: s.value,
+                        name: typeof s.name === "string" && s.name ? s.name : driver.name,
+                        phone: typeof s.phone === "string" && s.phone ? s.phone : driver.phone,
+                        deviceType:
+                          typeof s.deviceType === "string" && s.deviceType
+                            ? s.deviceType
+                            : driver.deviceType,
+                      },
+                    }))
+                  }
+                />
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Driver mobile</label>
                   <input

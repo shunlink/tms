@@ -43,6 +43,29 @@ export async function lookupDriverByDl(dlNumber: string) {
   return driver;
 }
 
+/** Prefix suggestions for DL number (startsWith only, max 5). */
+export async function suggestDriversByDlPrefix(q: string, limit = 5) {
+  const prefix = normalizeDl(q);
+  if (!prefix) return [];
+
+  return prisma.driver.findMany({
+    where: {
+      isActive: true,
+      deletedAt: null,
+      dlNumber: { startsWith: prefix },
+    },
+    orderBy: { dlNumber: "asc" },
+    take: Math.min(Math.max(limit, 1), 5),
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      dlNumber: true,
+      deviceType: true,
+    },
+  });
+}
+
 /**
  * Link driver to indent line allocation and advance placement state (no OTP).
  */

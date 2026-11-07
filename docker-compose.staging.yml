@@ -49,10 +49,6 @@ services:
     image: postgres:16-alpine
     env_file:
       - .env.staging
-    environment:
-      POSTGRES_USER: tms_staging
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tms_staging_change_me}
-      POSTGRES_DB: tms_staging
     ports:
       - "127.0.0.1:5434:5432"
     volumes:
@@ -67,7 +63,7 @@ services:
   app:
     build: .
     ports:
-      - "127.0.0.1:3001:3000"
+      - "3002:3000"
     env_file:
       - .env.staging
     environment:

@@ -26,6 +26,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       msg.includes("Trip can only be created") ||
       msg.includes("must be allocated") ||
       msg.includes("must be assigned") ||
+      msg.includes("Upload required documents") ||
       isResourceAssignmentConflictMessage(msg)
     ) {
       return badRequest(msg);

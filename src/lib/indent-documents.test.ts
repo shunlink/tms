@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   INDENT_DOCUMENT_TYPES,
   INDENT_REQUIRED_DOCUMENT_TYPES,
+  formatMissingIndentDocumentsMessage,
   indentDocumentProgress,
+  missingRequiredIndentDocumentLabels,
 } from "./indent-documents";
 
 describe("indent documents checklist", () => {
@@ -34,5 +36,13 @@ describe("indent documents checklist", () => {
     expect(progress.requiredTotal).toBe(8);
     expect(progress.optionalUploaded).toBe(1);
     expect(progress.missingRequired).toContain("Customer Invoice");
+  });
+
+  it("formats a create-trip block message for missing required docs", () => {
+    const missing = missingRequiredIndentDocumentLabels([{ type: "MANUAL_LR" }]);
+    expect(missing.length).toBe(7);
+    expect(formatMissingIndentDocumentsMessage(missing)).toMatch(
+      /Upload required documents before creating the trip/
+    );
   });
 });

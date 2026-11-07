@@ -137,6 +137,29 @@ export async function lookupVehicleByRegistration(
   };
 }
 
+/** Prefix suggestions for vehicle registration (startsWith only, max 5). */
+export async function suggestVehiclesByRegistrationPrefix(q: string, limit = 5) {
+  const prefix = normalizeVehicleReg(q);
+  if (!prefix) return [];
+
+  return prisma.vehicle.findMany({
+    where: {
+      isActive: true,
+      deletedAt: null,
+      registrationNumber: { startsWith: prefix },
+    },
+    orderBy: { registrationNumber: "asc" },
+    take: Math.min(Math.max(limit, 1), 5),
+    select: {
+      id: true,
+      registrationNumber: true,
+      vehicleTypeCode: true,
+      make: true,
+      model: true,
+    },
+  });
+}
+
 /** Employee enters/creates the vehicle in the same indent (not the vendor). */
 export async function assignVehicleToIndent(
   indentId: string,

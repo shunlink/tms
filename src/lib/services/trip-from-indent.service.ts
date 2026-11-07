@@ -10,8 +10,23 @@ import {
   assertDriverAvailableForIndentLine,
   assertVehicleAvailableForIndentLine,
 } from "../resource-assignment-eligibility";
+import {
+  formatMissingIndentDocumentsMessage,
+  missingRequiredIndentDocumentLabels,
+} from "../indent-documents";
 
 const n = (d: { toNumber(): number } | null | undefined) => (d ? d.toNumber() : 0);
+
+async function assertIndentRequiredDocumentsUploaded(indentId: string) {
+  const docs = await prisma.documentAttachment.findMany({
+    where: { entityType: "INDENT", entityId: indentId },
+    select: { documentType: true },
+  });
+  const missing = missingRequiredIndentDocumentLabels(docs.map((d) => ({ type: d.documentType })));
+  if (missing.length > 0) {
+    throw new Error(formatMissingIndentDocumentsMessage(missing));
+  }
+}
 
 const TRIP_READY_STATUSES = ["VEHICLE_PLACED", "DRIVER_ASSIGNED", "IN_TRANSIT"] as const;
 
@@ -56,6 +71,8 @@ export async function createTripFromIndent(
     },
   });
   if (!indent) return null;
+
+  await assertIndentRequiredDocumentsUploaded(indentId);
 
   if (!TRIP_READY_STATUSES.includes(indent.status as (typeof TRIP_READY_STATUSES)[number])) {
     throw new Error("Trip can only be created after vehicle has reached (VEHICLE_PLACED or later)");

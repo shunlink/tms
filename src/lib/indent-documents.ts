@@ -51,3 +51,17 @@ export function indentDocumentProgress(
 export function indentDocumentLabel(type: string): string {
   return INDENT_DOCUMENT_TYPES.find((d) => d.type === type)?.label ?? type.replace(/_/g, " ");
 }
+
+/** Returns human-readable missing required doc labels (empty if complete). */
+export function missingRequiredIndentDocumentLabels(documents: { type: string }[]): string[] {
+  return indentDocumentProgress(documents).missingRequired;
+}
+
+export function formatMissingIndentDocumentsMessage(missingLabels: string[]): string {
+  if (missingLabels.length === 0) return "";
+  const listed =
+    missingLabels.length <= 3
+      ? missingLabels.join(", ")
+      : `${missingLabels.slice(0, 3).join(", ")} +${missingLabels.length - 3} more`;
+  return `Upload required documents before creating the trip / generating LR: ${listed}`;
+}

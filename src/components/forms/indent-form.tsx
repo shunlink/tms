@@ -11,6 +11,7 @@ import EwayBillSection, {
 import IndentVehicleSlots, { type VehicleSlotView } from "@/components/forms/indent-vehicle-slots";
 import { IndentFileUploadsTrigger, type IndentDoc } from "@/components/forms/indent-documents-modal";
 import AddressSuggestField from "@/components/forms/address-suggest-field";
+import PrefixSuggestField from "@/components/forms/prefix-suggest-field";
 import { indentSaveSchema, splitIndentSaveFieldErrors, summarizeIndentSaveIssues } from "@/lib/validation";
 import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 import type { EwayBillIndentDraft } from "@/lib/integrations/ewaybill/map-to-indent";
@@ -790,20 +791,22 @@ export default function IndentForm({
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Vehicle Registration</label>
-              <input
-                type="text"
-                className="w-full border rounded-md px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+              <PrefixSuggestField
+                label="Vehicle Registration"
                 value={vehicleReg}
-                onChange={(e) => {
-                  setVehicleReg(e.target.value);
+                suggestUrl="/api/vehicles/suggest"
+                disabled={!canAssignVehicleDriver}
+                placeholder="e.g. MH12AB1234"
+                onChange={(v) => {
+                  setVehicleReg(v);
                   setExistingVehicleFound(false);
                   setVehicleNotFound(false);
                   setVehicleLookup(null);
                 }}
-                onBlur={(e) => canAssignVehicleDriver && lookupVehicleByReg(e.target.value)}
-                disabled={!canAssignVehicleDriver}
-                placeholder="e.g. MH12AB1234"
+                onSelect={(s) => {
+                  setVehicleReg(s.value);
+                  void lookupVehicleByReg(s.value);
+                }}
               />
               {existingVehicleFound && vehicleLookup && (
                 <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 space-y-1">
@@ -850,20 +853,30 @@ export default function IndentForm({
               {driverErrors.name && <p className="text-xs text-red-600 mt-1">{driverErrors.name}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">DL Number (primary identity)</label>
-              <input
-                type="text"
-                className="w-full border rounded-md px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+              <PrefixSuggestField
+                label="DL Number (primary identity)"
                 value={driver.dlNumber}
-                onChange={(e) => {
-                  setDriver((d) => ({ ...d, dlNumber: e.target.value }));
-                  setExistingDriverFound(false);
-                }}
-                onBlur={(e) => canAssignVehicleDriver && lookupDriverByDl(e.target.value)}
+                suggestUrl="/api/drivers/suggest"
                 disabled={!canAssignVehicleDriver}
                 placeholder="MH0123456789"
+                error={driverErrors.dlNumber}
+                onChange={(v) => {
+                  setDriver((d) => ({ ...d, dlNumber: v }));
+                  setExistingDriverFound(false);
+                }}
+                onSelect={(s) => {
+                  setDriver((d) => ({
+                    ...d,
+                    dlNumber: s.value,
+                    name: typeof s.name === "string" && s.name ? s.name : d.name,
+                    phone: typeof s.phone === "string" && s.phone ? s.phone : d.phone,
+                    deviceType:
+                      typeof s.deviceType === "string" && s.deviceType ? s.deviceType : d.deviceType,
+                  }));
+                  setExistingDriverFound(true);
+                  void lookupDriverByDl(s.value);
+                }}
               />
-              {driverErrors.dlNumber && <p className="text-xs text-red-600 mt-1">{driverErrors.dlNumber}</p>}
               {existingDriverFound && (
                 <p className="text-xs text-blue-600 mt-1">Existing driver found — details loaded</p>
               )}
