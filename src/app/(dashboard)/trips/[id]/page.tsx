@@ -48,15 +48,15 @@ export default async function TripDetailPage({
         <ArrowLeft className="h-4 w-4" /> Back to Trips
       </Link>
 
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">{trip.lrNumber}</h1>
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900">{trip.lrNumber}</h1>
           <p className="text-slate-500">
             {trip.routeFrom} → {trip.routeTo}
             {trip.requirementNumber ? ` · ${trip.requirementNumber}` : ""}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {canViewFinance && (
             <Link
               href={`/finance/trips/${trip.id}`}

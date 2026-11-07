@@ -64,7 +64,7 @@ export default function AdminDashboard({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="mb-8 hidden sm:grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={AlertTriangle} value={extras.slaBreaches} label="SLA Breaches" />
         <StatCard icon={FileText} value={extras.pendingInvoices} label="Pending Invoices" />
         <StatCard icon={CreditCard} value={extras.balancePaymentEscalations} label="Balance Payment Escalations" />

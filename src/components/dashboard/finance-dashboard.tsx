@@ -205,53 +205,98 @@ export default function FinanceDashboard({ data }: { data: FinanceDashboardData 
             Expected margin = client rate − vendor rate (booking). Actual margin = customer cash received − vendor cash paid (excludes GST; TDS shown separately).
           </p>
         </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b text-left text-muted-foreground">
-                <th className="pb-2 pr-3 font-medium">Trip / LR</th>
-                <th className="pb-2 pr-3 font-medium">Client</th>
-                <th className="pb-2 pr-3 font-medium">Vendor</th>
-                <th className="pb-2 pr-3 font-medium text-right">Revenue</th>
-                <th className="pb-2 pr-3 font-medium text-right">Vendor cost</th>
-                <th className="pb-2 pr-3 font-medium text-right">Charges</th>
-                <th className="pb-2 pr-3 font-medium text-right">TDS</th>
-                <th className="pb-2 pr-3 font-medium text-right">Expected</th>
-                <th className="pb-2 font-medium text-right">Actual</th>
-              </tr>
-            </thead>
-            <tbody>
-              {m.tripProfitability.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="py-6 text-center text-muted-foreground">
-                    No completed trips in scope.
-                  </td>
+        <CardContent>
+          <div className="space-y-3 md:hidden">
+            {m.tripProfitability.length === 0 && (
+              <p className="py-6 text-center text-sm text-muted-foreground">No completed trips in scope.</p>
+            )}
+            {m.tripProfitability.map((row) => (
+              <div key={row.tripId} className="rounded-xl border border-border p-4">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Link href={row.href} className="font-semibold text-primary hover:underline">
+                    {row.lrNumber}
+                  </Link>
+                  <StatusBadge status={row.status} />
+                </div>
+                <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                  <div>
+                    <dt className="text-muted-foreground">Client</dt>
+                    <dd>{row.client}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Vendor</dt>
+                    <dd>{row.vendor}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Revenue</dt>
+                    <dd className="font-medium">{formatINR(row.revenue)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Vendor cost</dt>
+                    <dd>{formatINR(row.vendorCost)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Expected</dt>
+                    <dd className="font-medium text-emerald-700">{formatINR(row.expectedMargin)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Actual</dt>
+                    <dd className="font-medium">
+                      {row.actualMargin != null ? formatINR(row.actualMargin) : "—"}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="pb-2 pr-3 font-medium">Trip / LR</th>
+                  <th className="pb-2 pr-3 font-medium">Client</th>
+                  <th className="pb-2 pr-3 font-medium">Vendor</th>
+                  <th className="pb-2 pr-3 font-medium text-right">Revenue</th>
+                  <th className="pb-2 pr-3 font-medium text-right">Vendor cost</th>
+                  <th className="pb-2 pr-3 font-medium text-right">Charges</th>
+                  <th className="pb-2 pr-3 font-medium text-right">TDS</th>
+                  <th className="pb-2 pr-3 font-medium text-right">Expected</th>
+                  <th className="pb-2 font-medium text-right">Actual</th>
                 </tr>
-              )}
-              {m.tripProfitability.map((row) => (
-                <tr key={row.tripId} className="border-b last:border-0">
-                  <td className="py-2 pr-3">
-                    <Link href={row.href} className="font-medium text-primary hover:underline">
-                      {row.lrNumber}
-                    </Link>
-                    <StatusBadge status={row.status} className="mt-1" />
-                  </td>
-                  <td className="py-2 pr-3">{row.client}</td>
-                  <td className="py-2 pr-3">{row.vendor}</td>
-                  <td className="py-2 pr-3 text-right">{formatINR(row.revenue)}</td>
-                  <td className="py-2 pr-3 text-right">{formatINR(row.vendorCost)}</td>
-                  <td className="py-2 pr-3 text-right">{formatINR(row.charges)}</td>
-                  <td className="py-2 pr-3 text-right">{formatINR(row.tds)}</td>
-                  <td className="py-2 pr-3 text-right font-medium text-emerald-700">
-                    {formatINR(row.expectedMargin)}
-                  </td>
-                  <td className="py-2 text-right font-medium">
-                    {row.actualMargin != null ? formatINR(row.actualMargin) : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {m.tripProfitability.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="py-6 text-center text-muted-foreground">
+                      No completed trips in scope.
+                    </td>
+                  </tr>
+                )}
+                {m.tripProfitability.map((row) => (
+                  <tr key={row.tripId} className="border-b last:border-0">
+                    <td className="py-2 pr-3">
+                      <Link href={row.href} className="font-medium text-primary hover:underline">
+                        {row.lrNumber}
+                      </Link>
+                      <StatusBadge status={row.status} className="mt-1" />
+                    </td>
+                    <td className="py-2 pr-3">{row.client}</td>
+                    <td className="py-2 pr-3">{row.vendor}</td>
+                    <td className="py-2 pr-3 text-right">{formatINR(row.revenue)}</td>
+                    <td className="py-2 pr-3 text-right">{formatINR(row.vendorCost)}</td>
+                    <td className="py-2 pr-3 text-right">{formatINR(row.charges)}</td>
+                    <td className="py-2 pr-3 text-right">{formatINR(row.tds)}</td>
+                    <td className="py-2 pr-3 text-right font-medium text-emerald-700">
+                      {formatINR(row.expectedMargin)}
+                    </td>
+                    <td className="py-2 text-right font-medium">
+                      {row.actualMargin != null ? formatINR(row.actualMargin) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
 

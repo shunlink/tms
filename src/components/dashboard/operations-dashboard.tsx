@@ -27,7 +27,7 @@ export default function OperationsDashboard({ data }: { data: OperationsDashboar
         <PendingTasksSection tasks={data.pendingTasks} />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 max-sm:[&>*:nth-child(n+5)]:hidden">
         <StatCard icon={Truck} value={data.activeTrips} label="Active Trips" />
         <StatCard icon={MapPin} value={data.myTrips} label="My Active Trips" />
         <StatCard icon={FileCheck} value={data.podsUploaded} label="POD Uploaded" />

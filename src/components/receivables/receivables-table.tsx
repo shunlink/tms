@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowUpDown, Eye, History, Receipt } from "lucide-react";
@@ -38,9 +38,41 @@ export default function ReceivablesTable({
     router.push(`/receivables?${params.toString()}`);
   }
 
+  const pageSizeOptions = [10, 25, 50, 100] as const;
+  const urlPageSize = Number(searchParams.get("pageSize"));
+  const currentPageSize = pageSizeOptions.includes(urlPageSize as (typeof pageSizeOptions)[number])
+    ? urlPageSize
+    : data.pageSize;
+
+  useEffect(() => {
+    if (searchParams.get("pageSize")) return;
+    try {
+      const stored = Number(window.localStorage.getItem("tms.list.pageSize"));
+      if (!pageSizeOptions.includes(stored as (typeof pageSizeOptions)[number])) return;
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("pageSize", String(stored));
+      router.replace(`/receivables?${params.toString()}`);
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seed once from storage when URL lacks pageSize
+  }, []);
+
   function setPage(page: number) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("page", String(page));
+    router.push(`/receivables?${params.toString()}`);
+  }
+
+  function setPageSize(next: number) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("pageSize", String(next));
+    params.set("page", "1");
+    try {
+      window.localStorage.setItem("tms.list.pageSize", String(next));
+    } catch {
+      /* ignore */
+    }
     router.push(`/receivables?${params.toString()}`);
   }
 
@@ -146,31 +178,40 @@ export default function ReceivablesTable({
         </table>
       </div>
 
-      {data.totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4 text-sm">
-          <p className="text-muted-foreground">
-            Page {data.page} of {data.totalPages} · {data.total} invoices
-          </p>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={data.page <= 1}
-              onClick={() => setPage(data.page - 1)}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={data.page >= data.totalPages}
-              onClick={() => setPage(data.page + 1)}
-            >
-              Next
-            </Button>
-          </div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
+        <p className="text-muted-foreground">
+          Page {data.page} of {Math.max(1, data.totalPages)} · {data.total} invoices
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={currentPageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="h-9 rounded-lg border border-input bg-background px-3 text-sm"
+          >
+            {pageSizeOptions.map((n) => (
+              <option key={n} value={n}>
+                {n} per page
+              </option>
+            ))}
+          </select>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={data.page <= 1}
+            onClick={() => setPage(data.page - 1)}
+          >
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={data.page >= data.totalPages}
+            onClick={() => setPage(data.page + 1)}
+          >
+            Next
+          </Button>
         </div>
-      )}
+      </div>
 
       {clientDialog && (
         <ClientReceivableSummaryDialog

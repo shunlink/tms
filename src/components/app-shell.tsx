@@ -219,6 +219,10 @@ export default function AppShell({
             ))}
           </nav>
 
+          <p className="md:hidden min-w-0 flex-1 truncate text-sm font-semibold capitalize text-foreground">
+            {crumbs.length > 0 ? crumbs[crumbs.length - 1]!.replace(/-/g, " ") : "Home"}
+          </p>
+
           <div className="ml-auto flex items-center gap-2">
             {permissions.includes("notifications.manage") && (
               <Link
@@ -269,7 +273,7 @@ export default function AppShell({
           </div>
         </header>
 
-        <main className="flex-1 min-h-0 overflow-y-auto p-6 sm:p-8 print:bg-white print:p-0">
+        <main className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-[calc(1.5rem+env(safe-area-inset-bottom))] lg:pb-[calc(2rem+env(safe-area-inset-bottom))] print:bg-white print:p-0">
           <div className="w-full max-w-[1400px] mx-auto">
             <PermissionsProvider permissions={permissions}>{children}</PermissionsProvider>
           </div>

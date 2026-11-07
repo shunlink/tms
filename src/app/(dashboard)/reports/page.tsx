@@ -65,7 +65,7 @@ export default async function ReportsPage() {
           <CardHeader>
             <CardTitle>Lane Rate Benchmarking</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-slate-500">
@@ -103,7 +103,7 @@ export default async function ReportsPage() {
           <CardHeader>
             <CardTitle>Client Profitability</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-slate-500">
@@ -137,7 +137,7 @@ export default async function ReportsPage() {
         <CardHeader>
           <CardTitle>Vendor Scorecard</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-slate-500">
@@ -174,7 +174,7 @@ export default async function ReportsPage() {
         <CardHeader>
           <CardTitle>Outstanding Invoices (days since issue)</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-slate-500">

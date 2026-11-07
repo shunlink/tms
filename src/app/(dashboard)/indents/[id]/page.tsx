@@ -405,10 +405,10 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
       </Link>
 
       <div className="rounded-xl border bg-gradient-to-r from-slate-50 to-white p-6 mb-6">
-        <div className="flex items-start justify-between flex-wrap gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-slate-900">{indent.indentNumber}</h1>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900">{indent.indentNumber}</h1>
               <StatusBadge status={indent.status} />
               {fromBiddingMarketplace ? (
                 <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-medium text-indigo-800">
@@ -430,7 +430,7 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
               <p className="text-xs text-slate-500 mt-1">From requirement {indent.requirementNumber}</p>
             )}
           </div>
-          <div className="text-right text-sm text-slate-500">
+          <div className="text-left sm:text-right text-sm text-slate-500 shrink-0">
             <p>Indent Date</p>
             <p className="font-medium text-slate-800">{formatDate(indent.indentDate)}</p>
             {trips.map((t) => (

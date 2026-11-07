@@ -62,9 +62,9 @@ export default async function InvoicesPage() {
               {pendingTasks.map((task) => (
                 <div
                   key={task.id}
-                  className="flex items-center justify-between border rounded-md p-3"
+                  className="flex flex-col gap-3 border rounded-md p-3 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <Link
                       href={`/trips/${task.tripId}`}
                       className="font-medium text-sm text-blue-600 hover:underline"
@@ -80,7 +80,7 @@ export default async function InvoicesPage() {
                       · Due {new Date(task.deadlineAt).toLocaleString()}
                     </p>
                   </div>
-                  <div className="text-right space-y-1">
+                  <div className="flex items-center justify-between gap-3 sm:flex-col sm:items-end sm:text-right sm:space-y-1">
                     <StatusBadge status={task.slaBreached ? "SLA_BREACHED" : "PENDING"} />
                     {task.trip?.billableTotal != null && (
                       <p className="text-sm font-medium">{formatINR(task.trip.billableTotal)}</p>
