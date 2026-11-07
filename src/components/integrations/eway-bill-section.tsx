@@ -2,13 +2,16 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2 } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { readJsonBody, reportApiFailure } from "@/lib/api-client";
-import { gstinForAutofill } from "@/lib/field-validators";
 import { useToast } from "@/components/toast";
-import { dateInputMinForField } from "@/lib/date-input";
 import type { EwayBillIndentDraft } from "@/lib/integrations/ewaybill/map-to-indent";
+import {
+  type PerionePortalSummary,
+  isPerioneEwayValidToday,
+  portalSummaryDisplayRows,
+} from "@/lib/integrations/ewaybill/portal-summary";
+
 export type EwayBillFormState = {
   mode: "EXISTING" | "NONE" | "MANUAL";
   ewayBillNumber: string;
@@ -63,28 +66,33 @@ export default function EwayBillSection({
   value,
   onChange,
   indentId,
-  blockPastDates = false,
+  clientId,
+  requestGstin,
   onIndentDraft,
   fieldErrors = {},
 }: {
   value: EwayBillFormState;
   onChange: (v: EwayBillFormState) => void;
   indentId?: string;
-  /** When true, “Valid until” cannot be before today (indent create). */
-  blockPastDates?: boolean;
-  /** Called with indent form fields to prefill (not saved until user submits). */
+  clientId?: string;
+  requestGstin?: string;
   onIndentDraft?: (draft: EwayBillIndentDraft) => void;
-  /** Validation messages from indent save (nested ewayBill.* paths). */
   fieldErrors?: Partial<Record<FieldKey, string>>;
+  /** @deprecated No longer shown in UI */
+  blockPastDates?: boolean;
 }) {
   const toast = useToast();
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState("");
+  const [portalSummary, setPortalSummary] = useState<PerionePortalSummary | null>(null);
 
-  const set = (k: FieldKey, v: string) => onChange({ ...value, [k]: v });
+  const numberError = fieldErrors.ewayBillNumber;
+  const summaryRows = portalSummary ? portalSummaryDisplayRows(portalSummary) : [];
+  const validToday = portalSummary ? isPerioneEwayValidToday(portalSummary) : false;
 
   async function fetchEwb() {
     setError("");
+    setPortalSummary(null);
     if (!value.ewayBillNumber.trim()) {
       setError("Enter an E-Way Bill number");
       return;
@@ -97,6 +105,8 @@ export default function EwayBillSection({
         body: JSON.stringify({
           ewayBillNumber: value.ewayBillNumber.trim(),
           indentId,
+          clientId: clientId || undefined,
+          requestGstin: requestGstin?.trim() || undefined,
           persist: false,
         }),
       });
@@ -108,196 +118,117 @@ export default function EwayBillSection({
       const payload = data as {
         data: Record<string, string | number | null>;
         indentDraft?: EwayBillIndentDraft;
+        enrichmentHints?: string[];
+        portalSummary?: PerionePortalSummary | null;
       };
+      const summary = payload.portalSummary ?? null;
+      setPortalSummary(summary);
+      const validNow = summary ? isPerioneEwayValidToday(summary) : false;
+
       const d = payload.data;
-      const supplierGstin = gstinForAutofill(String(d.supplierGstin ?? "")) ?? "";
-      const recipientGstin = gstinForAutofill(String(d.recipientGstin ?? "")) ?? "";
-      const transporterGstin = gstinForAutofill(String(d.transporterGstin ?? "")) ?? "";
-      const skippedPortalGstin =
-        (d.supplierGstin && !supplierGstin) ||
-        (d.recipientGstin && !recipientGstin) ||
-        (d.transporterGstin && !transporterGstin);
       onChange({
         ...value,
         mode: "EXISTING",
-        ewayBillNumber: String(d.ewayBillNumber ?? value.ewayBillNumber),
-        status: String(d.status ?? "Fetched"),
-        supplierGstin,
-        recipientGstin,
-        documentType: String(d.documentType ?? ""),
-        documentNumber: String(d.documentNumber ?? ""),
-        documentDate: String(d.documentDate ?? "").slice(0, 10),
-        goodsDescription: String(d.goodsDescription ?? ""),
-        hsnCode: String(d.hsnCode ?? ""),
-        quantity: String(d.quantity ?? ""),
-        value: d.value != null ? String(d.value) : "",
-        origin: String(d.origin ?? ""),
-        destination: String(d.destination ?? ""),
-        transporterName: String(d.transporterName ?? ""),
-        transporterGstin,
-        vehicleNumber: String(d.vehicleNumber ?? ""),
-        validUntil: String(d.validUntil ?? "").slice(0, 10),
+        ewayBillNumber: String(summary?.ewbNo ?? d.ewayBillNumber ?? value.ewayBillNumber),
+        status: String(summary?.status ?? d.status ?? "Fetched"),
+        hsnCode: String(summary?.hsnCode ?? ""),
+        vehicleNumber: String(summary?.vehicleNo ?? ""),
+        validUntil: String(summary?.validUpto ?? ""),
         provider: String(d.provider ?? ""),
         fetchedAt: String(d.fetchedAt ?? new Date().toISOString()),
         source: "CLIENT_PROVIDED",
+        supplierGstin: "",
+        recipientGstin: "",
+        documentType: "",
+        documentNumber: "",
+        documentDate: "",
+        goodsDescription: "",
+        quantity: "",
+        value: "",
+        origin: "",
+        destination: "",
+        transporterName: "",
+        transporterGstin: "",
       });
       if (payload.indentDraft && onIndentDraft) {
         onIndentDraft(payload.indentDraft);
       }
+      const hintLines = payload.enrichmentHints ?? [];
       toast.push({
         variant: "success",
         title: "E-Way Bill loaded",
-        description: skippedPortalGstin
-          ? "Some GSTINs from the portal are not valid 15-character GSTINs — enter consignor/consignee GSTIN manually before save."
-          : onIndentDraft
-            ? "Review auto-filled indent fields below, then save when ready."
-            : undefined,
+        description:
+          hintLines.length > 0
+            ? hintLines.join(" ")
+            : validNow
+              ? "E-Way Bill is active and valid today. Consignor and consignee pincodes were filled."
+              : "Review the E-Way Bill details and complete the indent below.",
       });
     } finally {
       setFetching(false);
     }
   }
 
-  const input = (k: FieldKey, label: string, type = "text") => {
-    const minDate =
-      type === "date" && blockPastDates && k === "validUntil"
-        ? dateInputMinForField(value.validUntil, "create")
-        : undefined;
-    const err = fieldErrors[k];
-    return (
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
-        <input
-          type={type}
-          className={`w-full border rounded-md px-3 py-2 text-sm ${err ? "border-red-500 focus:ring-red-500" : ""}`}
-          value={value[k] as string}
-          onChange={(e) => set(k, e.target.value)}
-          min={minDate}
-          aria-invalid={err ? true : undefined}
-          aria-describedby={err ? `eway-${k}-error` : undefined}
-        />
-        {err && (
-          <p id={`eway-${k}-error`} className="text-xs text-red-600 mt-1" role="alert">
-            {err}
-          </p>
-        )}
-      </div>
-    );
-  };
-
-  const showFields = value.mode !== "NONE";
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>E-Way Bill</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex flex-wrap gap-4">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="radio"
-              checked={value.mode === "EXISTING"}
-              onChange={() =>
-                onChange({
-                  ...value,
-                  mode: "EXISTING",
-                  status: value.status === "Not Provided" ? "" : value.status,
-                })
-              }
-            />
-            Existing E-Way Bill
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="radio"
-              checked={value.mode === "NONE"}
-              onChange={() =>
-                onChange({
-                  ...EMPTY_EWAY_BILL,
-                  mode: "NONE",
-                  status: "Not Provided",
-                })
-              }
-            />
-            No E-Way Bill provided
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="radio"
-              checked={value.mode === "MANUAL"}
-              onChange={() =>
-                onChange({
-                  ...value,
-                  mode: "MANUAL",
-                  status: "Not Generated",
-                  source: "MANUAL",
-                })
-              }
-            />
-            Enter manually (no EWB yet)
-          </label>
+    <div className="space-y-3">
+      <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+        <div className="flex-1">
+          <label className="block text-sm font-medium text-slate-700 mb-1">E-Way Bill Number</label>
+          <input
+            className={`w-full border rounded-md px-3 py-2 text-sm ${
+              numberError ? "border-red-500 focus:ring-red-500" : ""
+            }`}
+            value={value.ewayBillNumber}
+            onChange={(e) => {
+              setPortalSummary(null);
+              onChange({
+                ...value,
+                mode: "EXISTING",
+                ewayBillNumber: e.target.value,
+              });
+            }}
+            placeholder="12-digit E-Way Bill number"
+            inputMode="numeric"
+            aria-invalid={numberError ? true : undefined}
+            aria-describedby={numberError ? "eway-ewayBillNumber-error" : undefined}
+          />
+          {numberError && (
+            <p id="eway-ewayBillNumber-error" className="text-xs text-red-600 mt-1" role="alert">
+              {numberError}
+            </p>
+          )}
         </div>
-
-        {value.mode === "EXISTING" && (
-          <div className="flex gap-2 items-end">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                E-Way Bill Number
-              </label>
-              <input
-                className="w-full border rounded-md px-3 py-2 text-sm"
-                value={value.ewayBillNumber}
-                onChange={(e) => set("ewayBillNumber", e.target.value)}
-                placeholder="12-digit EBN"
-              />
-            </div>
-            <Button type="button" variant="outline" disabled={fetching} onClick={fetchEwb}>
-              {fetching ? <Loader2 className="h-4 w-4 animate-spin" /> : "Fetch E-Way Bill"}
-            </Button>
-          </div>
-        )}
-
-        {value.mode === "NONE" && (
-          <p className="text-sm text-slate-500">
-            Status: <span className="font-medium text-slate-700">Not Provided</span>
-          </p>
-        )}
-
-        {value.mode === "MANUAL" && (
-          <p className="text-sm text-slate-500">
-            Status: <span className="font-medium text-slate-700">Not Generated</span> — enter
-            operational E-Way Bill details below.
-          </p>
-        )}
-
-        {showFields && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t">
-            {value.mode === "EXISTING" && input("ewayBillNumber", "E-Way Bill Number")}
-            {input("status", "Status")}
-            {input("supplierGstin", "Supplier GSTIN")}
-            {input("recipientGstin", "Recipient GSTIN")}
-            {input("documentNumber", "Document Number")}
-            {input("documentDate", "Document Date", "date")}
-            {input("goodsDescription", "Goods")}
-            {input("hsnCode", "HSN")}
-            {input("quantity", "Quantity")}
-            {input("value", "Value (₹)", "number")}
-            {input("origin", "From")}
-            {input("destination", "To")}
-            {input("vehicleNumber", "Vehicle Number")}
-            {input("validUntil", "Valid Until", "date")}
-            {value.provider && (
-              <div className="md:col-span-2 text-xs text-slate-500">
-                Provider: {value.provider}
-                {value.fetchedAt && ` · Fetched ${new Date(value.fetchedAt).toLocaleString()}`}
-              </div>
+        <Button type="button" variant="outline" disabled={fetching} onClick={fetchEwb}>
+          {fetching ? <Loader2 className="h-4 w-4 animate-spin" /> : "Fetch E-Way Bill"}
+        </Button>
+      </div>
+      {error && (
+        <p className="text-sm text-red-600" role="alert">
+          {error}
+        </p>
+      )}
+      {summaryRows.length > 0 && (
+        <div className="rounded-md border border-slate-200 bg-slate-50/80 px-3 py-2.5 text-sm">
+          <div className="flex items-center gap-2 mb-2">
+            {validToday && (
+              <span className="inline-flex items-center gap-1 text-emerald-700 font-medium" title="Active and valid today">
+                <CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden />
+                <span className="sr-only">Valid today</span>
+                <span aria-hidden>Valid today</span>
+              </span>
             )}
+            <span className="text-slate-600 font-medium">From portal</span>
           </div>
-        )}
-
-        {error && <p className="text-sm text-red-600">{error}</p>}
-      </CardContent>
-    </Card>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+            {summaryRows.map((row) => (
+              <div key={row.label} className="flex flex-wrap gap-x-2 min-w-0">
+                <dt className="text-slate-500 shrink-0">{row.label}</dt>
+                <dd className="text-slate-900 font-medium break-all">{row.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
+    </div>
   );
 }

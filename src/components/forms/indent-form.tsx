@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,10 @@ import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 import type { EwayBillIndentDraft } from "@/lib/integrations/ewaybill/map-to-indent";
 import { useToast } from "@/components/toast";
 import { dateInputMinForField, indentOperationalDateFieldErrors } from "@/lib/date-input";
+import {
+  mergeConsignorPrefillIntoForm,
+  type ConsignorPrefillFromClient,
+} from "@/lib/client-indent-consignor-prefill";
 
 const vehicleTypes: [string, string][] = [
   ["TEMPO_14FT", "Tempo 14ft"],
@@ -195,7 +199,7 @@ export default function IndentForm({
     }
   };
 
-  function applyEwayIndentDraft(draft: EwayBillIndentDraft) {
+  const applyEwayIndentDraft = useCallback((draft: EwayBillIndentDraft) => {
     setForm((prev) => {
       const next = { ...prev };
       for (const [key, val] of Object.entries(draft)) {
@@ -206,7 +210,22 @@ export default function IndentForm({
       return next;
     });
     setEwayBillRequired(true);
-  }
+  }, []);
+
+  const applyClientConsignorPrefill = useCallback(async (id: string) => {
+    if (!id) return;
+    const res = await fetch(`/api/clients/${encodeURIComponent(id)}/indent-consignor-prefill`);
+    const data = await readJsonBody(res);
+    if (!res.ok) return;
+    const prefill = data as ConsignorPrefillFromClient;
+    setForm((prev) =>
+      mergeConsignorPrefillIntoForm(prefill, prev as ConsignorPrefillFromClient & IndentFormValues)
+    );
+  }, []);
+
+  useEffect(() => {
+    if (clientId) void applyClientConsignorPrefill(clientId);
+  }, [clientId, applyClientConsignorPrefill]);
 
   function buildIndentSavePayload() {
     return {
@@ -410,6 +429,32 @@ export default function IndentForm({
   }
 
   const fieldErr = (key: string) => fieldErrors[key];
+  const pincodeInput = (side: "consignor" | "consignee", label: string, required = false) => {
+    const k = side === "consignor" ? "consignorPincode" : "consigneePincode";
+    return (
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">
+          {label}
+          {required ? " *" : ""}
+        </label>
+        <input
+          type="text"
+          inputMode="numeric"
+          className={inputCls(k)}
+          value={form[k]}
+          onChange={(e) => set(k, e.target.value)}
+          required={required}
+          aria-invalid={fieldErr(k) ? true : undefined}
+          aria-describedby={fieldErr(k) ? `${k}-error` : undefined}
+        />
+        {fieldErr(k) && (
+          <p id={`${k}-error`} className="text-xs text-red-600 mt-1" role="alert">
+            {fieldErr(k)}
+          </p>
+        )}
+      </div>
+    );
+  };
   const inputCls = (key: string) =>
     `w-full border rounded-md px-3 py-2 text-sm ${fieldErr(key) ? "border-red-500 focus:ring-red-500" : ""}`;
 
@@ -473,7 +518,9 @@ export default function IndentForm({
                 className={inputCls("clientId")}
                 value={clientId}
                 onChange={(e) => {
-                  setClientId(e.target.value);
+                  const nextId = e.target.value;
+                  setClientId(nextId);
+                  void applyClientConsignorPrefill(nextId);
                   if (fieldErrors.clientId) {
                     setFieldErrors((fe) => {
                       const next = { ...fe };
@@ -500,25 +547,41 @@ export default function IndentForm({
         <CardHeader>
           <CardTitle>E-way Bill</CardTitle>
           <p className="text-sm text-slate-500 font-normal">
-            Capture e-way details right after client and indent date, before pickup/delivery parties.
+            Enter the E-Way Bill number and fetch — details fill into the indent sections below.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input type="checkbox" checked={ewayBillRequired} onChange={(e) => setEwayBillRequired(e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={ewayBillRequired}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setEwayBillRequired(checked);
+                if (checked) {
+                  setEwayBill((prev) => ({ ...prev, mode: "EXISTING" }));
+                } else {
+                  setEwayBill({ ...EMPTY_EWAY_BILL, mode: "NONE", status: "Not Provided" });
+                  setEwayFieldErrors({});
+                }
+              }}
+            />
             E-way bill required for this indent
           </label>
-          <EwayBillSection
-            value={ewayBill}
-            onChange={(next) => {
-              setEwayBill(next);
-              setEwayFieldErrors({});
-            }}
-            fieldErrors={ewayFieldErrors}
-            indentId={indentId}
-            blockPastDates={mode === "create"}
-            onIndentDraft={applyEwayIndentDraft}
-          />
+          {ewayBillRequired && (
+            <EwayBillSection
+              value={ewayBill}
+              onChange={(next) => {
+                setEwayBill(next);
+                setEwayFieldErrors({});
+              }}
+              fieldErrors={ewayFieldErrors}
+              indentId={indentId}
+              clientId={clientId}
+              requestGstin={form.consignorGstin}
+              onIndentDraft={applyEwayIndentDraft}
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -530,7 +593,7 @@ export default function IndentForm({
           {area("consignorAddress", "Address", true)}
           {input("consignorCity", "City", "text", true)}
           {input("consignorState", "State", "text", true)}
-          {input("consignorPincode", "Pincode", "text", true)}
+          {pincodeInput("consignor", "Pincode", true)}
           {input("consignorContact", "Contact Person")}
           {input("consignorPhone", "Phone")}
           {input("pickupDate", "Pickup Date", "date", true)}
@@ -546,7 +609,7 @@ export default function IndentForm({
           {area("consigneeAddress", "Address", true)}
           {input("consigneeCity", "City", "text", true)}
           {input("consigneeState", "State", "text", true)}
-          {input("consigneePincode", "Pincode", "text", true)}
+          {pincodeInput("consignee", "Pincode", true)}
           {input("consigneeContact", "Contact Person", "text", true)}
           {input("consigneePhone", "Phone", "text", true)}
           {input("deliveryDate", "Expected Delivery Date", "date")}

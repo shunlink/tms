@@ -28,35 +28,34 @@ function restoreEwayEnv(snapshot: Record<string, string | undefined>) {
   resetPerioneEwaySessionForTests();
 }
 
-const sampleData = {
-  ewbNo: 131012976815,
-  status: "ACT",
-  fromGstin: "29AARFB4347G000",
-  toGstin: "27AARFB4347G024",
-  docType: "INV",
-  docNo: "Perione-005",
-  docDate: "11/07/2026",
-  fromPlace: "FRAZER TOWN",
-  toPlace: "Mumbai",
-  totInvValue: 105,
-  transporterName: "BlueFox Systems",
-  transporterId: "29AARFB4347G000",
-  ewayBillDate: "04/11/2026 06:06:00 PM",
+const liteInner = {
+  fromPincode: 410203,
+  hsnCode: "73051929",
+  ewayBillDate: "05/11/2026 12:43:00 PM",
   validUpto: "09/11/2026 11:59:00 PM",
-  itemList: [{ productName: "Rice", hsnCode: 100610, quantity: 1 }],
-  VehiclListDetails: [{ vehicleNo: "PVC1234" }],
+  ewbNo: 282325194338,
+  toPincode: 581116,
+  VehiclListDetails: [{ vehicleNo: "MH46CL5915", enteredDate: "05/11/2026 12:43:00 PM", transMode: "1" }],
+  status: "ACT",
+  errorCodes: null,
 };
+
+const liteEnvelope = (inner: Record<string, unknown>) => ({
+  code: "200",
+  error: "false",
+  message: "Success",
+  response: [{ responseStatus: "SUCCESS", response: inner, message: null }],
+});
 
 function perioneEnv() {
   process.env.EWAY_API_BASE_URL = "https://staging.perione.in";
   process.env.EWAY_CLIENT_ID = "client-id";
   process.env.EWAY_CLIENT_SECRET = "client-secret";
-  process.env.EWAY_GSTIN = "29AARFB4347G000";
-  process.env.EWAY_USERNAME = "Bluefox";
-  process.env.EWAY_PASSWORD = "secret";
+  delete process.env.EWAY_GSTIN;
+  delete process.env.EWAY_USERNAME;
+  delete process.env.EWAY_PASSWORD;
   process.env.EWAY_EMAIL = "test@shunlink.in";
   process.env.EWAY_API_STYLE = "perione";
-  process.env.EWAY_AUTH_TTL_MS = "3600000";
   delete process.env.SUREPASS_API_KEY;
   process.env.INTEGRATION_MODE = "mock";
 }
@@ -75,75 +74,72 @@ describe("Perione E-Way Bill fetch", () => {
     vi.unstubAllGlobals();
   });
 
-  it("authenticates and fetches by ewb number", async () => {
+  it("POST GetEwayBill per Perione docs (email query, client headers, JSON ewbNo)", async () => {
     perioneEnv();
-    vi.mocked(fetch).mockImplementation(async (input) => {
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
       const url = String(input);
-      if (url.includes("authenticate")) {
-        return {
-          ok: true,
-          status: 200,
-          text: async () => JSON.stringify({ status_cd: "1", status_desc: "If authentication succeeds" }),
-        } as Response;
-      }
-      if (url.includes("getewaybill")) {
-        return {
-          ok: true,
-          status: 200,
-          text: async () =>
-            JSON.stringify({
-              status_cd: "1",
-              status_desc: "EWAYBILL request succeeds",
-              data: sampleData,
-            }),
-        } as Response;
-      }
-      throw new Error(`unexpected fetch: ${url}`);
-    });
-
-    const result = await fetchEWayBill("131012976815");
-    expect(result.data.provider).toBe("perione");
-    expect(result.data.vehicleNumber).toBe("PVC1234");
-    expect(result.data.supplierGstin).toBe("29AARFB4347G000");
-    expect(result.indentDraft.consignorGstin).toBeUndefined();
-    expect(fetch).toHaveBeenCalledTimes(2);
-  });
-
-  it("reuses auth session within TTL", async () => {
-    perioneEnv();
-    vi.mocked(fetch).mockImplementation(async (input) => {
-      const url = String(input);
-      if (url.includes("authenticate")) {
-        return {
-          ok: true,
-          status: 200,
-          text: async () => JSON.stringify({ status_cd: "1" }),
-        } as Response;
-      }
+      expect(url).toContain("getewaybill");
+      expect(url).toContain("email=test%40shunlink.in");
+      expect(init?.method).toBe("POST");
+      const headers = init?.headers as Record<string, string>;
+      expect(headers["Content-Type"]).toBe("application/json");
+      expect(headers.client_id).toBe("client-id");
+      expect(headers.client_secret).toBe("client-secret");
+      expect(JSON.parse(String(init?.body))).toEqual({ ewbNo: "282325194338" });
       return {
         ok: true,
         status: 200,
-        text: async () =>
-          JSON.stringify({ status_cd: "1", data: { ...sampleData, ewbNo: 131012976815 } }),
+        text: async () => JSON.stringify(liteEnvelope(liteInner)),
       } as Response;
     });
 
-    await fetchEWayBill("131012976815");
-    await fetchEWayBill("131012976815");
-    const authCalls = vi.mocked(fetch).mock.calls.filter((c) => String(c[0]).includes("authenticate"));
-    expect(authCalls.length).toBe(1);
+    const result = await fetchEWayBill("282325194338");
+    expect(result.data.provider).toBe("perione");
+    expect(result.data.hsnCode).toBe("73051929");
+    expect(result.data.vehicleNumber).toBe("MH46CL5915");
+    expect(result.indentDraft.consignorPincode).toBe("410203");
+    expect(result.indentDraft.consigneePincode).toBe("581116");
+    expect(result.portalSummary?.status).toBe("ACT");
   });
 
-  it("surfaces auth failure from status_cd", async () => {
+  it("supports legacy status_cd envelope", async () => {
     perioneEnv();
     vi.mocked(fetch).mockResolvedValue({
       ok: true,
       status: 200,
-      text: async () => JSON.stringify({ status_cd: "0", status_desc: "Invalid credentials" }),
+      text: async () =>
+        JSON.stringify({
+          status_cd: "1",
+          data: { ...liteInner, ewbNo: 282325194338 },
+        }),
     } as Response);
 
-    await expect(fetchEWayBill("131012976815")).rejects.toMatchObject({
-      integrationCode: "PROVIDER_ERROR",
+    const result = await fetchEWayBill("282325194338");
+    expect(result.data.status).toBe("ACT");
+  });
+
+  it("surfaces failure from lite response item", async () => {
+    perioneEnv();
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          code: "200",
+          error: "false",
+          message: "Success",
+          response: [
+            {
+              responseStatus: "FAILED",
+              message: "Bill not found",
+              response: { errorCodes: "301" },
+            },
+          ],
+        }),
+    } as Response);
+
+    await expect(fetchEWayBill("282325194338")).rejects.toMatchObject({
+      integrationCode: "NOT_FOUND",
     });
   });
 });

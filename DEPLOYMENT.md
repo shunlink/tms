@@ -26,14 +26,20 @@ Docker Compose loads `.env.production` for `db`, `app`, and `worker-email`.
 | `INTEGRATION_MODE` | no | `mock` (default) until Surepass is configured |
 | `EWAY_API_BASE_URL` | E-Way Bill (Perione / GSP) | Portal base URL (e.g. `https://staging.perione.in`) |
 | `EWAY_CLIENT_ID` / `EWAY_CLIENT_SECRET` | E-Way Bill | GSP credentials |
-| `EWAY_GSTIN` | E-Way Bill | Requester GSTIN |
-| `EWAY_EMAIL` | Perione | Registered email on the portal |
-| `EWAY_USERNAME` / `EWAY_PASSWORD` | E-Way Bill | Portal API user |
-| `EWAY_IP_ADDRESS` | Perione | Default `0` |
+| `EWAY_GSTIN` | Perione (recommended) | Sent in request headers when set; also used as default consignor GSTIN on E-Way autofill when the portal omits party GSTIN |
+| `EWAY_EMAIL` | Perione lite | Registered email on the portal |
+| `EWAY_USERNAME` / `EWAY_PASSWORD` | NIC encrypted only | Not used for Perione lite `getewaybill` (email + GSP client credentials only) |
+| `EWAY_IP_ADDRESS` | Perione | Default `0` (request header) |
 | `EWAY_API_STYLE` | no | `perione` (plain JSON, default when host contains `perione.in`) or `nic` (encrypted NIC GSP) |
-| `EWAY_AUTH_PATH` / `EWAY_GET_PATH` | no | Perione defaults: `/ewaybillapi/v1.03/authenticate` and `/ewaybillapi/v1.03/ewayapi/getewaybill` |
-| `EWAY_AUTH_TTL_MS` | no | Auth cache TTL (staging Perione ~1h; production ~6h if unset) |
+| `EWAY_AUTH_PATH` / `EWAY_GET_PATH` | no | Perione lite default get path: `/ewaybillapi/v1.03/ewayapi/getewaybill` |
+| `EWAY_AUTH_TTL_MS` | legacy | Unused for Perione lite (no authenticate call) |
 | `EWAY_PUBLIC_KEY` | NIC encrypted only | RSA public key PEM when `EWAY_API_STYLE=nic` |
+
+**Perione GetEwayBill:** `POST` `/ewaybillapi/v1.03/ewayapi/getewaybill?email={EWAY_EMAIL}` with headers `client_id`, `client_secret`, and JSON body `{ "ewbNo": "…" }` only. Optional `EWAY_PERIONE_BEARER` / `EWAY_PERIONE_ENV` if your Perione account requires Swagger-style headers (usually not for server GSP calls).
+
+**Indent autofill:** Selecting a **Client** on the indent form loads consignor **name and GSTIN** from client onboarding via `GET /api/clients/:id/indent-consignor-prefill`. **Fetch E-Way Bill** on the indent form fills **consignor and consignee pincodes only** from the Perione GetEwayBill response; other party and cargo fields stay manual.
+
+**Perione auth (NIC error 108):** Applies only if you still use legacy authenticate flows elsewhere. Staging credentials do not work on `https://api.perione.in`. Keep a **single** `EWAY_*` block in env (duplicate keys use the last value).
 | `STORAGE_DRIVER` | no | `local` (default) or `s3` |
 | `S3_BUCKET` / `AWS_REGION` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | if S3 | Object storage config |
 | `MAPS_PROVIDER` | no | `osm` (default tiles), `google`, `mapbox`, or `here` |

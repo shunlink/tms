@@ -48,7 +48,7 @@ export function normalizeNicEwayBill(
     goodsDescription:
       pickString(raw, "goodsDescription") ??
       pickString(firstItem ?? {}, "productName", "productDesc"),
-    hsnCode: pickString(firstItem ?? {}, "hsnCode"),
+    hsnCode: pickString(raw, "hsnCode") ?? pickString(firstItem ?? {}, "hsnCode"),
     quantity: pickString(firstItem ?? {}, "quantity"),
     value: pickNumber(raw, "totInvValue", "totalValue"),
     origin: pickString(raw, "fromPlace"),

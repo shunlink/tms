@@ -5,7 +5,8 @@ import { logAudit } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth";
 import { withIntegrationProvider } from "../core/resolver";
 import { isEncryptedNicEwayConfigured, isPerioneEwayConfigured } from "./nic-config";
-import { buildIndentDraftFromEwayBill } from "./map-to-indent";
+import { enrichEwayFetchResult, type EwayFetchEnrichmentNotes } from "./enrich-fetch-result";
+import { buildPerionePortalSummary, type PerionePortalSummary } from "./portal-summary";
 import { mockFetchEwayBill, mockGenerateEwayBill } from "./providers/mock";
 import { nicFetchEwayBill } from "./providers/nic";
 import { perioneFetchEwayBill } from "./providers/perione";
@@ -15,24 +16,45 @@ import type {
   EwayBillGenerateInput,
   EwayBillGenerateResult,
   EwayBillMode,
+  EwayBillProviderFetchResult,
   NormalizedEwayBill,
 } from "./types";
 
-export async function fetchEWayBill(ewayBillNumber: string): Promise<EwayBillFetchResult> {
+export type { EwayFetchEnrichmentNotes };
+
+export type FetchEWayBillOptions = {
+  clientId?: string;
+  /** Ignored for Perione lite POST fetch (no GSTIN on portal call). Kept for API compatibility. */
+  requestGstin?: string;
+};
+
+export type { PerionePortalSummary };
+
+export type EwayBillFetchResultWithNotes = EwayBillFetchResult & {
+  enrichmentNotes?: EwayFetchEnrichmentNotes;
+  portalSummary?: PerionePortalSummary;
+};
+
+async function finalizeFetchResult(
+  result: EwayBillProviderFetchResult
+): Promise<EwayBillFetchResultWithNotes> {
+  const { result: enriched, notes } = await enrichEwayFetchResult({ ...result, indentDraft: {} });
+  const portalSummary = buildPerionePortalSummary(enriched.rawNic);
+  return { ...enriched, enrichmentNotes: notes, portalSummary };
+}
+
+export async function fetchEWayBill(
+  ewayBillNumber: string,
+  opts?: FetchEWayBillOptions
+): Promise<EwayBillFetchResultWithNotes> {
   if (isPerioneEwayConfigured()) {
     const result = await perioneFetchEwayBill(ewayBillNumber);
-    return {
-      ...result,
-      indentDraft: buildIndentDraftFromEwayBill(result.data, result.rawNic),
-    };
+    return finalizeFetchResult(result);
   }
 
   if (isEncryptedNicEwayConfigured()) {
     const result = await nicFetchEwayBill(ewayBillNumber);
-    return {
-      ...result,
-      indentDraft: buildIndentDraftFromEwayBill(result.data, result.rawNic),
-    };
+    return finalizeFetchResult(result);
   }
 
   const result = await withIntegrationProvider(
@@ -40,10 +62,7 @@ export async function fetchEWayBill(ewayBillNumber: string): Promise<EwayBillFet
     () => surepassFetchEwayBill(ewayBillNumber)
   );
 
-  return {
-    ...result,
-    indentDraft: buildIndentDraftFromEwayBill(result.data, result.rawNic),
-  };
+  return finalizeFetchResult(result);
 }
 
 /** Backend-only generation — not exposed in frontend UI. */

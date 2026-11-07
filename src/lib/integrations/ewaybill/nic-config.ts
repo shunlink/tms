@@ -98,11 +98,17 @@ export function isNicEwayConfigured(): boolean {
   );
 }
 
+/**
+ * Perione lite getewaybill: email + GSP client credentials + base URL.
+ * `EWAY_GSTIN` is optional for config but still sent in request headers when set (Perione gateway).
+ */
 export function isPerioneEwayConfigured(): boolean {
-  return (
-    isNicEwayConfigured() &&
-    ewayApiStyle() === "perione" &&
-    Boolean(ewayEmail() && ewayNicUsername() && ewayNicPassword())
+  return Boolean(
+    ewayNicBaseUrl() &&
+      ewayNicClientId() &&
+      ewayNicClientSecret() &&
+      ewayEmail() &&
+      ewayApiStyle() === "perione"
   );
 }
 

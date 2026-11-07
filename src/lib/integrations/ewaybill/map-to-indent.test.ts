@@ -45,6 +45,12 @@ describe("buildIndentDraftFromEwayBill", () => {
     expect(draft.materialDescription).toContain("CEMENT");
   });
 
+  it("reads root hsnCode from Perione lite payload", () => {
+    const raw = { hsnCode: "100610", fromPincode: "560001", toPincode: "400001" };
+    const data = normalizeNicEwayBill("131012976815", raw, "CLIENT_PROVIDED", "perione");
+    expect(data.hsnCode).toBe("100610");
+  });
+
   it("omits portal GSTINs that fail Indian GSTIN format (e.g. Perione staging samples)", () => {
     const raw = {
       fromGstin: "29AARFB4347G000",
