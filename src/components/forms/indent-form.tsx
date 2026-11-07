@@ -807,6 +807,9 @@ export default function IndentForm({
                   setVehicleReg(s.value);
                   void lookupVehicleByReg(s.value);
                 }}
+                onBlur={() => {
+                  if (canAssignVehicleDriver) void lookupVehicleByReg(vehicleReg);
+                }}
               />
               {existingVehicleFound && vehicleLookup && (
                 <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 space-y-1">
@@ -876,6 +879,9 @@ export default function IndentForm({
                   setExistingDriverFound(true);
                   void lookupDriverByDl(s.value);
                 }}
+                onBlur={() => {
+                  if (canAssignVehicleDriver) void lookupDriverByDl(driver.dlNumber);
+                }}
               />
               {existingDriverFound && (
                 <p className="text-xs text-blue-600 mt-1">Existing driver found — details loaded</p>
@@ -936,6 +942,7 @@ export default function IndentForm({
           <IndentFileUploadsTrigger
             indentId={indentId}
             documents={documents}
+            ewayBillRequired={ewayBillRequired}
             disabled={mode === "create" || !indentId}
           />
         </CardContent>

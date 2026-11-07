@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { readJsonBody, reportApiFailure } from "@/lib/api-client";
 import { useToast } from "@/components/toast";
 import {
-  INDENT_DOCUMENT_TYPES,
   indentDocumentProgress,
+  resolveIndentDocumentTypes,
 } from "@/lib/indent-documents";
 
 export type IndentDoc = {
@@ -24,6 +24,7 @@ export default function IndentDocumentsModal({
   onClose,
   indentId,
   documents,
+  ewayBillRequired = false,
   readOnly = false,
   onDocumentsChange,
 }: {
@@ -31,6 +32,7 @@ export default function IndentDocumentsModal({
   onClose: () => void;
   indentId: string;
   documents: IndentDoc[];
+  ewayBillRequired?: boolean;
   readOnly?: boolean;
   onDocumentsChange?: (documents: IndentDoc[]) => void;
 }) {
@@ -40,6 +42,7 @@ export default function IndentDocumentsModal({
   const [busyType, setBusyType] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [localDocs, setLocalDocs] = useState<IndentDoc[]>(documents);
+  const docTypes = resolveIndentDocumentTypes({ ewayBillRequired });
 
   useEffect(() => {
     if (open) {
@@ -52,7 +55,7 @@ export default function IndentDocumentsModal({
   for (const d of localDocs) {
     if (!byType.has(d.type)) byType.set(d.type, d);
   }
-  const progress = indentDocumentProgress(localDocs);
+  const progress = indentDocumentProgress(localDocs, { ewayBillRequired });
 
   function syncDocs(next: IndentDoc[]) {
     setLocalDocs(next);
@@ -175,7 +178,7 @@ export default function IndentDocumentsModal({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {INDENT_DOCUMENT_TYPES.map((cfg) => {
+                {docTypes.map((cfg) => {
                   const file = byType.get(cfg.type);
                   const isBusy = busyType === cfg.type;
                   return (
@@ -282,19 +285,21 @@ export default function IndentDocumentsModal({
 export function IndentFileUploadsTrigger({
   indentId,
   documents,
+  ewayBillRequired = false,
   disabled = false,
   disabledHint = "Save the indent first to upload documents",
   readOnly = false,
 }: {
   indentId?: string;
   documents?: IndentDoc[];
+  ewayBillRequired?: boolean;
   disabled?: boolean;
   disabledHint?: string;
   readOnly?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [docs, setDocs] = useState<IndentDoc[]>(documents ?? []);
-  const progress = indentDocumentProgress(docs);
+  const progress = indentDocumentProgress(docs, { ewayBillRequired });
   const canOpen = Boolean(indentId) && !disabled;
 
   useEffect(() => {
@@ -331,6 +336,7 @@ export function IndentFileUploadsTrigger({
           onClose={() => setOpen(false)}
           indentId={indentId}
           documents={docs}
+          ewayBillRequired={ewayBillRequired}
           readOnly={readOnly}
           onDocumentsChange={setDocs}
         />

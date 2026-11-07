@@ -18,11 +18,20 @@ import {
 const n = (d: { toNumber(): number } | null | undefined) => (d ? d.toNumber() : 0);
 
 async function assertIndentRequiredDocumentsUploaded(indentId: string) {
-  const docs = await prisma.documentAttachment.findMany({
-    where: { entityType: "INDENT", entityId: indentId },
-    select: { documentType: true },
-  });
-  const missing = missingRequiredIndentDocumentLabels(docs.map((d) => ({ type: d.documentType })));
+  const [docs, indent] = await Promise.all([
+    prisma.documentAttachment.findMany({
+      where: { entityType: "INDENT", entityId: indentId },
+      select: { documentType: true },
+    }),
+    prisma.indent.findFirst({
+      where: { id: indentId },
+      select: { consignment: { select: { ewayBillRequired: true } } },
+    }),
+  ]);
+  const missing = missingRequiredIndentDocumentLabels(
+    docs.map((d) => ({ type: d.documentType })),
+    { ewayBillRequired: Boolean(indent?.consignment?.ewayBillRequired) }
+  );
   if (missing.length > 0) {
     throw new Error(formatMissingIndentDocumentsMessage(missing));
   }

@@ -384,7 +384,11 @@ export default async function IndentDetailPage({ params }: { params: { id: strin
             </div>
           )}
           {canEdit ? (
-            <IndentFileUploadsTrigger indentId={indent.id} documents={indent.documents} />
+            <IndentFileUploadsTrigger
+              indentId={indent.id}
+              documents={indent.documents}
+              ewayBillRequired={indent.ewayBillRequired}
+            />
           ) : null}
         </CardContent>
       </Card>

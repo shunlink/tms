@@ -17,6 +17,7 @@ export default function PrefixSuggestField({
   value,
   onChange,
   onSelect,
+  onBlur,
   suggestUrl,
   disabled = false,
   required = false,
@@ -28,6 +29,7 @@ export default function PrefixSuggestField({
   value: string;
   onChange: (value: string) => void;
   onSelect?: (suggestion: PrefixSuggestion) => void;
+  onBlur?: () => void;
   /** Full URL including path; `q` is appended automatically. */
   suggestUrl: string;
   disabled?: boolean;
@@ -146,6 +148,10 @@ export default function PrefixSuggestField({
         }}
         onFocus={() => {
           if (suggestions.length > 0) setOpen(true);
+        }}
+        onBlur={() => {
+          // Delay so list mousedown can select first
+          window.setTimeout(() => onBlur?.(), 150);
         }}
         onKeyDown={onKeyDown}
         required={required}

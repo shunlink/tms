@@ -3,14 +3,15 @@
 export type IndentDocumentTypeConfig = {
   type: string;
   label: string;
+  /** Static required flag; EWAY_BILL is overridden by ewayBillRequired option. */
   required: boolean;
 };
 
 export const INDENT_DOCUMENT_TYPES: IndentDocumentTypeConfig[] = [
-  { type: "MANUAL_LR", label: "Manual LR", required: true },
-  { type: "EWAY_BILL", label: "Eway Bill", required: true },
+  { type: "MANUAL_LR", label: "Manual LR", required: false },
+  { type: "EWAY_BILL", label: "Eway Bill", required: false },
   { type: "CLIENT_INVOICE", label: "Customer Invoice", required: true },
-  { type: "VEHICLE_PHOTO", label: "Vehicle Photo", required: true },
+  { type: "VEHICLE_PHOTO", label: "Vehicle Photo", required: false },
   { type: "DRIVER_LICENSE", label: "Driver License", required: true },
   { type: "PO_APPROVAL", label: "PO/Approval", required: true },
   { type: "RC", label: "RC", required: true },
@@ -20,9 +21,30 @@ export const INDENT_DOCUMENT_TYPES: IndentDocumentTypeConfig[] = [
   { type: "OTHER", label: "Others", required: false },
 ];
 
-export const INDENT_REQUIRED_DOCUMENT_TYPES = INDENT_DOCUMENT_TYPES.filter((d) => d.required).map(
-  (d) => d.type
-);
+export type IndentDocumentRequirementOptions = {
+  ewayBillRequired?: boolean;
+};
+
+/** Effective checklist with E-way required only when the indent checkbox is on. */
+export function resolveIndentDocumentTypes(
+  options?: IndentDocumentRequirementOptions
+): IndentDocumentTypeConfig[] {
+  const ewayRequired = Boolean(options?.ewayBillRequired);
+  return INDENT_DOCUMENT_TYPES.map((d) =>
+    d.type === "EWAY_BILL" ? { ...d, required: ewayRequired } : d
+  );
+}
+
+export function indentRequiredDocumentTypes(
+  options?: IndentDocumentRequirementOptions
+): string[] {
+  return resolveIndentDocumentTypes(options)
+    .filter((d) => d.required)
+    .map((d) => d.type);
+}
+
+/** @deprecated Prefer indentRequiredDocumentTypes({ ewayBillRequired }) */
+export const INDENT_REQUIRED_DOCUMENT_TYPES = indentRequiredDocumentTypes();
 
 export type IndentDocumentProgress = {
   requiredTotal: number;
@@ -33,17 +55,19 @@ export type IndentDocumentProgress = {
 };
 
 export function indentDocumentProgress(
-  documents: { type: string }[]
+  documents: { type: string }[],
+  options?: IndentDocumentRequirementOptions
 ): IndentDocumentProgress {
+  const configs = resolveIndentDocumentTypes(options);
   const uploaded = new Set(documents.map((d) => d.type));
-  const required = INDENT_DOCUMENT_TYPES.filter((d) => d.required);
-  const optional = INDENT_DOCUMENT_TYPES.filter((d) => !d.required);
-  const missingRequired = required.filter((d) => !uploaded.has(d.type)).map((d) => d.label);
+  const required = configs.filter((d) => d.required);
+  const optional = configs.filter((d) => !d.required);
+  const missingRequired = required.filter((t) => !uploaded.has(t.type)).map((t) => t.label);
   return {
     requiredTotal: required.length,
-    requiredUploaded: required.filter((d) => uploaded.has(d.type)).length,
+    requiredUploaded: required.filter((t) => uploaded.has(t.type)).length,
     optionalTotal: optional.length,
-    optionalUploaded: optional.filter((d) => uploaded.has(d.type)).length,
+    optionalUploaded: optional.filter((t) => uploaded.has(t.type)).length,
     missingRequired,
   };
 }
@@ -53,8 +77,11 @@ export function indentDocumentLabel(type: string): string {
 }
 
 /** Returns human-readable missing required doc labels (empty if complete). */
-export function missingRequiredIndentDocumentLabels(documents: { type: string }[]): string[] {
-  return indentDocumentProgress(documents).missingRequired;
+export function missingRequiredIndentDocumentLabels(
+  documents: { type: string }[],
+  options?: IndentDocumentRequirementOptions
+): string[] {
+  return indentDocumentProgress(documents, options).missingRequired;
 }
 
 export function formatMissingIndentDocumentsMessage(missingLabels: string[]): string {
