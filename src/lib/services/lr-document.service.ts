@@ -218,8 +218,6 @@ function renderBtLrCopy(
     ? `<img class="doc-qr" src="${qrDataUrl}" alt="Open LR online" />`
     : "";
   const lrCommentsCell = data.lrComments ? escapeHtml(data.lrComments) : "";
-  const shipperBarName = data.vendorName !== "—" ? data.vendorName : data.consignorName;
-  const driverDisplay = data.driverName !== "—" ? data.driverName : "NA";
 
   return `
   <section class="lr-copy">
@@ -238,17 +236,14 @@ function renderBtLrCopy(
         <td class="lr-bar3-cell">
           <table class="lr-bar3">
             <colgroup>
-              <col class="c-ship" />
               <col class="c-lr" />
               <col class="c-date" />
             </colgroup>
             <tr>
-              <th>SHIPPER</th>
               <th>LR NUMBER</th>
               <th>BOOKING DATE</th>
             </tr>
             <tr>
-              <td>${escapeHtml(shipperBarName)}</td>
               <td class="strong">${escapeHtml(data.lrNumber)}</td>
               <td>${escapeHtml(formatLrBookingDate(data.lrDate))}</td>
             </tr>
@@ -295,8 +290,6 @@ function renderBtLrCopy(
                   </colgroup>
                   <tr><td class="lbl">Vehicle</td><td class="val">${escapeHtml(data.vehicleReg)}</td></tr>
                   <tr><td class="lbl">Vehicle Type</td><td class="val">${escapeHtml(data.vehicleType)}</td></tr>
-                  <tr><td class="lbl">Driver Name</td><td class="val">${escapeHtml(driverDisplay)}</td></tr>
-                  <tr><td class="lbl">Driver Mobile</td><td class="val">${escapeHtml(data.driverPhone)}</td></tr>
                 </table>
               </td>
               ${qrImg ? `<td class="lr-qr-wrap">${qrImg}</td>` : ""}
@@ -467,9 +460,8 @@ export function buildLrHtml(
       line-height: 1.15;
     }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    .lr-bar3 .c-ship { width: 46%; }
-    .lr-bar3 .c-lr { width: 27%; }
-    .lr-bar3 .c-date { width: 27%; }
+    .lr-bar3 .c-lr { width: 50%; }
+    .lr-bar3 .c-date { width: 50%; }
     .lr-bar3 th {
       background: ${LR_NAVY};
       color: #fff;
