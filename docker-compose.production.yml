@@ -63,7 +63,13 @@ services:
     restart: unless-stopped
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_BIDDING_ADMIN_UI_ENABLED: ${NEXT_PUBLIC_BIDDING_ADMIN_UI_ENABLED:-false}
+        NEXT_PUBLIC_BIDDING_PUSHER_KEY: ${NEXT_PUBLIC_BIDDING_PUSHER_KEY:-}
+        NEXT_PUBLIC_BIDDING_PUSHER_CLUSTER: ${NEXT_PUBLIC_BIDDING_PUSHER_CLUSTER:-ap2}
+        NEXT_PUBLIC_BIDDING_SERVICE_URL: ${NEXT_PUBLIC_BIDDING_SERVICE_URL:-}
     ports:
       - "127.0.0.1:3000:3000"
     env_file:
@@ -72,6 +78,7 @@ services:
       REDIS_URL: redis://redis:6379
       HOSTNAME: 0.0.0.0
       CHROME_PATH: /usr/bin/chromium
+      BIDDING_ADMIN_UI_ENABLED: ${BIDDING_ADMIN_UI_ENABLED:-false}
     volumes:
       - tms_uploads:/app/public/uploads
     depends_on:

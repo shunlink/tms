@@ -16,6 +16,7 @@ import { getSessionUser } from "@/lib/auth";
 import { getClientPortalOverview } from "@/lib/queries";
 import { formatINR } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
+import PortalBiddingPromoBanner from "@/components/portal/portal-bidding-promo-banner";
 import PortalPage from "@/components/portal/portal-page";
 
 export const dynamic = "force-dynamic";
@@ -142,6 +143,8 @@ export default async function ClientOverviewPage() {
           </div>
         </div>
       </div>
+
+      <PortalBiddingPromoBanner accent="client" />
 
       {/* =========================================================================
           KPI CARDS (Real Database Metrics Only)

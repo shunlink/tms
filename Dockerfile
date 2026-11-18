@@ -12,6 +12,16 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# NEXT_PUBLIC_* are inlined into the client bundle during `next build`.
+# Hardcoded so a Dockerfile-only paste on the VPS shows Admin → Bidding System
+# (compose ARG defaults to false and would otherwise hide the sidebar).
+ENV NEXT_PUBLIC_BIDDING_ADMIN_UI_ENABLED=true
+ARG NEXT_PUBLIC_BIDDING_PUSHER_KEY=
+ENV NEXT_PUBLIC_BIDDING_PUSHER_KEY=$NEXT_PUBLIC_BIDDING_PUSHER_KEY
+ARG NEXT_PUBLIC_BIDDING_PUSHER_CLUSTER=ap2
+ENV NEXT_PUBLIC_BIDDING_PUSHER_CLUSTER=$NEXT_PUBLIC_BIDDING_PUSHER_CLUSTER
+ARG NEXT_PUBLIC_BIDDING_SERVICE_URL=
+ENV NEXT_PUBLIC_BIDDING_SERVICE_URL=$NEXT_PUBLIC_BIDDING_SERVICE_URL
 # Drop retired sources that may linger on the VPS after overlay deploys (see scripts/deploy-stale-paths.txt).
 RUN rm -f "src/app/(dashboard)/bidding-management/BiddingDashboard.tsx"
 RUN npx prisma generate
